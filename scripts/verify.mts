@@ -1,0 +1,14 @@
+import "dotenv/config";
+import { PrismaClient } from "../src/generated/prisma/client";
+import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+const db = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: process.env.DATABASE_URL ?? "file:./dev.db" }) });
+const jobs = await db.jobCard.findMany();
+const cut = jobs.reduce((a,j)=>a+j.cutQty,0);
+const disp = jobs.reduce((a,j)=>a+j.dispatchedQty,0);
+const now = new Date();
+const overdue = jobs.filter(j=>j.status==="ACTIVE" && j.plannedEtd && j.plannedEtd < now && j.cutQty>j.dispatchedQty).length;
+const active = jobs.filter(j=>j.status==="ACTIVE").length;
+console.log("jobs:", jobs.length, "cut:", cut.toLocaleString(), "dispatched:", disp.toLocaleString(), "fill:", (disp/cut*100).toFixed(1)+"%");
+console.log("active:", active, "closed:", jobs.length-active, "overdue:", overdue);
+console.log("fabrics:", await db.fabric.count(), "styles:", await db.style.count(), "stockMovements:", await db.stockMovement.count());
+await db.$disconnect();

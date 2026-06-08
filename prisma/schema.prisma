@@ -1,0 +1,131 @@
+// Sportsun Factory ERP — schema
+// Garment production tracker derived from the client's CONSOLIDATED STATUS workbook.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum VendorKind {
+  EXTERNAL
+  INHOUSE
+}
+
+enum FabricUnit {
+  KG
+  MTR
+}
+
+enum JobStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum MovementType {
+  ISSUE
+  RECEIPT
+}
+
+model Vendor {
+  id       Int        @id @default(autoincrement())
+  name     String     @unique
+  kind     VendorKind @default(EXTERNAL)
+  jobCards JobCard[]
+}
+
+model CuttingMaster {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique
+  jobCards JobCard[]
+}
+
+model Fabric {
+  id           Int             @id @default(autoincrement())
+  name         String          @unique
+  unit         FabricUnit      @default(MTR)
+  openingStock Float           @default(0)
+  ratePerUnit  Float?
+  styles       Style[]
+  movements    StockMovement[]
+}
+
+model Style {
+  id              Int       @id @default(autoincrement())
+  styleNo         String    @unique
+  sku             String?
+  itemDesc        String
+  mrp             Float?
+  category        String?
+  avgConsumption  Float?
+  unit            FabricUnit @default(MTR)
+  fabric          Fabric?    @relation(fields: [fabricId], references: [id])
+  fabricId        Int?
+  jobCards        JobCard[]
+}
+
+model JobCard {
+  id              Int             @id @default(autoincrement())
+  siNo            String
+  orderDate       DateTime?
+  cutQty          Float           @default(0)
+  dispatchedQty   Float           @default(0)
+  avgConsumption  Float?
+  fabricIssued    Float?
+  fabricConsumed  Float?
+  fabricIssueDate DateTime?
+  cuttingIssuedOn DateTime?
+  plannedEtd      DateTime?
+  status          JobStatus       @default(ACTIVE)
+  remark          String?
+
+  style           Style          @relation(fields: [styleId], references: [id])
+  styleId         Int
+  vendor          Vendor         @relation(fields: [vendorId], references: [id])
+  vendorId        Int
+  cuttingMaster   CuttingMaster? @relation(fields: [cuttingMasterId], references: [id])
+  cuttingMasterId Int?
+
+  dispatches      DispatchEvent[]
+  sizeBreakup     SizeBreakup[]
+  movements       StockMovement[]
+
+  @@index([vendorId])
+  @@index([styleId])
+}
+
+model DispatchEvent {
+  id        Int      @id @default(autoincrement())
+  date      DateTime
+  qty       Float
+  jobCard   JobCard  @relation(fields: [jobCardId], references: [id])
+  jobCardId Int
+
+  @@index([jobCardId])
+}
+
+model SizeBreakup {
+  id        Int     @id @default(autoincrement())
+  size      String
+  qty       Float
+  jobCard   JobCard @relation(fields: [jobCardId], references: [id])
+  jobCardId Int
+
+  @@index([jobCardId])
+}
+
+model StockMovement {
+  id        Int          @id @default(autoincrement())
+  type      MovementType
+  qty       Float
+  date      DateTime
+  fabric    Fabric       @relation(fields: [fabricId], references: [id])
+  fabricId  Int
+  jobCard   JobCard?     @relation(fields: [jobCardId], references: [id])
+  jobCardId Int?
+
+  @@index([fabricId])
+}
