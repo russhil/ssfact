@@ -22,7 +22,7 @@ export function TrendChart({ data }: { data: { label: string; cut: number }[] })
             fontSize: 12,
             boxShadow: "0 8px 24px rgba(20,23,40,.12)",
           }}
-          formatter={(v: number) => [v.toLocaleString("en-US"), "Cut qty"]}
+          formatter={(v) => [Number(v).toLocaleString("en-US"), "Cut qty"]}
         />
         <Bar dataKey="cut" radius={[5, 5, 0, 0]}>
           {data.map((d, i) => (

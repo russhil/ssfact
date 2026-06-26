@@ -3,6 +3,10 @@ import { isOverdue } from "@/lib/queries";
 
 export const siSlug = (si: string) => si.replace(/\s/g, "");
 
+const SIZE_ORDER = ["S", "M", "L", "XL", "2XL", "3XL"];
+
+export type JobScope = { vendorName?: string };
+
 export type JobRow = {
   siNo: string;
   slug: string;
@@ -19,17 +23,18 @@ export type JobRow = {
   orderDate: Date | null;
 };
 
-export async function getJobs(): Promise<JobRow[]> {
+export async function getJobs(scope?: JobScope): Promise<JobRow[]> {
   const jobs = await db.jobCard.findMany({
-    include: { style: true, vendor: true },
+    where: scope?.vendorName ? { vendor: { name: scope.vendorName } } : undefined,
+    include: { product: true, vendor: true },
     orderBy: { id: "asc" },
   });
   const now = new Date();
   return jobs.map((j) => ({
     siNo: j.siNo,
     slug: siSlug(j.siNo),
-    item: j.style.itemDesc,
-    styleNo: j.style.styleNo,
+    item: j.product.itemDesc ?? j.product.name,
+    styleNo: j.product.styleNo ?? j.product.skuCode,
     vendor: j.vendor.name,
     cutQty: j.cutQty,
     dispatchedQty: j.dispatchedQty,
@@ -42,19 +47,24 @@ export async function getJobs(): Promise<JobRow[]> {
   }));
 }
 
-export async function getJob(slug: string) {
+export async function getJob(slug: string, scope?: JobScope) {
   const jobs = await db.jobCard.findMany({
     include: {
-      style: { include: { fabric: true } },
+      product: { include: { fabric: true } },
       vendor: true,
       cuttingMaster: true,
       dispatches: { orderBy: { date: "asc" } },
       sizeBreakup: true,
+      jobLines: { include: { trimItem: true } },
+      returnNotes: true,
     },
   });
   const j = jobs.find((x) => siSlug(x.siNo) === slug);
   if (!j) return null;
-  const sizeOrder = ["S", "M", "L", "XL", "2XL", "3XL"];
-  j.sizeBreakup.sort((a, b) => sizeOrder.indexOf(a.size) - sizeOrder.indexOf(b.size));
+  if (scope?.vendorName && j.vendor.name !== scope.vendorName) return null;
+  j.sizeBreakup.sort(
+    (a, b) =>
+      SIZE_ORDER.indexOf(a.size) - SIZE_ORDER.indexOf(b.size) || a.color.localeCompare(b.color)
+  );
   return j;
 }

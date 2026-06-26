@@ -25,19 +25,19 @@ export default async function DispatchPage() {
   const openJobs = open.map((o) => ({ ...o, id: (idBySi.get(o.siNo) ?? [0])[0] }));
 
   const recent = await db.dispatchEvent.findMany({
-    include: { jobCard: { include: { style: true } } },
+    include: { jobCard: { include: { product: true } } },
     orderBy: { date: "desc" },
     take: 12,
   });
 
   return (
     <div className="p-6">
-      <PageHeader title="Dispatch" subtitle="Log shipments against open job cards — balances and the dashboard update instantly." />
+      <PageHeader title="Receipts" subtitle="Log goods received from vendors against open job cards — balances and the dashboard update instantly. (Market dispatch to dealers is a separate stream in E-manage.)" />
       <div className="grid grid-cols-[1fr_1.3fr] gap-3.5">
         <DispatchForm jobs={openJobs} />
 
         <Card className="overflow-hidden p-0">
-          <div className="border-b border-border px-5 py-3 text-[13px] font-bold">Recent Dispatches</div>
+          <div className="border-b border-border px-5 py-3 text-[13px] font-bold">Recent Receipts</div>
           <table className="w-full text-[12px]">
             <thead>
               <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
@@ -54,7 +54,7 @@ export default async function DispatchPage() {
                   <td className="px-5 py-2.5">
                     <Link href={`/job-cards/${siSlug(e.jobCard.siNo)}`} className="font-bold text-primary-ink hover:underline">{e.jobCard.siNo}</Link>
                   </td>
-                  <td className="px-5 py-2.5 text-slate-500">{e.jobCard.style.itemDesc}</td>
+                  <td className="px-5 py-2.5 text-slate-500">{e.jobCard.product.itemDesc ?? e.jobCard.product.name}</td>
                   <td className="px-5 py-2.5 text-right font-bold text-emerald-600 tnum">+{num(e.qty)}</td>
                 </tr>
               ))}

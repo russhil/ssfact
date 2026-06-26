@@ -4,75 +4,145 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createJobCard } from "@/lib/actions";
-import type { StyleOption } from "@/lib/inventory";
+import type { JobProductOption } from "@/lib/inventory";
+import { STAGES, STAGE_LABEL, splitByRatio, type Stage } from "@/lib/job-labels";
+import { Badge } from "@/components/ui";
 import { num, inr } from "@/lib/format";
 import { Zap, Check, AlertTriangle, ArrowLeft } from "lucide-react";
 
-const SIZE_RATIO: [string, number][] = [
-  ["S", 0.08], ["M", 0.17], ["L", 0.25], ["XL", 0.25], ["2XL", 0.17], ["3XL", 0.08],
-];
+const COLORLESS = "—";
+const cellKey = (size: string, color: string) => `${size}|||${color}`;
+
+type CutMode = "ratio" | "manual";
+type ColorMode = "ratio" | "manual";
 
 export function NewJobCardForm({
-  styles,
+  products,
   vendors,
   masters,
 }: {
-  styles: StyleOption[];
+  products: JobProductOption[];
   vendors: string[];
   masters: string[];
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [picked, setPicked] = useState<StyleOption | null>(null);
+  const [picked, setPicked] = useState<JobProductOption | null>(null);
   const [open, setOpen] = useState(false);
   const [vendor, setVendor] = useState(
     vendors.find((v) => v === "Pebble") ?? vendors.find((v) => v !== "Unassigned") ?? vendors[0] ?? ""
   );
   const [master, setMaster] = useState(masters.find((m) => m.includes("Attri")) ?? masters[0] ?? "");
-  const [cutQty, setCutQty] = useState(1200);
   const [etd, setEtd] = useState("");
+  const [stage, setStage] = useState<Stage>("CUTTING");
   const [saving, setSaving] = useState(false);
 
-  const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    return styles
-      .filter((s) => s.styleNo.toLowerCase().includes(q) || s.itemDesc.toLowerCase().includes(q))
-      .slice(0, 6);
-  }, [query, styles]);
+  // cut sizing
+  const [cutMode, setCutMode] = useState<CutMode>("ratio");
+  const [cutQtyInput, setCutQtyInput] = useState(1200);
+  const [sizeRatio, setSizeRatio] = useState<[string, number][]>([]); // editable, from product
+  const [manualSizeQty, setManualSizeQty] = useState<Record<string, number>>({});
 
+  // color split
+  const [colorMode, setColorMode] = useState<ColorMode>("ratio");
+  const [activeColors, setActiveColors] = useState<string[]>([]);
+  const [manualCell, setManualCell] = useState<Record<string, number>>({});
+
+  const sizes = useMemo(() => sizeRatio.map(([s]) => s), [sizeRatio]);
+  const colors = picked?.colors ?? [];
+  const hasColors = colors.length > 0 && activeColors.length > 0;
+
+  // per-size totals
+  const sizeQty = useMemo<Record<string, number>>(() => {
+    if (cutMode === "manual") {
+      const out: Record<string, number> = {};
+      for (const s of sizes) out[s] = Math.max(0, Math.round(manualSizeQty[s] ?? 0));
+      return out;
+    }
+    const split = splitByRatio(cutQtyInput, sizeRatio);
+    const out: Record<string, number> = {};
+    for (const s of sizes) out[s] = split.get(s) ?? 0;
+    return out;
+  }, [cutMode, manualSizeQty, cutQtyInput, sizeRatio, sizes]);
+
+  // matrix = single source of truth {size,color,qty}[]
+  const matrix = useMemo(() => {
+    const rows: { size: string; color: string; qty: number }[] = [];
+    if (!hasColors) {
+      for (const s of sizes) rows.push({ size: s, color: "", qty: sizeQty[s] ?? 0 });
+      return rows;
+    }
+    const ratio = (picked?.colorRatio ?? []).filter(([c]) => activeColors.includes(c));
+    const ratioForSplit: [string, number][] =
+      ratio.length > 0 ? ratio : activeColors.map((c) => [c, 1] as [string, number]);
+    for (const s of sizes) {
+      if (colorMode === "manual") {
+        for (const c of activeColors) rows.push({ size: s, color: c, qty: Math.max(0, Math.round(manualCell[cellKey(s, c)] ?? 0)) });
+      } else {
+        const split = splitByRatio(sizeQty[s] ?? 0, ratioForSplit);
+        for (const c of activeColors) rows.push({ size: s, color: c, qty: split.get(c) ?? 0 });
+      }
+    }
+    return rows;
+  }, [hasColors, sizes, sizeQty, picked, activeColors, colorMode, manualCell]);
+
+  const cutQty = matrix.reduce((a, m) => a + m.qty, 0);
+  const matrixByCell = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of matrix) m.set(cellKey(r.size, r.color || COLORLESS), r.qty);
+    return m;
+  }, [matrix]);
+  const colTotals = useMemo(() => {
+    const t: Record<string, number> = {};
+    for (const s of sizes) t[s] = 0;
+    for (const r of matrix) t[r.size] = (t[r.size] ?? 0) + r.qty;
+    return t;
+  }, [matrix, sizes]);
+
+  // fabric estimate
   const required = picked?.avgConsumption ? cutQty * picked.avgConsumption : null;
   const available = picked?.fabricAvailable ?? null;
   const enough = required != null && available != null ? available >= required : null;
   const leftover = required != null && available != null ? available - required : null;
   const usedAfter = required != null && available != null && available > 0 ? required / available : null;
 
-  const sizes = SIZE_RATIO.map(([sz, r], i) => {
-    const q = i < SIZE_RATIO.length - 1 ? Math.round(cutQty * r) : null;
-    return { sz, q };
-  });
-  let run = 0;
-  const sizeRow = sizes.map((s, i) => {
-    const q = s.q ?? cutQty - run;
-    run += s.q ?? 0;
-    return { sz: s.sz, q };
-  });
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return products
+      .filter(
+        (p) =>
+          p.sku.toLowerCase().includes(q) ||
+          p.itemDesc.toLowerCase().includes(q) ||
+          p.styleNo.toLowerCase().includes(q)
+      )
+      .slice(0, 6);
+  }, [query, products]);
 
-  function pick(s: StyleOption) {
-    setPicked(s);
-    setQuery(s.styleNo);
+  function pick(p: JobProductOption) {
+    setPicked(p);
+    setQuery(p.styleNo);
     setOpen(false);
+    setSizeRatio(p.sizeRatio);
+    setManualSizeQty({});
+    setManualCell({});
+    setActiveColors(p.colors.map((c) => c.name)); // default: all colors in play
+  }
+
+  function toggleColor(name: string) {
+    setActiveColors((prev) => (prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]));
   }
 
   async function save() {
-    if (!picked) return;
+    if (!picked || cutQty <= 0) return;
     setSaving(true);
     try {
       const { slug } = await createJobCard({
-        styleId: picked.id,
+        productId: picked.id,
         vendorName: vendor,
         cuttingMaster: master,
-        cutQty,
+        matrix: matrix.filter((m) => m.qty > 0),
+        stage,
         plannedEtd: etd || undefined,
       });
       router.push(`/job-cards/${slug}`);
@@ -95,7 +165,7 @@ export function NewJobCardForm({
         </div>
         <button
           onClick={save}
-          disabled={!picked || saving}
+          disabled={!picked || cutQty <= 0 || saving}
           className="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:opacity-40"
         >
           {saving ? "Saving…" : "Save Job Card"}
@@ -107,10 +177,10 @@ export function NewJobCardForm({
         <div className="rounded-card border border-border bg-surface p-5">
           <h3 className="mb-4 text-[11px] font-bold uppercase tracking-wide text-muted">Order details</h3>
 
-          {/* style autocomplete */}
+          {/* product autocomplete */}
           <div className="relative mb-3.5">
             <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">
-              Style No <span className="text-primary">— start typing, we find it</span>
+              Product <span className="text-primary">— start typing SKU, style or item</span>
             </label>
             <input
               value={query}
@@ -169,33 +239,204 @@ export function NewJobCardForm({
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Cut Qty (pcs)</label>
-              <input type="number" value={cutQty} onChange={(e) => setCutQty(Math.max(0, +e.target.value))} className="w-full rounded-lg border border-border px-3 py-2.5 text-[13px] font-semibold outline-none focus:border-primary" />
-            </div>
-            <div>
               <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Planned ETD</label>
               <input type="date" value={etd} onChange={(e) => setEtd(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2.5 text-[13px] outline-none focus:border-primary" />
             </div>
-          </div>
-
-          {/* size preview */}
-          <div className="mt-3.5">
-            <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">
-              Size Ratio · Total <span className="font-bold text-primary-ink">{num(cutQty)} pcs</span>
-            </label>
-            <div className="grid grid-cols-7 gap-1.5 text-center">
-              {sizeRow.map((s) => (
-                <div key={s.sz}>
-                  <div className="text-[10px] font-bold text-faint">{s.sz}</div>
-                  <div className="mt-1 rounded-md border border-border bg-slate-50 py-1.5 text-[12px] font-bold tnum">{num(s.q)}</div>
-                </div>
-              ))}
-              <div>
-                <div className="text-[10px] font-bold text-primary-ink">Total</div>
-                <div className="mt-1 rounded-md bg-primary-soft py-1.5 text-[12px] font-bold text-primary-ink tnum">{num(cutQty)}</div>
+            <div>
+              <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Stage</label>
+              <div className="flex rounded-lg border border-border p-0.5">
+                {STAGES.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setStage(s)}
+                    className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold transition ${
+                      stage === s ? "bg-primary text-white shadow-sm" : "text-slate-500 hover:text-ink"
+                    }`}
+                  >
+                    {STAGE_LABEL[s]}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
+
+          {picked && (
+            <>
+              {/* cut sizing */}
+              <div className="mt-4 flex items-center justify-between">
+                <label className="text-[11px] font-semibold text-slate-600">
+                  Cut sizing · Total <span className="font-bold text-primary-ink">{num(cutQty)} pcs</span>
+                </label>
+                <Toggle value={cutMode} onChange={setCutMode} options={[["ratio", "By ratio"], ["manual", "Manual"]]} />
+              </div>
+
+              {cutMode === "ratio" && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-[11px] font-semibold text-slate-600">Cut Qty</span>
+                  <input
+                    type="number"
+                    value={cutQtyInput}
+                    onChange={(e) => setCutQtyInput(Math.max(0, +e.target.value))}
+                    className="w-28 rounded-lg border border-border px-3 py-2 text-[13px] font-semibold outline-none focus:border-primary"
+                  />
+                  {sizeRatio.length <= 2 && sizeRatio.length > 0 && (
+                    <span className="text-[10px] text-faint">edit per-size ratio below</span>
+                  )}
+                </div>
+              )}
+
+              {/* per-size split / inputs */}
+              <div className="mt-3 grid gap-1.5 text-center" style={{ gridTemplateColumns: `repeat(${sizes.length + 1}, minmax(0, 1fr))` }}>
+                {sizes.map((s, i) => (
+                  <div key={s}>
+                    <div className="text-[10px] font-bold text-faint">{s}</div>
+                    {cutMode === "manual" ? (
+                      <input
+                        type="number"
+                        value={manualSizeQty[s] ?? 0}
+                        onChange={(e) => setManualSizeQty((p) => ({ ...p, [s]: Math.max(0, +e.target.value) }))}
+                        className="mt-1 w-full rounded-md border border-border bg-slate-50 py-1.5 text-center text-[12px] font-bold tnum outline-none focus:border-primary"
+                      />
+                    ) : sizeRatio.length <= 2 ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={sizeRatio[i]?.[1] ?? 0}
+                        onChange={(e) =>
+                          setSizeRatio((prev) => prev.map((row, idx) => (idx === i ? [row[0], Math.max(0, +e.target.value)] : row)))
+                        }
+                        className="mt-1 w-full rounded-md border border-border bg-slate-50 py-1.5 text-center text-[12px] font-bold tnum outline-none focus:border-primary"
+                      />
+                    ) : (
+                      <div className="mt-1 rounded-md border border-border bg-slate-50 py-1.5 text-[12px] font-bold tnum">{num(sizeQty[s] ?? 0)}</div>
+                    )}
+                  </div>
+                ))}
+                <div>
+                  <div className="text-[10px] font-bold text-primary-ink">Total</div>
+                  <div className="mt-1 rounded-md bg-primary-soft py-1.5 text-[12px] font-bold text-primary-ink tnum">{num(cutQty)}</div>
+                </div>
+              </div>
+
+              {/* colors */}
+              {colors.length > 0 && (
+                <>
+                  <div className="mt-4 flex items-center justify-between">
+                    <label className="text-[11px] font-semibold text-slate-600">Colours</label>
+                    <Toggle value={colorMode} onChange={setColorMode} options={[["ratio", "By ratio"], ["manual", "Manual grid"]]} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {colors.map((c) => {
+                      const on = activeColors.includes(c.name);
+                      return (
+                        <button
+                          key={c.name}
+                          type="button"
+                          onClick={() => toggleColor(c.name)}
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
+                            on ? "border-primary bg-primary-soft text-primary-ink" : "border-border text-slate-500 hover:text-ink"
+                          }`}
+                        >
+                          {c.hex && <span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ background: c.hex }} />}
+                          {c.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* size×color matrix */}
+                  {hasColors && (
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="w-full text-center text-[12px]">
+                        <thead>
+                          <tr className="text-[10px] font-bold text-faint">
+                            <th className="px-2 py-1 text-left">Colour \ Size</th>
+                            {sizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
+                            <th className="px-2 py-1 text-primary-ink">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activeColors.map((c) => {
+                            const rowTotal = sizes.reduce((a, s) => a + (matrixByCell.get(cellKey(s, c)) ?? 0), 0);
+                            return (
+                              <tr key={c}>
+                                <td className="px-2 py-1 text-left font-semibold text-slate-600">{c}</td>
+                                {sizes.map((s) => (
+                                  <td key={s} className="px-1 py-1">
+                                    {colorMode === "manual" ? (
+                                      <input
+                                        type="number"
+                                        value={manualCell[cellKey(s, c)] ?? 0}
+                                        onChange={(e) => setManualCell((p) => ({ ...p, [cellKey(s, c)]: Math.max(0, +e.target.value) }))}
+                                        className="w-full min-w-[44px] rounded-md border border-border bg-slate-50 py-1 text-center text-[11px] font-bold tnum outline-none focus:border-primary"
+                                      />
+                                    ) : (
+                                      <div className="rounded-md bg-slate-50 py-1 text-[11px] font-bold tnum">{num(matrixByCell.get(cellKey(s, c)) ?? 0)}</div>
+                                    )}
+                                  </td>
+                                ))}
+                                <td className="px-2 py-1 font-bold text-primary-ink tnum">{num(rowTotal)}</td>
+                              </tr>
+                            );
+                          })}
+                          <tr className="border-t border-border">
+                            <td className="px-2 py-1 text-left text-[10px] font-bold text-primary-ink">Total</td>
+                            {sizes.map((s) => <td key={s} className="px-2 py-1 font-bold tnum">{num(colTotals[s] ?? 0)}</td>)}
+                            <td className="px-2 py-1 font-extrabold text-primary-ink tnum">{num(cutQty)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* BOM panel */}
+              {picked.bom.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted">Bill of materials · ×{num(cutQty)} pcs</h4>
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <table className="w-full text-[12px]">
+                      <thead>
+                        <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
+                          <th className="px-3 py-2 font-semibold">Material</th>
+                          <th className="px-3 py-2 font-semibold">Colour</th>
+                          <th className="px-3 py-2 text-right font-semibold">Per pc</th>
+                          <th className="px-3 py-2 text-right font-semibold">Total</th>
+                          <th className="px-3 py-2 text-right font-semibold">In store</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {picked.bom.map((l, i) => {
+                          const total = (l.perPieceQty ?? 0) * cutQty;
+                          const short = l.trimCurrent != null && total > l.trimCurrent;
+                          return (
+                            <tr key={i} className="border-b border-slate-50 last:border-0">
+                              <td className="px-3 py-1.5 font-medium">{l.material}</td>
+                              <td className="px-3 py-1.5 text-slate-500">{l.color ?? "—"}</td>
+                              <td className="px-3 py-1.5 text-right tnum text-slate-500">{l.perPieceQty != null ? num(l.perPieceQty, 2) : "—"}</td>
+                              <td className={`px-3 py-1.5 text-right font-bold tnum ${short ? "text-danger" : ""}`}>{l.perPieceQty != null ? num(total) : "—"}</td>
+                              <td className="px-3 py-1.5 text-right">
+                                {l.trimCurrent != null ? (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <span className={`tnum font-semibold ${short ? "text-danger" : ""}`}>{num(l.trimCurrent)}</span>
+                                    {short && <Badge tone="danger">Short</Badge>}
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] text-faint">not tracked</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* live calc panel */}
@@ -205,7 +446,7 @@ export function NewJobCardForm({
           {!picked ? (
             <div className="flex h-56 flex-col items-center justify-center text-center text-[12px] text-indigo-300/70">
               <Zap size={22} className="mb-2 opacity-60" />
-              Pick a style — we&apos;ll pull its average and check live stock for you.
+              Pick a product — we&apos;ll pull its average and check live stock for you.
             </div>
           ) : (
             <>
@@ -258,10 +499,38 @@ export function NewJobCardForm({
       <div className="mt-3.5 flex items-center gap-3 rounded-card border border-emerald-200 bg-ok-soft px-4 py-3 text-[12.5px] text-emerald-800">
         <Zap size={18} className="shrink-0 text-emerald-600" />
         <span>
-          In the Excel, this job card meant retyping style, item, MRP, fabric &amp; average across <b>4 different sheets</b> by hand.
-          Here you typed a few characters — and stock auto-checked <b>before</b> you committed a single metre.
+          In the Excel, this job card meant retyping style, item, MRP, fabric &amp; average across <b>4 different sheets</b> by hand —
+          and trims were tallied separately. Here you typed a few characters, the size×colour grid and BOM filled themselves,
+          and fabric &amp; trim stock auto-checked <b>before</b> you committed a single metre.
         </span>
       </div>
+    </div>
+  );
+}
+
+function Toggle<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: [T, string][];
+}) {
+  return (
+    <div className="flex rounded-lg border border-border p-0.5">
+      {options.map(([v, label]) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => onChange(v)}
+          className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
+            value === v ? "bg-primary text-white shadow-sm" : "text-slate-500 hover:text-ink"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   );
 }

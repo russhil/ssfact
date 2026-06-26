@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/sidebar";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 
@@ -15,12 +14,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${inter.variable} h-full`}>
-      <body className="min-h-full">
-        <div className="grid min-h-screen grid-cols-[208px_1fr]">
-          <Sidebar />
-          <main className="min-w-0">{children}</main>
-        </div>
-      </body>
+      <body className="min-h-full">{children}</body>
     </html>
   );
 }

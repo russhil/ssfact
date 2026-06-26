@@ -12,7 +12,7 @@ export const isOverdue = (j: JobLike, now = new Date()) =>
 
 export async function getDashboard() {
   const jobs = await db.jobCard.findMany({
-    include: { vendor: true, style: true },
+    include: { vendor: true, product: true },
     orderBy: { orderDate: "asc" },
   });
   const now = new Date();
@@ -42,7 +42,7 @@ export async function getDashboard() {
   const overdue = overdueJobs
     .map((j) => ({
       siNo: j.siNo,
-      item: j.style.itemDesc,
+      item: j.product.itemDesc ?? j.product.name,
       daysLate: Math.round((now.getTime() - j.plannedEtd!.getTime()) / 86_400_000),
     }))
     .sort((a, b) => b.daysLate - a.daysLate)

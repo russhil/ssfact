@@ -1,0 +1,37 @@
+import { getProducts, getCatalogSummary } from "@/lib/catalog";
+import { CatalogTable } from "@/components/catalog-table";
+import { Card, PageHeader } from "@/components/ui";
+import { num } from "@/lib/format";
+
+export const dynamic = "force-dynamic";
+
+export default async function CatalogPage() {
+  const [rows, summary] = await Promise.all([getProducts(), getCatalogSummary()]);
+
+  const kpis: [string, string | number, string?][] = [
+    ["Total SKUs", num(summary.total)],
+    ["Active", num(summary.active)],
+    ["With BOM", num(summary.withBom)],
+    ["In Production", num(summary.inProduction)],
+  ];
+
+  return (
+    <div className="p-6">
+      <PageHeader
+        title="Catalog — Product Master"
+        subtitle="The full commercial range, from the product master. Pricing, lifecycle status, and live production at a glance."
+      />
+
+      <div className="mb-4 grid grid-cols-4 gap-3.5">
+        {kpis.map(([label, value]) => (
+          <Card key={label} className="p-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</div>
+            <div className="mt-1.5 text-[22px] font-extrabold tnum">{value}</div>
+          </Card>
+        ))}
+      </div>
+
+      <CatalogTable rows={rows} categories={summary.byCategory.map((c) => c.name)} />
+    </div>
+  );
+}

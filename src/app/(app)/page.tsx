@@ -13,8 +13,8 @@ export default async function DashboardPage() {
 
   const cards = [
     { label: "Total Cut", value: kpis.totalCut, foot: `${kpis.totalJobs} job cards`, tone: "ink" },
-    { label: "Dispatched", value: kpis.totalDispatched, foot: `${pct(kpis.fillRate, 1)} fill rate`, tone: "ink" },
-    { label: "Balance to Dispatch", value: kpis.balance, foot: `across ${kpis.activeJobs} active jobs`, tone: "ink" },
+    { label: "Received", value: kpis.totalDispatched, foot: `${pct(kpis.fillRate, 1)} fill rate`, tone: "ink" },
+    { label: "Balance to Receive", value: kpis.balance, foot: `across ${kpis.activeJobs} active jobs`, tone: "ink" },
     { label: "Overdue Jobs", value: kpis.overdue, foot: "ETD passed · needs action", tone: "danger" },
   ] as const;
 
@@ -22,7 +22,7 @@ export default async function DashboardPage() {
     <div className="p-6">
       <PageHeader
         title="Production Dashboard"
-        subtitle={`Live from ${kpis.totalJobs} job cards · updated just now`}
+        subtitle={`Live from ${kpis.totalJobs} job cards · "Received" = stitched goods back in the warehouse (market dispatch to dealers is tracked separately in E-manage)`}
         actions={
           <Link
             href="/job-cards/new"
@@ -50,7 +50,7 @@ export default async function DashboardPage() {
       <div className="mt-3.5 grid grid-cols-[1.4fr_1fr] gap-3.5">
         <Card className="p-5">
           <h3 className="mb-4 text-[13px] font-bold">
-            Vendor Dispatch Progress <span className="font-medium text-faint">· active jobs</span>
+            Vendor Receipt Progress <span className="font-medium text-faint">· active jobs</span>
           </h3>
           <div className="space-y-3">
             {vendors.map((v) => {
@@ -95,7 +95,7 @@ export default async function DashboardPage() {
       {/* trend */}
       <Card className="mt-3.5 p-5">
         <h3 className="mb-1 flex items-center gap-2 text-[13px] font-bold">
-          Weekly Dispatch Trend <span className="font-medium text-faint">· cut qty by order week</span>
+          Weekly Production Trend <span className="font-medium text-faint">· cut qty by order week</span>
           <ArrowUpRight size={14} className="text-emerald-500" />
         </h3>
         <TrendChart data={trend} />

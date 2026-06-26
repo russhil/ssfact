@@ -81,7 +81,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
               <th className="px-4 py-2.5 font-semibold">Item</th>
               <th className="px-4 py-2.5 font-semibold">Vendor</th>
               <th className="px-4 py-2.5 text-right font-semibold">Cut</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Disp.</th>
+              <th className="px-4 py-2.5 text-right font-semibold">Recd.</th>
               <th className="px-4 py-2.5 font-semibold">Fill</th>
               <th className="px-4 py-2.5 font-semibold">ETD</th>
               <th className="px-4 py-2.5 font-semibold">Status</th>

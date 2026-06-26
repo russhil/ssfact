@@ -42,7 +42,7 @@ export function DispatchForm({ jobs }: { jobs: DispatchJob[] }) {
   return (
     <div className="rounded-card border border-border bg-surface p-5">
       <h3 className="mb-4 flex items-center gap-2 text-[13px] font-bold">
-        <Truck size={15} className="text-primary" /> Log a Dispatch
+        <Truck size={15} className="text-primary" /> Log a Receipt
       </h3>
 
       <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Job Card</label>
@@ -72,9 +72,9 @@ export function DispatchForm({ jobs }: { jobs: DispatchJob[] }) {
       {job && (
         <>
           <div className="mb-3 rounded-lg bg-primary-soft px-3 py-2 text-[12px] text-primary-ink">
-            Balance to dispatch: <b className="tnum">{num(job.balance)}</b> pcs
+            Balance to receive: <b className="tnum">{num(job.balance)}</b> pcs
           </div>
-          <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Dispatch Qty</label>
+          <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Received Qty</label>
           <input
             type="number"
             value={qty}
@@ -89,7 +89,7 @@ export function DispatchForm({ jobs }: { jobs: DispatchJob[] }) {
         disabled={!job || qty <= 0 || saving}
         className="w-full rounded-lg bg-primary px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:opacity-40"
       >
-        {saving ? "Logging…" : "Log Dispatch"}
+        {saving ? "Logging…" : "Log Receipt"}
       </button>
 
       {done && (

@@ -43,7 +43,7 @@ export default async function VendorsPage() {
             <Bar value={v.fill} tone={v.fill < 0.65 ? "warn" : "primary"} />
             <div className="mt-3 flex justify-between text-[11px] text-muted">
               <span>Cut <b className="text-ink tnum">{num(v.cut)}</b></span>
-              <span>Dispatched <b className="text-ink tnum">{num(v.disp)}</b></span>
+              <span>Received <b className="text-ink tnum">{num(v.disp)}</b></span>
               <span>Balance <b className="text-ink tnum">{num(v.cut - v.disp)}</b></span>
             </div>
           </Card>

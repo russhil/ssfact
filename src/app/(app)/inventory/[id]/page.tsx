@@ -71,7 +71,7 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
                     "—"
                   )}
                 </td>
-                <td className="px-5 py-2.5 text-slate-500">{m.jobCard?.style.itemDesc ?? "—"}</td>
+                <td className="px-5 py-2.5 text-slate-500">{m.jobCard ? m.jobCard.product.itemDesc ?? m.jobCard.product.name : "—"}</td>
                 <td className={`px-5 py-2.5 text-right font-bold tnum ${m.type === "ISSUE" ? "text-danger" : "text-emerald-600"}`}>
                   {m.type === "ISSUE" ? "−" : "+"}
                   {num(m.qty)}

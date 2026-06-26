@@ -1,5 +1,6 @@
 // Sportsun Factory ERP — schema
-// Garment production tracker derived from the client's CONSOLIDATED STATUS workbook.
+// Product is the single master (Catalog + Style merged). Style is retained but
+// deprecated (seed-time read-model only); the /styles route is retired.
 
 generator client {
   provider = "prisma-client"
@@ -25,9 +26,37 @@ enum JobStatus {
   CLOSED
 }
 
+// "Overdue" is derived (isOverdue from plannedEtd), not stored.
+enum JobStage {
+  CUTTING
+  STITCHING
+  DISPATCH
+}
+
 enum MovementType {
   ISSUE
   RECEIPT
+}
+
+enum Role {
+  ADMIN
+  STAFF
+  VENDOR
+  TRIMS // column/scope-limited persona (e.g. Satya — trims only)
+}
+
+enum ProductStatus {
+  ACTIVE
+  NEW_ARTICLE
+  FUTURE_PLAN
+  DISCONTINUED
+  IN_PROCESS
+}
+
+enum ProductionStatus {
+  ORDER_GIVEN
+  IN_PRODUCTION
+  COMPLETED
 }
 
 model Vendor {
@@ -50,57 +79,75 @@ model Fabric {
   openingStock Float           @default(0)
   ratePerUnit  Float?
   styles       Style[]
+  products     Product[]
   movements    StockMovement[]
+  returnNotes  ReturnNote[]
 }
 
+/// @deprecated — production styles are merged into Product (the single master).
+/// Kept as a seed-time read-model; the /styles route redirects to /catalog.
 model Style {
-  id              Int       @id @default(autoincrement())
-  styleNo         String    @unique
-  sku             String?
-  itemDesc        String
-  mrp             Float?
-  category        String?
-  avgConsumption  Float?
-  unit            FabricUnit @default(MTR)
-  fabric          Fabric?    @relation(fields: [fabricId], references: [id])
-  fabricId        Int?
-  jobCards        JobCard[]
+  id             Int        @id @default(autoincrement())
+  styleNo        String     @unique
+  sku            String?
+  itemDesc       String
+  mrp            Float?
+  category       String?
+  avgConsumption Float?
+  unit           FabricUnit @default(MTR)
+  fabric         Fabric?    @relation(fields: [fabricId], references: [id])
+  fabricId       Int?
 }
 
 model JobCard {
-  id              Int             @id @default(autoincrement())
-  siNo            String
-  orderDate       DateTime?
-  cutQty          Float           @default(0)
-  dispatchedQty   Float           @default(0)
-  avgConsumption  Float?
-  fabricIssued    Float?
-  fabricConsumed  Float?
+  id            Int       @id @default(autoincrement())
+  siNo          String
+  orderDate     DateTime?
+  cutQty        Float     @default(0)
+  dispatchedQty Float     @default(0)
+
+  // estimate (auto snapshot from product at create)
+  estAvg           Float?
+  estFabric        Float?
+  // actual (entered later by staff)
+  actualAvg        Float?
+  fabricDispatched Float?
+  fabricUsed       Float?
+  // legacy (historical seed data)
+  avgConsumption   Float?
+  fabricIssued     Float?
+  fabricConsumed   Float?
+
   fabricIssueDate DateTime?
   cuttingIssuedOn DateTime?
   plannedEtd      DateTime?
-  status          JobStatus       @default(ACTIVE)
+  status          JobStatus @default(ACTIVE)
+  stage           JobStage  @default(CUTTING)
   remark          String?
 
-  style           Style          @relation(fields: [styleId], references: [id])
-  styleId         Int
+  product         Product        @relation(fields: [productId], references: [id])
+  productId       Int
   vendor          Vendor         @relation(fields: [vendorId], references: [id])
   vendorId        Int
   cuttingMaster   CuttingMaster? @relation(fields: [cuttingMasterId], references: [id])
   cuttingMasterId Int?
 
-  dispatches      DispatchEvent[]
-  sizeBreakup     SizeBreakup[]
-  movements       StockMovement[]
+  dispatches  DispatchEvent[]
+  sizeBreakup SizeBreakup[]
+  jobLines    JobBomLine[]
+  returnNotes ReturnNote[]
+  movements   StockMovement[]
 
   @@index([vendorId])
-  @@index([styleId])
+  @@index([productId])
 }
 
 model DispatchEvent {
   id        Int      @id @default(autoincrement())
   date      DateTime
   qty       Float
+  challan   String?
+  note      String?
   jobCard   JobCard  @relation(fields: [jobCardId], references: [id])
   jobCardId Int
 
@@ -110,6 +157,7 @@ model DispatchEvent {
 model SizeBreakup {
   id        Int     @id @default(autoincrement())
   size      String
+  color     String  @default("") // size×color matrix; "" = colorless/legacy row
   qty       Float
   jobCard   JobCard @relation(fields: [jobCardId], references: [id])
   jobCardId Int
@@ -117,15 +165,180 @@ model SizeBreakup {
   @@index([jobCardId])
 }
 
+// Frozen BOM snapshot of what a job card actually consumed (immutable even if the
+// product BOM later changes). Drives real-time trim depletion at job creation.
+model JobBomLine {
+  id          Int       @id @default(autoincrement())
+  material    String
+  color       String?
+  perPieceQty Float?
+  totalQty    Float? // perPieceQty × cutQty — the amount decremented
+  trimItem    TrimItem? @relation(fields: [trimItemId], references: [id])
+  trimItemId  Int?
+  jobCard     JobCard   @relation(fields: [jobCardId], references: [id])
+  jobCardId   Int
+
+  @@index([jobCardId])
+  @@index([trimItemId])
+}
+
+// Auto-generated when actual fabric dispatched > used. The stock add-back is a
+// StockMovement RECEIPT; this is the human-facing return artifact.
+model ReturnNote {
+  id        Int      @id @default(autoincrement())
+  qty       Float
+  date      DateTime @default(now())
+  note      String?
+  fabric    Fabric   @relation(fields: [fabricId], references: [id])
+  fabricId  Int
+  jobCard   JobCard  @relation(fields: [jobCardId], references: [id])
+  jobCardId Int
+
+  @@index([jobCardId])
+  @@index([fabricId])
+}
+
 model StockMovement {
   id        Int          @id @default(autoincrement())
   type      MovementType
   qty       Float
   date      DateTime
+  note      String?
   fabric    Fabric       @relation(fields: [fabricId], references: [id])
   fabricId  Int
   jobCard   JobCard?     @relation(fields: [jobCardId], references: [id])
   jobCardId Int?
 
   @@index([fabricId])
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  displayName  String
+  role         Role     @default(STAFF)
+  vendorName   String? // for VENDOR role: matches Vendor.name verbatim
+  createdAt    DateTime @default(now())
+
+  @@index([role])
+}
+
+// ── Product = the single master (commercial catalog + production spec) ──
+model Product {
+  id           Int           @id @default(autoincrement())
+  extId        String        @unique
+  skuCode      String
+  normSku      String
+  styleNo      String?
+  name         String
+  itemDesc     String? // workbook item description (for job autofill + list "item")
+  headCategory String?
+  mrp          Float?
+  customWsRate Float?
+  status       ProductStatus @default(ACTIVE)
+  styleGroup   String?
+  bomCode      String?
+
+  // production-master fields (merged from Style)
+  avgConsumption Float?
+  unit           FabricUnit @default(MTR)
+  fabric         Fabric?    @relation(fields: [fabricId], references: [id])
+  fabricId       Int?
+  imageUrl       String?
+  sizeRatioJson  String? // JSON [["S",0.08],...] — per-product configurable size ratio
+  colorRatioJson String? // JSON [["RED",0.5],...] — default color split
+
+  colors           ProductColor[]
+  jobCards         JobCard[]
+  boms             Bom[]
+  productionOrders ProductionOrder[]
+
+  @@index([headCategory])
+  @@index([normSku])
+  @@index([fabricId])
+}
+
+model ProductColor {
+  id        Int     @id @default(autoincrement())
+  name      String
+  hex       String?
+  sortOrder Int?
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId Int
+
+  @@unique([productId, name])
+  @@index([productId])
+}
+
+model Bom {
+  id        Int       @id @default(autoincrement())
+  code      String
+  styleName String
+  product   Product?  @relation(fields: [productId], references: [id])
+  productId Int?
+  lines     BomLine[]
+
+  @@index([productId])
+}
+
+model BomLine {
+  id         Int       @id @default(autoincrement())
+  sNo        Int?
+  material   String
+  color      String?
+  qty        Float?
+  avg        String?
+  bom        Bom       @relation(fields: [bomId], references: [id])
+  bomId      Int
+  trimItem   TrimItem? @relation(fields: [trimItemId], references: [id])
+  trimItemId Int?
+
+  @@index([bomId])
+  @@index([trimItemId])
+}
+
+model TrimItem {
+  id           Int            @id @default(autoincrement())
+  sno          String?
+  name         String         @unique
+  normName     String
+  family       String?
+  openingStock Float          @default(0)
+  currentStock Float          @default(0) // authoritative snapshot
+  movements    TrimMovement[]
+  bomLines     BomLine[]
+  jobLines     JobBomLine[]
+
+  @@index([normName])
+  @@index([family])
+}
+
+model TrimMovement {
+  id         Int          @id @default(autoincrement())
+  type       MovementType
+  qty        Float
+  date       DateTime?
+  invoice    String?
+  rate       Float?
+  vendor     String?
+  trimItem   TrimItem     @relation(fields: [trimItemId], references: [id])
+  trimItemId Int
+
+  @@index([trimItemId])
+}
+
+model ProductionOrder {
+  id             Int              @id @default(autoincrement())
+  orderNo        String           @unique
+  product        Product          @relation(fields: [productId], references: [id])
+  productId      Int
+  orderDate      DateTime?
+  targetQty      Float
+  avgMonthlySale Float?
+  status         ProductionStatus @default(ORDER_GIVEN)
+  urgency        String?
+  remarks        String?
+
+  @@index([productId])
 }
