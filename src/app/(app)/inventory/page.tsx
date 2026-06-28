@@ -60,6 +60,28 @@ export default async function InventoryPage() {
                       {s.name}
                     </Link>
                     <span className="ml-1.5 text-[10px] text-faint">{s.unit}</span>
+                    {s.colors.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {s.colors.slice(0, 10).map((c) => (
+                          <span
+                            key={c.id}
+                            title={`${c.color}: ${num(c.current)} ${s.unit}`}
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold tnum ${
+                              c.status === "Indent"
+                                ? "bg-rose-50 text-rose-600"
+                                : c.status === "Low"
+                                  ? "bg-amber-50 text-amber-600"
+                                  : "bg-slate-100 text-slate-500"
+                            }`}
+                          >
+                            {c.color} {num(c.current)}
+                          </span>
+                        ))}
+                        {s.colors.length > 10 && (
+                          <span className="self-center text-[10px] text-faint">+{s.colors.length - 10} more</span>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-right text-slate-500 tnum">{num(s.opening)}</td>
                   <td className="px-4 py-2.5 text-right text-slate-500 tnum">{num(s.issued)}</td>

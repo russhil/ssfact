@@ -21,6 +21,12 @@ enum FabricUnit {
   MTR
 }
 
+// Knitted fabric is held either OPEN (flat) or TUBE (circular). Master default.
+enum FabricForm {
+  OPEN
+  TUBE
+}
+
 enum JobStatus {
   ACTIVE
   CLOSED
@@ -77,11 +83,43 @@ model Fabric {
   name         String          @unique
   unit         FabricUnit      @default(MTR)
   openingStock Float           @default(0)
-  ratePerUnit  Float?
-  styles       Style[]
-  products     Product[]
-  movements    StockMovement[]
-  returnNotes  ReturnNote[]
+  ratePerUnit  Float? // estimated price per unit (KG/MTR)
+  // master presets — defaults applied at point of use (lay/job card), overridable
+  gsm          Float?
+  rollWidth    Float?
+  form         FabricForm?
+  styles         Style[]
+  products       Product[]
+  colors         FabricColor[]
+  suppliers      FabricSupplier[]
+  movements      StockMovement[]
+  returnNotes    ReturnNote[]
+  jobFabricLines JobFabricLine[]
+}
+
+// Stock is held per colour under each fabric (factory holds finished, dyed fabric
+// per colour). currentStock is the authoritative snapshot (mirrors TrimItem.currentStock).
+model FabricColor {
+  id           Int    @id @default(autoincrement())
+  color        String
+  openingStock Float  @default(0)
+  currentStock Float  @default(0)
+  fabric       Fabric @relation(fields: [fabricId], references: [id], onDelete: Cascade)
+  fabricId     Int
+
+  @@unique([fabricId, color])
+  @@index([fabricId])
+}
+
+// A fabric can have several suppliers (lightweight).
+model FabricSupplier {
+  id       Int    @id @default(autoincrement())
+  name     String
+  rate     Float?
+  fabric   Fabric @relation(fields: [fabricId], references: [id], onDelete: Cascade)
+  fabricId Int
+
+  @@index([fabricId])
 }
 
 /// @deprecated — production styles are merged into Product (the single master).
@@ -135,11 +173,35 @@ model JobCard {
   dispatches  DispatchEvent[]
   sizeBreakup SizeBreakup[]
   jobLines    JobBomLine[]
+  fabricLines JobFabricLine[]
   returnNotes ReturnNote[]
   movements   StockMovement[]
 
   @@index([vendorId])
   @@index([productId])
+}
+
+// Per-colour fabric line on a job card: one style is cut in 1–10 colours together,
+// each drawing from that colour's stock. Assumed avg defaults from the product;
+// actual avg + used are logged after cutting. gsm/rollWidth null ⇒ inherit the
+// fabric master preset (they vary roll-to-roll, overridable at the lay).
+model JobFabricLine {
+  id        Int     @id @default(autoincrement())
+  color     String
+  fabric    Fabric  @relation(fields: [fabricId], references: [id])
+  fabricId  Int
+  cutQty    Float   @default(0)
+  estAvg    Float?
+  actualAvg Float?
+  gsm       Float?
+  rollWidth Float?
+  qtyIssued Float?
+  qtyUsed   Float?
+  jobCard   JobCard @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  jobCardId Int
+
+  @@index([jobCardId])
+  @@index([fabricId])
 }
 
 model DispatchEvent {
@@ -189,6 +251,7 @@ model ReturnNote {
   qty       Float
   date      DateTime @default(now())
   note      String?
+  color     String? // null for legacy/colourless returns
   fabric    Fabric   @relation(fields: [fabricId], references: [id])
   fabricId  Int
   jobCard   JobCard  @relation(fields: [jobCardId], references: [id])
@@ -204,6 +267,7 @@ model StockMovement {
   qty       Float
   date      DateTime
   note      String?
+  color     String? // null for legacy/colourless movements
   fabric    Fabric       @relation(fields: [fabricId], references: [id])
   fabricId  Int
   jobCard   JobCard?     @relation(fields: [jobCardId], references: [id])

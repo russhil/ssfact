@@ -1955,6 +1955,44 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Ns Cotton",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 631.0,
+     "rolls": 7.0
+    },
+    {
+     "color": "BEIGE",
+     "reqPcs": null,
+     "reqMtr": 403.0,
+     "rolls": 5.0
+    },
+    {
+     "color": "AIR FORCE",
+     "reqPcs": null,
+     "reqMtr": 440.0,
+     "rolls": 5.0
+    },
+    {
+     "color": "STEEL GREY",
+     "reqPcs": null,
+     "reqMtr": 351.0,
+     "rolls": 4.0
+    },
+    {
+     "color": "DARK GREY",
+     "reqPcs": null,
+     "reqMtr": 437.0,
+     "rolls": 5.0
+    },
+    {
+     "color": "ASH GREY",
+     "reqPcs": null,
+     "reqMtr": 359.0,
+     "rolls": 4.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2029,6 +2067,44 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Playcool Eco",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 800.0,
+     "rolls": 8.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 500.0,
+     "rolls": 5.0
+    },
+    {
+     "color": "D GREY",
+     "reqPcs": null,
+     "reqMtr": 600.0,
+     "rolls": 6.0
+    },
+    {
+     "color": "L GREY",
+     "reqPcs": null,
+     "reqMtr": 400.0,
+     "rolls": 4.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 400.0,
+     "rolls": 4.0
+    },
+    {
+     "color": "OLIVE",
+     "reqPcs": null,
+     "reqMtr": 300.0,
+     "rolls": 3.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2083,6 +2159,44 @@
    "status": "ACTIVE",
    "remark": "16 PCS PENDING",
    "fabric": "Polyster Terry",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": 2.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": 2.0
+    },
+    {
+     "color": "D GREY",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": 2.0
+    },
+    {
+     "color": "L GREY",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": 2.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": 2.0
+    },
+    {
+     "color": "OLIVE",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": 2.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2137,6 +2251,14 @@
    "status": "ACTIVE",
    "remark": "CUTTING DETAIL PENDING FROM USHMAN",
    "fabric": "Tz",
+   "fabricColors": [
+    {
+     "color": "NAVY",
+     "reqPcs": 3000.0,
+     "reqMtr": 9065.0,
+     "rolls": 115.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2191,6 +2313,14 @@
    "status": "CLOSED",
    "remark": "39 PCS EXTRA STYLE CLOSED",
    "fabric": "Max Polo-(K)",
+   "fabricColors": [
+    {
+     "color": "WHITE",
+     "reqPcs": null,
+     "reqMtr": 186.56,
+     "rolls": 9.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2245,6 +2375,14 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Cricket Pant",
+   "fabricColors": [
+    {
+     "color": "WHITE",
+     "reqPcs": null,
+     "reqMtr": 543.45,
+     "rolls": 24.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2299,6 +2437,14 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Cricket Pant",
+   "fabricColors": [
+    {
+     "color": "WHITE",
+     "reqPcs": null,
+     "reqMtr": 543.45,
+     "rolls": 24.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2353,6 +2499,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Max Polo",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2407,6 +2554,62 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Max Polo",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": null,
+     "rolls": 2.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": null,
+     "rolls": 2.0
+    },
+    {
+     "color": "CORAL",
+     "reqPcs": null,
+     "reqMtr": null,
+     "rolls": 1.0
+    },
+    {
+     "color": "PISTA",
+     "reqPcs": null,
+     "reqMtr": null,
+     "rolls": 1.0
+    },
+    {
+     "color": "MOUVE",
+     "reqPcs": null,
+     "reqMtr": null,
+     "rolls": 1.0
+    },
+    {
+     "color": "WATERSKY",
+     "reqPcs": null,
+     "reqMtr": null,
+     "rolls": 1.0
+    },
+    {
+     "color": "ICEBLUE",
+     "reqPcs": null,
+     "reqMtr": null,
+     "rolls": 1.0
+    },
+    {
+     "color": "BEIGE",
+     "reqPcs": null,
+     "reqMtr": null,
+     "rolls": 1.0
+    },
+    {
+     "color": "M.GREY",
+     "reqPcs": null,
+     "reqMtr": null,
+     "rolls": 1.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2461,6 +2664,68 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Max Polo-(K)",
+   "fabricColors": [
+    {
+     "color": "BEIGE",
+     "reqPcs": null,
+     "reqMtr": 24.6,
+     "rolls": 5.0
+    },
+    {
+     "color": "RUST",
+     "reqPcs": null,
+     "reqMtr": 38.0,
+     "rolls": 5.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 25.8,
+     "rolls": 6.0
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 24.1,
+     "rolls": 7.0
+    },
+    {
+     "color": "MUSTARD",
+     "reqPcs": null,
+     "reqMtr": 43.15,
+     "rolls": 7.0
+    },
+    {
+     "color": "M.GREY",
+     "reqPcs": null,
+     "reqMtr": 50.0,
+     "rolls": 7.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 24.5,
+     "rolls": 5.0
+    },
+    {
+     "color": "WATERSKY",
+     "reqPcs": null,
+     "reqMtr": 24.65,
+     "rolls": 3.0
+    },
+    {
+     "color": "ICEBLUE",
+     "reqPcs": null,
+     "reqMtr": 24.4,
+     "rolls": 2.0
+    },
+    {
+     "color": "PISTA",
+     "reqPcs": null,
+     "reqMtr": 24.4,
+     "rolls": 1.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2515,6 +2780,68 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Max Polo-(K)",
+   "fabricColors": [
+    {
+     "color": "BEIGE",
+     "reqPcs": null,
+     "reqMtr": 24.6,
+     "rolls": 5.0
+    },
+    {
+     "color": "RUST",
+     "reqPcs": null,
+     "reqMtr": 38.0,
+     "rolls": 5.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 25.8,
+     "rolls": 6.0
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 24.1,
+     "rolls": 7.0
+    },
+    {
+     "color": "MUSTARD",
+     "reqPcs": null,
+     "reqMtr": 43.15,
+     "rolls": 7.0
+    },
+    {
+     "color": "M.GREY",
+     "reqPcs": null,
+     "reqMtr": 50.0,
+     "rolls": 7.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 24.5,
+     "rolls": 5.0
+    },
+    {
+     "color": "WATERSKY",
+     "reqPcs": null,
+     "reqMtr": 24.65,
+     "rolls": 3.0
+    },
+    {
+     "color": "ICEBLUE",
+     "reqPcs": null,
+     "reqMtr": 24.4,
+     "rolls": 2.0
+    },
+    {
+     "color": "PISTA",
+     "reqPcs": null,
+     "reqMtr": 24.4,
+     "rolls": 1.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2560,6 +2887,50 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Playcool Polo",
+   "fabricColors": [
+    {
+     "color": "M.GREY",
+     "reqPcs": 1991.0,
+     "reqMtr": 448.03,
+     "rolls": 18.0
+    },
+    {
+     "color": "JASPER",
+     "reqPcs": 1895.0,
+     "reqMtr": 426.498,
+     "rolls": 17.0
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": 1783.0,
+     "reqMtr": 401.32,
+     "rolls": 16.0
+    },
+    {
+     "color": "F.GREEN",
+     "reqPcs": 2068.0,
+     "reqMtr": 465.48,
+     "rolls": 19.0
+    },
+    {
+     "color": "WHITE",
+     "reqPcs": 1915.0,
+     "reqMtr": 430.76,
+     "rolls": 17.0
+    },
+    {
+     "color": "SKY BLUE",
+     "reqPcs": 2116.0,
+     "reqMtr": 476.43,
+     "rolls": 18.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": 2030.0,
+     "reqMtr": 457.18,
+     "rolls": 19.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2614,6 +2985,14 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Max Polo-(K)",
+   "fabricColors": [
+    {
+     "color": "WHITE",
+     "reqPcs": null,
+     "reqMtr": 340.0,
+     "rolls": 14.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2668,6 +3047,14 @@
    "status": "CLOSED",
    "remark": "7 PCS EXTRA STYLE CLOSED",
    "fabric": "Dryfit Polo",
+   "fabricColors": [
+    {
+     "color": "WHITE",
+     "reqPcs": null,
+     "reqMtr": 338.1,
+     "rolls": 14.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2722,6 +3109,44 @@
    "status": "CLOSED",
    "remark": "13 PCS EXTRA STYLE CLOSED",
    "fabric": "Active Cotton",
+   "fabricColors": [
+    {
+     "color": "M.GREY",
+     "reqPcs": null,
+     "reqMtr": 111.02,
+     "rolls": 3.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 90.56,
+     "rolls": 2.0
+    },
+    {
+     "color": "NAVY MELG.",
+     "reqPcs": null,
+     "reqMtr": 87.73,
+     "rolls": 2.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 89.91,
+     "rolls": 2.0
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 91.12,
+     "rolls": 2.0
+    },
+    {
+     "color": "TEAL",
+     "reqPcs": null,
+     "reqMtr": 111.54,
+     "rolls": 2.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2776,6 +3201,44 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Fitness",
+   "fabricColors": [
+    {
+     "color": "ICEBLUE",
+     "reqPcs": null,
+     "reqMtr": 98.46,
+     "rolls": 4.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 81.52,
+     "rolls": 4.0
+    },
+    {
+     "color": "SEA GREEN",
+     "reqPcs": null,
+     "reqMtr": 102.2,
+     "rolls": 4.0
+    },
+    {
+     "color": "OLIVE",
+     "reqPcs": null,
+     "reqMtr": 78.8,
+     "rolls": 4.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 80.82,
+     "rolls": 4.0
+    },
+    {
+     "color": "F.GREEN",
+     "reqPcs": null,
+     "reqMtr": 101.9,
+     "rolls": 4.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2830,6 +3293,44 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Fitness",
+   "fabricColors": [
+    {
+     "color": "ICEBLUE",
+     "reqPcs": null,
+     "reqMtr": 98.46,
+     "rolls": 4.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 81.52,
+     "rolls": 4.0
+    },
+    {
+     "color": "SEA GREEN",
+     "reqPcs": null,
+     "reqMtr": 102.2,
+     "rolls": 4.0
+    },
+    {
+     "color": "OLIVE",
+     "reqPcs": null,
+     "reqMtr": 78.8,
+     "rolls": 4.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 80.82,
+     "rolls": 4.0
+    },
+    {
+     "color": "F.GREEN",
+     "reqPcs": null,
+     "reqMtr": 101.9,
+     "rolls": 4.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2884,6 +3385,44 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Fitness",
+   "fabricColors": [
+    {
+     "color": "ICEBLUE",
+     "reqPcs": null,
+     "reqMtr": 98.46,
+     "rolls": 4.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 81.52,
+     "rolls": 4.0
+    },
+    {
+     "color": "SEA GREEN",
+     "reqPcs": null,
+     "reqMtr": 102.2,
+     "rolls": 4.0
+    },
+    {
+     "color": "OLIVE",
+     "reqPcs": null,
+     "reqMtr": 78.8,
+     "rolls": 4.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 80.82,
+     "rolls": 4.0
+    },
+    {
+     "color": "F.GREEN",
+     "reqPcs": null,
+     "reqMtr": 101.9,
+     "rolls": 4.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2938,6 +3477,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Indian Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -2992,6 +3532,44 @@
    "status": "CLOSED",
    "remark": "03 PCS REJECT\nSTYLE CLOSED",
    "fabric": "Ns Lycra",
+   "fabricColors": [
+    {
+     "color": "M.GREY",
+     "reqPcs": 436.0,
+     "reqMtr": 496.0,
+     "rolls": 9.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": 457.0,
+     "reqMtr": 520.0,
+     "rolls": 9.0
+    },
+    {
+     "color": "L.OLIVE",
+     "reqPcs": 440.0,
+     "reqMtr": 499.0,
+     "rolls": 8.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": 440.0,
+     "reqMtr": 502.0,
+     "rolls": 8.0
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": 362.0,
+     "reqMtr": 412.0,
+     "rolls": 7.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": 977.0,
+     "reqMtr": 860.0,
+     "rolls": 15.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3046,6 +3624,44 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING\n262 PCS IN ALTER-MULTIVENTURE\n40PCS COLOR VARIATION",
    "fabric": "#T/800",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 300.0,
+     "rolls": null
+    },
+    {
+     "color": "M GREY",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": null
+    },
+    {
+     "color": "KHAKHI",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": null
+    },
+    {
+     "color": "BEIGE",
+     "reqPcs": null,
+     "reqMtr": 100.0,
+     "rolls": null
+    },
+    {
+     "color": "D GREY",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": null
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3100,6 +3716,44 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "#T/800",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 300.0,
+     "rolls": null
+    },
+    {
+     "color": "M GREY",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": null
+    },
+    {
+     "color": "KHAKHI",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": null
+    },
+    {
+     "color": "BEIGE",
+     "reqPcs": null,
+     "reqMtr": 100.0,
+     "rolls": null
+    },
+    {
+     "color": "D GREY",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": null
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3154,6 +3808,44 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Playcool Eco",
+   "fabricColors": [
+    {
+     "color": "PISTA",
+     "reqPcs": null,
+     "reqMtr": 198.9,
+     "rolls": 7.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 136.5,
+     "rolls": 5.0
+    },
+    {
+     "color": "M.GREY",
+     "reqPcs": null,
+     "reqMtr": 138.2,
+     "rolls": 5.0
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 112.2,
+     "rolls": 4.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 199.4,
+     "rolls": 7.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 25.7,
+     "rolls": 1.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3208,6 +3900,26 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Ns Lycra",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 600.0,
+     "rolls": 6.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 600.0,
+     "rolls": 6.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 300.0,
+     "rolls": 3.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3262,6 +3974,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Ns Lycra Eco",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3316,6 +4029,7 @@
    "status": "ACTIVE",
    "remark": "4 PCS BALANCE STYLE CLOSED",
    "fabric": "Nylon",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3370,6 +4084,7 @@
    "status": "CLOSED",
    "remark": "10PCS EXTRA STYLE CLOSED",
    "fabric": "Pulse",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3424,6 +4139,7 @@
    "status": "CLOSED",
    "remark": "87 PCS EXTRA STYLE CLOSED",
    "fabric": "Active Cotton",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3478,6 +4194,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Active Cotton",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3532,6 +4249,44 @@
    "status": "ACTIVE",
    "remark": "51  PCS PENDING",
    "fabric": "Nylon Crush",
+   "fabricColors": [
+    {
+     "color": "CAMEL",
+     "reqPcs": 500.0,
+     "reqMtr": null,
+     "rolls": null
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": 700.0,
+     "reqMtr": null,
+     "rolls": null
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": 200.0,
+     "reqMtr": null,
+     "rolls": null
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": 600.0,
+     "reqMtr": null,
+     "rolls": null
+    },
+    {
+     "color": "TAN",
+     "reqPcs": 263.0,
+     "reqMtr": null,
+     "rolls": null
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": 288.0,
+     "reqMtr": null,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3586,6 +4341,7 @@
    "status": "ACTIVE",
    "remark": "CUTTING NOT DONE",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -3606,6 +4362,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3660,6 +4417,14 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Tz",
+   "fabricColors": [
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 1000.0,
+     "rolls": 9.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3714,6 +4479,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Tz",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3768,6 +4534,44 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Air Cargo",
+   "fabricColors": [
+    {
+     "color": "CAMEL",
+     "reqPcs": null,
+     "reqMtr": 476.0,
+     "rolls": 5.0
+    },
+    {
+     "color": "OLIVE",
+     "reqPcs": null,
+     "reqMtr": 502.0,
+     "rolls": 5.0
+    },
+    {
+     "color": "BROWN",
+     "reqPcs": null,
+     "reqMtr": 484.0,
+     "rolls": 5.0
+    },
+    {
+     "color": "M.GREY",
+     "reqPcs": null,
+     "reqMtr": 478.0,
+     "rolls": 5.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 514.0,
+     "rolls": 5.0
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 488.0,
+     "rolls": 5.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3822,6 +4626,20 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Tz",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 597.0,
+     "rolls": null
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 1166.0,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3876,6 +4694,7 @@
    "status": "ACTIVE",
    "remark": "IN FINSHING",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3930,6 +4749,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Super Poly",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -3984,6 +4804,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Super Poly",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4038,6 +4859,14 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Riceknit",
+   "fabricColors": [
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 1744.2,
+     "rolls": 71.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4092,6 +4921,14 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Dryfit Polo",
+   "fabricColors": [
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 166.3,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4137,6 +4974,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Max Polo",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4191,6 +5029,14 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Dryfit",
+   "fabricColors": [
+    {
+     "color": "KHAKEE",
+     "reqPcs": null,
+     "reqMtr": 293.6,
+     "rolls": 10.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4245,6 +5091,7 @@
    "status": "CLOSED",
    "remark": "17 PCS BALANC",
    "fabric": "Footboll Knit",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4299,6 +5146,14 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Polyster Terry",
+   "fabricColors": [
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 600.0,
+     "rolls": 6.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4353,6 +5208,7 @@
    "status": "CLOSED",
    "remark": "2 PCS EXTRA STYLE CLOSED",
    "fabric": "Fourway Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4407,6 +5263,44 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": null,
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": 2975.0,
+     "reqMtr": 624.6,
+     "rolls": 32.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": 1835.0,
+     "reqMtr": 384.9,
+     "rolls": 20.0
+    },
+    {
+     "color": "L.GREY",
+     "reqPcs": 1705.0,
+     "reqMtr": 357.7,
+     "rolls": 19.0
+    },
+    {
+     "color": "FOREST GREEN",
+     "reqPcs": 1838.0,
+     "reqMtr": 385.9,
+     "rolls": 20.0
+    },
+    {
+     "color": "JASPER GREEN",
+     "reqPcs": 1760.0,
+     "reqMtr": 369.3,
+     "rolls": 19.0
+    },
+    {
+     "color": "D.AIRFORCE",
+     "reqPcs": 1745.0,
+     "reqMtr": 366.3,
+     "rolls": 19.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4461,6 +5355,7 @@
    "status": "CLOSED",
    "remark": "12 PCS BALANCE",
    "fabric": "Dryfit",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4515,6 +5410,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Fourway Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4569,6 +5465,14 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Max Polo",
+   "fabricColors": [
+    {
+     "color": "WHITE",
+     "reqPcs": 4000.0,
+     "reqMtr": 1041.1,
+     "rolls": 40.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4623,6 +5527,62 @@
    "status": "CLOSED",
    "remark": "121 PCS EXTRA STYLE CLOSED",
    "fabric": "Max Polo",
+   "fabricColors": [
+    {
+     "color": "BEIGE",
+     "reqPcs": null,
+     "reqMtr": 23.5,
+     "rolls": 1.0
+    },
+    {
+     "color": "RUST",
+     "reqPcs": null,
+     "reqMtr": 25.0,
+     "rolls": 1.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 24.5,
+     "rolls": 1.0
+    },
+    {
+     "color": "MUSTARD",
+     "reqPcs": null,
+     "reqMtr": 23.8,
+     "rolls": 2.0
+    },
+    {
+     "color": "M.GREY",
+     "reqPcs": null,
+     "reqMtr": 49.6,
+     "rolls": 2.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 24.0,
+     "rolls": 1.0
+    },
+    {
+     "color": "WATERSKY",
+     "reqPcs": null,
+     "reqMtr": 24.5,
+     "rolls": 1.0
+    },
+    {
+     "color": "ICEBLUE",
+     "reqPcs": null,
+     "reqMtr": 24.34,
+     "rolls": 1.0
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 46.5,
+     "rolls": 2.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4677,6 +5637,14 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Cricket Pant",
+   "fabricColors": [
+    {
+     "color": "WHITE",
+     "reqPcs": null,
+     "reqMtr": 302.643,
+     "rolls": 1.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4731,6 +5699,32 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Max Polo",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": 250.0,
+     "reqMtr": 600.0,
+     "rolls": null
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": 250.0,
+     "reqMtr": 600.0,
+     "rolls": null
+    },
+    {
+     "color": "D GREY",
+     "reqPcs": 150.0,
+     "reqMtr": 400.0,
+     "rolls": null
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": 150.0,
+     "reqMtr": 400.0,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4785,6 +5779,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Super Poly",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4839,6 +5834,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Gym Sando",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4893,6 +5889,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Gym Shorts",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -4947,6 +5944,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Super Poly",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5001,6 +5999,7 @@
    "status": "CLOSED",
    "remark": "08 PCS PENDING",
    "fabric": "Ns",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5055,6 +6054,14 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Tz",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 600.0,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5109,6 +6116,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Fourway Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5163,6 +6171,14 @@
    "status": "CLOSED",
    "remark": "7 PCS BALANCE",
    "fabric": "Printed Vest",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 560.67,
+     "rolls": 24.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5217,6 +6233,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5271,6 +6288,7 @@
    "status": "CLOSED",
    "remark": "4 PCS EXTRA STYLE CLOSED",
    "fabric": "Dryfit",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5325,6 +6343,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Popcorn Fabric",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5379,6 +6398,44 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Playcool Pro",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": 1045.0,
+     "reqMtr": 209.0,
+     "rolls": null
+    },
+    {
+     "color": "DENIUM BLUE",
+     "reqPcs": 1060.0,
+     "reqMtr": 212.0,
+     "rolls": null
+    },
+    {
+     "color": "L.GREEN",
+     "reqPcs": 990.0,
+     "reqMtr": 198.0,
+     "rolls": null
+    },
+    {
+     "color": "NILE BLUE",
+     "reqPcs": 1050.0,
+     "reqMtr": 210.0,
+     "rolls": null
+    },
+    {
+     "color": "L.GREY",
+     "reqPcs": 1195.0,
+     "reqMtr": 239.0,
+     "rolls": null
+    },
+    {
+     "color": "SEA MOSS",
+     "reqPcs": 1070.0,
+     "reqMtr": 214.0,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5433,6 +6490,14 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": null,
+   "fabricColors": [
+    {
+     "color": "NAVY",
+     "reqPcs": 931.0,
+     "reqMtr": 209.3,
+     "rolls": 9.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5487,6 +6552,14 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Max Polo",
+   "fabricColors": [
+    {
+     "color": "NAVY",
+     "reqPcs": 948.0,
+     "reqMtr": null,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5541,6 +6614,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5595,6 +6669,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Nylon Crush",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5649,6 +6724,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5703,6 +6779,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5757,6 +6834,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5802,6 +6880,7 @@
    "status": "ACTIVE",
    "remark": "13 PCS BALANCE",
    "fabric": "Nylon Check Terry",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5856,6 +6935,7 @@
    "status": "CLOSED",
    "remark": "03 PCS CUTTING  REJECTION\nSTYLE CLOSED",
    "fabric": "Nylon Check Terry",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5910,6 +6990,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED\n2 PCS REJECT",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -5964,6 +7045,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6018,6 +7100,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6072,6 +7155,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6126,6 +7210,7 @@
    "status": "ACTIVE",
    "remark": "FABRIC SHIFT RAMANRETI TO FASHION 11",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6180,6 +7265,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Dryfit",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6234,6 +7320,38 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Playcool",
+   "fabricColors": [
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 56.3,
+     "rolls": 2.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 82.4,
+     "rolls": 3.0
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 128.2,
+     "rolls": 5.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 50.7,
+     "rolls": 2.0
+    },
+    {
+     "color": "M.GREY",
+     "reqPcs": null,
+     "reqMtr": 48.1,
+     "rolls": 2.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6288,6 +7406,7 @@
    "status": "ACTIVE",
    "remark": "FABIRC AWAITED",
    "fabric": "Ns",
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -6308,6 +7427,56 @@
    "status": "CLOSED",
    "remark": "2PCS EXTRA STYLE CLOSED",
    "fabric": "Cotton Tensil",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 462.6,
+     "rolls": 15.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 179.5,
+     "rolls": 6.0
+    },
+    {
+     "color": "D GREY",
+     "reqPcs": null,
+     "reqMtr": 153.1,
+     "rolls": 5.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 91.2,
+     "rolls": 3.0
+    },
+    {
+     "color": "L GREY",
+     "reqPcs": null,
+     "reqMtr": 87.7,
+     "rolls": 3.0
+    },
+    {
+     "color": "OLIVE",
+     "reqPcs": null,
+     "reqMtr": 151.0,
+     "rolls": 5.0
+    },
+    {
+     "color": "CAMEL",
+     "reqPcs": null,
+     "reqMtr": 60.1,
+     "rolls": 2.0
+    },
+    {
+     "color": "COFFEE",
+     "reqPcs": null,
+     "reqMtr": 102.9,
+     "rolls": 4.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6362,6 +7531,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6416,6 +7586,44 @@
    "status": "CLOSED",
    "remark": "18 PCS REJECT",
    "fabric": "Playcool",
+   "fabricColors": [
+    {
+     "color": "PISTA",
+     "reqPcs": null,
+     "reqMtr": 198.9,
+     "rolls": 7.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 136.5,
+     "rolls": 5.0
+    },
+    {
+     "color": "M.GREY",
+     "reqPcs": null,
+     "reqMtr": 138.2,
+     "rolls": 5.0
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 112.2,
+     "rolls": 4.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 199.4,
+     "rolls": 7.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 25.7,
+     "rolls": 1.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6470,6 +7678,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -6490,6 +7699,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Playcool Half Zipper",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6544,6 +7754,14 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Dryfit",
+   "fabricColors": [
+    {
+     "color": "WHITE",
+     "reqPcs": null,
+     "reqMtr": null,
+     "rolls": 24.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6598,6 +7816,7 @@
    "status": "ACTIVE",
    "remark": "ON MANCHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6652,6 +7871,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Fitness",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6697,6 +7917,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Playcool Embosse",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6751,6 +7972,20 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Fourway Lycra",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": 775.0,
+     "reqMtr": null,
+     "rolls": null
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": 775.0,
+     "reqMtr": null,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6805,6 +8040,26 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Football",
+   "fabricColors": [
+    {
+     "color": "INKBLUE",
+     "reqPcs": 960.0,
+     "reqMtr": 432.0,
+     "rolls": null
+    },
+    {
+     "color": "LEMON",
+     "reqPcs": 610.0,
+     "reqMtr": 275.0,
+     "rolls": null
+    },
+    {
+     "color": "RED",
+     "reqPcs": 600.0,
+     "reqMtr": 275.0,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6859,6 +8114,20 @@
    "status": "CLOSED",
    "remark": "9 PCS EXTRA STYLE CLOSED",
    "fabric": "Fourway Lycra",
+   "fabricColors": [
+    {
+     "color": "RED",
+     "reqPcs": 1150.0,
+     "reqMtr": null,
+     "rolls": null
+    },
+    {
+     "color": "ROYAL",
+     "reqPcs": 1150.0,
+     "reqMtr": null,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6913,6 +8182,7 @@
    "status": "CLOSED",
    "remark": "242 PCS EXTRA STYLE CLOSED",
    "fabric": "Fourway Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -6967,6 +8237,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Poly Zig -Zac",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7021,6 +8292,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Poly Zig -Zac",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7075,6 +8347,7 @@
    "status": "CLOSED",
    "remark": "IN FINISHING",
    "fabric": "Poly Zig -Zac",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7129,6 +8402,38 @@
    "status": "CLOSED",
    "remark": "3 PIC BALACED STYLE CLOSED",
    "fabric": "Ns Lycra",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 1800.0,
+     "rolls": 18.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 1200.0,
+     "rolls": 12.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 700.0,
+     "rolls": 7.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 600.0,
+     "rolls": 6.0
+    },
+    {
+     "color": "MINT",
+     "reqPcs": null,
+     "reqMtr": 700.0,
+     "rolls": 7.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7183,6 +8488,32 @@
    "status": "CLOSED",
    "remark": "4 PCS EXTRA STYLE CLOSED",
    "fabric": "Max Polo Pro",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": 250.0,
+     "reqMtr": null,
+     "rolls": null
+    },
+    {
+     "color": "ICEBLUE",
+     "reqPcs": 375.0,
+     "reqMtr": null,
+     "rolls": null
+    },
+    {
+     "color": "M.GREY",
+     "reqPcs": 200.0,
+     "reqMtr": null,
+     "rolls": null
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": 350.0,
+     "reqMtr": null,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7237,6 +8568,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Polyster Terry",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7291,6 +8623,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7345,6 +8678,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7390,6 +8724,7 @@
    "status": "ACTIVE",
    "remark": "ON MANCHINE",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7444,6 +8779,44 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Playcool",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 348.4,
+     "rolls": 15.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 278.5,
+     "rolls": 11.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 160.4,
+     "rolls": 6.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 160.1,
+     "rolls": 6.0
+    },
+    {
+     "color": "F.GREEN",
+     "reqPcs": null,
+     "reqMtr": 146.6,
+     "rolls": 6.0
+    },
+    {
+     "color": "L.GREY",
+     "reqPcs": null,
+     "reqMtr": 152.9,
+     "rolls": 6.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7498,6 +8871,7 @@
    "status": "CLOSED",
    "remark": "IN FINISHING",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7552,6 +8926,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7606,6 +8981,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7660,6 +9036,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Max Polo",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7714,6 +9091,26 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Ns Lycra",
+   "fabricColors": [
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 400.0,
+     "rolls": 4.0
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 900.0,
+     "rolls": 9.0
+    },
+    {
+     "color": "D.GREY",
+     "reqPcs": null,
+     "reqMtr": 300.0,
+     "rolls": 3.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7768,6 +9165,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Super Poly",
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -7788,6 +9186,38 @@
    "status": "CLOSED",
    "remark": "1 PCS EXTRA STYLE CLOSED",
    "fabric": "Playcool Eco",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 102.5,
+     "rolls": 4.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 81.1,
+     "rolls": 3.0
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 56.9,
+     "rolls": 2.0
+    },
+    {
+     "color": "M GREY",
+     "reqPcs": null,
+     "reqMtr": 49.8,
+     "rolls": 2.0
+    },
+    {
+     "color": "D GREY",
+     "reqPcs": null,
+     "reqMtr": 50.6,
+     "rolls": 2.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7842,6 +9272,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Pc",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7896,6 +9327,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Pc",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -7950,6 +9382,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Jacquard",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8004,6 +9437,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Jacquard",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8058,6 +9492,20 @@
    "status": "CLOSED",
    "remark": "2PCS EXTRA STYLE CLOSED",
    "fabric": "Indian Lycra",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": 741.0,
+     "reqMtr": null,
+     "rolls": null
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": 925.0,
+     "reqMtr": null,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8112,6 +9560,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Striper Polo",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8157,6 +9606,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Max Polo Pro",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8211,6 +9661,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Fourway Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8265,6 +9716,7 @@
    "status": "ACTIVE",
    "remark": "19 PIC PENDING BY FASHION 11",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8319,6 +9771,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8373,6 +9826,7 @@
    "status": "ACTIVE",
    "remark": "ON  MECHINE",
    "fabric": "Playcool Embosse",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8427,6 +9881,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Playcool Embosse",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8481,6 +9936,7 @@
    "status": "ACTIVE",
    "remark": "ON FINISHING",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8535,6 +9991,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8589,6 +10046,38 @@
    "status": "ACTIVE",
    "remark": "PENDING",
    "fabric": "Web Lycra",
+   "fabricColors": [
+    {
+     "color": "M.GREEN",
+     "reqPcs": null,
+     "reqMtr": 222.33,
+     "rolls": null
+    },
+    {
+     "color": "AIRFORCE",
+     "reqPcs": null,
+     "reqMtr": 223.25,
+     "rolls": null
+    },
+    {
+     "color": "BLUE",
+     "reqPcs": null,
+     "reqMtr": 236.5,
+     "rolls": null
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 400.44,
+     "rolls": null
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 451.16,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8643,6 +10132,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Max Polo Pro",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8697,6 +10187,14 @@
    "status": "ACTIVE",
    "remark": "PENDING",
    "fabric": "Playcool",
+   "fabricColors": [
+    {
+     "color": "WHITE",
+     "reqPcs": null,
+     "reqMtr": 221.61,
+     "rolls": 9.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8751,6 +10249,7 @@
    "status": "ACTIVE",
    "remark": "PENDING",
    "fabric": "Fourway Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8805,6 +10304,7 @@
    "status": "CLOSED",
    "remark": "ON MECHINE",
    "fabric": "Cotton Lycra Terry",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8859,6 +10359,14 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Nylon Crush",
+   "fabricColors": [
+    {
+     "color": "M.GREY",
+     "reqPcs": null,
+     "reqMtr": 600.0,
+     "rolls": 6.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8913,6 +10421,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -8967,6 +10476,44 @@
    "status": "ACTIVE",
    "remark": "PENDING",
    "fabric": "Popcorn Fabric",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 301.4,
+     "rolls": 12.0
+    },
+    {
+     "color": "GRIFFIN",
+     "reqPcs": null,
+     "reqMtr": 292.6,
+     "rolls": 12.0
+    },
+    {
+     "color": "SEAGRASS",
+     "reqPcs": null,
+     "reqMtr": 291.7,
+     "rolls": 13.0
+    },
+    {
+     "color": "SKYWAY",
+     "reqPcs": null,
+     "reqMtr": 291.1,
+     "rolls": 12.0
+    },
+    {
+     "color": "CORNSTALK",
+     "reqPcs": null,
+     "reqMtr": 294.3,
+     "rolls": 12.0
+    },
+    {
+     "color": "REDWOOD",
+     "reqPcs": null,
+     "reqMtr": 270.3,
+     "rolls": 11.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9021,6 +10568,14 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Indian Lycra",
+   "fabricColors": [
+    {
+     "color": "TEAL",
+     "reqPcs": 1250.0,
+     "reqMtr": null,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9075,6 +10630,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Cotton Matty",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9129,6 +10685,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Ns Lycra Eco",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9183,6 +10740,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9237,6 +10795,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9282,6 +10841,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9336,6 +10896,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9390,6 +10951,7 @@
    "status": "CLOSED",
    "remark": "5 EXTRA STYLE CLOSED",
    "fabric": "Fourway Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9444,6 +11006,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Fourway Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9498,6 +11061,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Indian Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9552,6 +11116,7 @@
    "status": "CLOSED",
    "remark": "4PIC PANDING FOR FASHION 11",
    "fabric": "Cotton Lycra Terry",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9606,6 +11171,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Terry",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9651,6 +11217,7 @@
    "status": "CLOSED",
    "remark": "1 PCS BALANCE",
    "fabric": "Dryfit",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9705,6 +11272,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Football",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9750,6 +11318,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Cotton",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9804,6 +11373,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Max Polo",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9858,6 +11428,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": "Printed Vest",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9912,6 +11483,7 @@
    "status": "ACTIVE",
    "remark": "ONLY FINISHING IN RAMANRETI",
    "fabric": "Printed Vest",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -9966,6 +11538,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10020,6 +11593,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Nylon Crush",
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -10040,6 +11614,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10094,6 +11669,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10139,6 +11715,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10184,6 +11761,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10238,6 +11816,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10292,6 +11871,7 @@
    "status": "CLOSED",
    "remark": "5 PCS EXTRA STYLE CLOSED",
    "fabric": "Max Polo",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10346,6 +11926,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Pc",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10400,6 +11981,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10454,6 +12036,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": "Football",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10499,6 +12082,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10553,6 +12137,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10607,6 +12192,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Max Polo",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10661,6 +12247,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Nylon Teery",
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -10681,6 +12268,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10735,6 +12323,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10789,6 +12378,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Active Cotton",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10843,6 +12433,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10897,6 +12488,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10942,6 +12534,7 @@
    "status": "ACTIVE",
    "remark": "ON FINISHING",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -10996,6 +12589,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Sinker",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11050,6 +12644,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Indian Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11104,6 +12699,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11158,6 +12754,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11203,6 +12800,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11248,6 +12846,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11302,6 +12901,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11347,6 +12947,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11392,6 +12993,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11446,6 +13048,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11500,6 +13103,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11545,6 +13149,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11599,6 +13204,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11653,6 +13259,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11707,6 +13314,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11752,6 +13360,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11797,6 +13406,14 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": null,
+   "fabricColors": [
+    {
+     "color": "WHITE",
+     "reqPcs": null,
+     "reqMtr": 287.1,
+     "rolls": 13.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11851,6 +13468,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": "",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11905,6 +13523,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Max Polo",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -11950,6 +13569,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12004,6 +13624,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": "Playcool Eco",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12049,6 +13670,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -12069,6 +13691,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Ns Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12114,6 +13737,7 @@
    "status": "CLOSED",
    "remark": "IN FINISHING",
    "fabric": "Dryfit",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12168,6 +13792,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12222,6 +13847,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12276,6 +13902,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Pulse",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12330,6 +13957,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Indian Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12384,6 +14012,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12438,6 +14067,7 @@
    "status": "CLOSED",
    "remark": "1 PCS BALANCE STYLE CLOSED",
    "fabric": "Super Poly",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12492,6 +14122,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12537,6 +14168,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Active Cotton",
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -12557,6 +14189,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12611,6 +14244,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -12631,6 +14265,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12685,6 +14320,7 @@
    "status": "CLOSED",
    "remark": "8 PCS BALANCE IN FINISHING",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12739,6 +14375,20 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Fourway Lycra",
+   "fabricColors": [
+    {
+     "color": "RED",
+     "reqPcs": 1150.0,
+     "reqMtr": null,
+     "rolls": null
+    },
+    {
+     "color": "ROYAL",
+     "reqPcs": 1150.0,
+     "reqMtr": null,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12784,6 +14434,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Ns Lycra Diamond",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12829,6 +14480,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Playcool Premium",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12874,6 +14526,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Playcool Premium",
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -12894,6 +14547,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Playcool Premium",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -12948,6 +14602,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Sinker",
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -12968,6 +14623,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Fourway Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13022,6 +14678,7 @@
    "status": "CLOSED",
    "remark": "STYLE CLOSED",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13076,6 +14733,38 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": "Nylon Check Terry",
+   "fabricColors": [
+    {
+     "color": "L.GREY",
+     "reqPcs": null,
+     "reqMtr": 100.0,
+     "rolls": null
+    },
+    {
+     "color": "MINT",
+     "reqPcs": null,
+     "reqMtr": 100.0,
+     "rolls": null
+    },
+    {
+     "color": "M.GREY",
+     "reqPcs": null,
+     "reqMtr": 300.0,
+     "rolls": null
+    },
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 300.0,
+     "rolls": null
+    },
+    {
+     "color": "MOUSE",
+     "reqPcs": null,
+     "reqMtr": 200.0,
+     "rolls": null
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13121,6 +14810,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Nylon Crush",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13175,6 +14865,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Playcool Pro",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13220,6 +14911,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13265,6 +14957,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -13285,6 +14978,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -13305,6 +14999,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -13325,6 +15020,7 @@
    "status": "ACTIVE",
    "remark": "IN FINISHING",
    "fabric": "Dryfit",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13379,6 +15075,7 @@
    "status": "ACTIVE",
    "remark": "ON MACHINE",
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13424,6 +15121,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Playcool",
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -13444,6 +15142,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Sports Bra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13489,6 +15188,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Fake Cotton",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13534,6 +15234,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13588,6 +15289,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -13608,6 +15310,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Playcool Eco",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13653,6 +15356,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13698,6 +15402,26 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "T800",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 1313.0,
+     "rolls": 16.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 880.0,
+     "rolls": 10.0
+    },
+    {
+     "color": "TEAL",
+     "reqPcs": null,
+     "reqMtr": 439.0,
+     "rolls": 5.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13743,6 +15467,26 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "T800",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 1313.0,
+     "rolls": 16.0
+    },
+    {
+     "color": "NAVY",
+     "reqPcs": null,
+     "reqMtr": 880.0,
+     "rolls": 10.0
+    },
+    {
+     "color": "TEAL",
+     "reqPcs": null,
+     "reqMtr": 439.0,
+     "rolls": 5.0
+    }
+   ],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13788,6 +15532,14 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Tz",
+   "fabricColors": [
+    {
+     "color": "BLACK",
+     "reqPcs": null,
+     "reqMtr": 5804.0,
+     "rolls": 85.0
+    }
+   ],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -13808,6 +15560,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13853,6 +15606,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -13873,6 +15627,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13918,6 +15673,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -13963,6 +15719,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -14008,6 +15765,7 @@
    "status": "ACTIVE",
    "remark": "ON MECHINE",
    "fabric": "Fourway Lycra",
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -14053,6 +15811,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": "Polyster Terry",
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -14073,6 +15832,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -14118,6 +15878,7 @@
    "status": "ACTIVE",
    "remark": "UNDER CUTTING",
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -14163,6 +15924,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",
@@ -14208,6 +15970,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [],
    "dispatches": []
   },
@@ -14228,6 +15991,7 @@
    "status": "ACTIVE",
    "remark": null,
    "fabric": null,
+   "fabricColors": [],
    "sizeBreakup": [
     {
      "size": "S",

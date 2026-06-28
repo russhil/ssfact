@@ -56,6 +56,7 @@ export async function getJob(slug: string, scope?: JobScope) {
       dispatches: { orderBy: { date: "asc" } },
       sizeBreakup: true,
       jobLines: { include: { trimItem: true } },
+      fabricLines: { orderBy: { color: "asc" } },
       returnNotes: true,
     },
   });

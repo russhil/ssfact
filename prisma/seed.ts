@@ -10,6 +10,14 @@ const db = new PrismaClient({ adapter });
 
 const d = (s: string | null | undefined) => (s ? new Date(s) : null);
 const norm = (s: string | null | undefined) => (s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+// Colour key: stock/colours are matched case-insensitively & whitespace-collapsed.
+const cu = (s: string | null | undefined) => (s ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+// Deterministic per-colour buffer so utilisation varies (≈63–91% used) instead of flat.
+function colorBuffer(seed: string): number {
+  const buckets = [1.1, 1.22, 1.35, 1.5, 1.6];
+  const h = [...seed].reduce((a, c) => a + c.charCodeAt(0), 0);
+  return buckets[h % buckets.length];
+}
 
 function hashPassword(pw: string): string {
   const salt = randomBytes(16).toString("hex");
@@ -25,6 +33,7 @@ function synthStock(name: string): number {
 async function main() {
   console.log("Clearing existing data…");
   await db.returnNote.deleteMany();
+  await db.jobFabricLine.deleteMany();
   await db.jobBomLine.deleteMany();
   await db.stockMovement.deleteMany();
   await db.sizeBreakup.deleteMany();
@@ -39,6 +48,8 @@ async function main() {
   await db.trimItem.deleteMany();
   await db.user.deleteMany();
   await db.style.deleteMany();
+  await db.fabricColor.deleteMany();
+  await db.fabricSupplier.deleteMany();
   await db.fabric.deleteMany();
   await db.cuttingMaster.deleteMany();
   await db.vendor.deleteMany();
@@ -62,17 +73,21 @@ async function main() {
 
   // Fabrics (workbook stock) + get-or-create helper for product fabrics
   const fabricMap = new Map<string, number>();
+  const fabricOpening = new Map<string, number>(); // name -> openingStock (for per-colour split)
   for (const f of seed.fabrics) {
     const r = await db.fabric.create({
       data: { name: f.name, unit: f.unit as any, openingStock: f.openingStock },
     });
     fabricMap.set(f.name, r.id);
+    fabricOpening.set(f.name, f.openingStock);
   }
   async function fabricId(name: string | null | undefined): Promise<number | null> {
     if (!name) return null;
     if (fabricMap.has(name)) return fabricMap.get(name)!;
-    const r = await db.fabric.create({ data: { name, openingStock: synthStock(name) } });
+    const opening = synthStock(name);
+    const r = await db.fabric.create({ data: { name, openingStock: opening } });
     fabricMap.set(name, r.id);
+    fabricOpening.set(name, opening);
     return r.id;
   }
 
@@ -89,7 +104,13 @@ async function main() {
 
   // ── Product = single master (create BEFORE job cards) ──
   const productMap = new Map<string, number>(); // extId -> id
+  const fabricPalette = new Map<string, Set<string>>(); // fabricName -> set of colour keys
   for (const p of catalog.products as any[]) {
+    if (p.fabric) {
+      const set = fabricPalette.get(p.fabric) ?? new Set<string>();
+      for (const c of p.colors ?? []) if (c?.name) set.add(cu(c.name));
+      fabricPalette.set(p.fabric, set);
+    }
     const r = await db.product.create({
       data: {
         extId: p.extId, skuCode: p.skuCode, normSku: p.normSku, styleNo: p.styleNo,
@@ -111,6 +132,42 @@ async function main() {
     if (pid) styleToProduct.set(snorm, pid);
   }
 
+  // ── Per-colour fabric stock (FabricColor) ──
+  // Pre-scan job cards for real per-colour fabric issued (workbook FABRIC DETAIL block),
+  // then seed a FabricColor balance per (fabric, colour) = palette ∪ colours actually issued.
+  const colorIssued = new Map<string, Map<string, number>>(); // fabricName -> colourKey -> Σ reqMtr
+  for (const j of seed.jobCards as any[]) {
+    if (!j.fabric || !Array.isArray(j.fabricColors)) continue;
+    const m = colorIssued.get(j.fabric) ?? new Map<string, number>();
+    for (const fc of j.fabricColors) {
+      const mtr = typeof fc.reqMtr === "number" ? fc.reqMtr : 0;
+      if (!fc.color || mtr <= 0) continue;
+      const k = cu(fc.color);
+      m.set(k, (m.get(k) ?? 0) + mtr);
+    }
+    if (m.size) colorIssued.set(j.fabric, m);
+  }
+  // fabricId|colourKey -> FabricColor id (for decrement in the job-card loop)
+  const fabricColorMap = new Map<string, number>();
+  let fcRows = 0;
+  for (const [name, fid] of fabricMap) {
+    const palette = fabricPalette.get(name) ?? new Set<string>();
+    const issued = colorIssued.get(name) ?? new Map<string, number>();
+    const colours = new Set<string>([...palette, ...issued.keys()]);
+    if (colours.size === 0) continue; // fabric with no colours → legacy fabric-level fallback
+    const evenSplit = Math.round((fabricOpening.get(name) ?? 0) / colours.size);
+    for (const colour of colours) {
+      const used = issued.get(colour) ?? 0;
+      // Opening covers historical issues + headroom, or the even split — whichever is larger.
+      const opening = Math.max(evenSplit, Math.round(used * colorBuffer(name + colour)), 1);
+      const r = await db.fabricColor.create({
+        data: { fabricId: fid, color: colour, openingStock: opening, currentStock: opening },
+      });
+      fabricColorMap.set(`${fid}|${colour}`, r.id);
+      fcRows++;
+    }
+  }
+
   // Job cards (re-pointed to productId)
   let made = 0, orphan = 0;
   for (const j of seed.jobCards) {
@@ -121,8 +178,31 @@ async function main() {
     const issueQty = j.fabricConsumed ?? (j.cutQty && j.avgConsumption ? j.cutQty * j.avgConsumption : null);
     const fid = await fabricId(j.fabric);
     const stage = j.status === "CLOSED" ? "DISPATCH" : (j.dispatchedQty ?? 0) > 0 ? "STITCHING" : "CUTTING";
+    const issueDate = d(j.fabricIssueDate) ?? d(j.cuttingIssuedOn) ?? d(j.orderDate) ?? new Date();
 
-    await db.jobCard.create({
+    // Real per-colour fabric issued (workbook FABRIC DETAIL block), where present.
+    const perColour: { color: string; reqMtr: number | null; reqPcs: number | null }[] =
+      fid && Array.isArray((j as any).fabricColors)
+        ? (j as any).fabricColors
+            .map((fc: any) => ({
+              color: cu(fc.color),
+              reqMtr: typeof fc.reqMtr === "number" ? fc.reqMtr : null,
+              reqPcs: typeof fc.reqPcs === "number" ? fc.reqPcs : null,
+            }))
+            .filter((fc: { color: string }) => fc.color)
+        : [];
+    const colourIssues = perColour.filter((fc) => fc.reqMtr && fc.reqMtr > 0);
+
+    const movementsCreate =
+      colourIssues.length > 0
+        ? colourIssues.map((fc) => ({
+            type: "ISSUE" as any, qty: fc.reqMtr!, date: issueDate, fabricId: fid!, color: fc.color,
+          }))
+        : fid && issueQty
+          ? [{ type: "ISSUE" as any, qty: issueQty, date: issueDate, fabricId: fid }]
+          : [];
+
+    const created = await db.jobCard.create({
       data: {
         siNo: j.siNo, orderDate: d(j.orderDate), cutQty: j.cutQty, dispatchedQty: j.dispatchedQty,
         estAvg: j.avgConsumption, estFabric: issueQty,
@@ -132,12 +212,33 @@ async function main() {
         productId, vendorId, cuttingMasterId,
         dispatches: { create: j.dispatches.map((e: any) => ({ date: new Date(e.date), qty: e.qty })) },
         sizeBreakup: { create: j.sizeBreakup.map((s: any) => ({ size: s.size, qty: s.qty })) },
-        movements:
-          fid && issueQty
-            ? { create: [{ type: "ISSUE" as any, qty: issueQty, date: d(j.fabricIssueDate) ?? d(j.cuttingIssuedOn) ?? d(j.orderDate) ?? new Date(), fabricId: fid }] }
-            : undefined,
+        movements: movementsCreate.length ? { create: movementsCreate } : undefined,
+        fabricLines: perColour.length
+          ? {
+              create: perColour.map((fc) => ({
+                color: fc.color, fabricId: fid!, cutQty: fc.reqPcs ?? 0,
+                estAvg: j.avgConsumption ?? null, qtyIssued: fc.reqMtr ?? null,
+              })),
+            }
+          : undefined,
       },
     });
+
+    // Decrement the matching per-colour stock for every real colour issue.
+    for (const fc of colourIssues) {
+      const key = `${fid}|${fc.color}`;
+      let fcId = fabricColorMap.get(key);
+      if (!fcId) {
+        const opening = Math.round(fc.reqMtr! * 1.3);
+        const r = await db.fabricColor.create({
+          data: { fabricId: fid!, color: fc.color, openingStock: opening, currentStock: opening },
+        });
+        fcId = r.id;
+        fabricColorMap.set(key, r.id);
+        fcRows++;
+      }
+      await db.fabricColor.update({ where: { id: fcId }, data: { currentStock: { decrement: fc.reqMtr! } } });
+    }
     made++;
   }
 
@@ -189,7 +290,7 @@ async function main() {
     });
   }
 
-  console.log(`Seeded: ${vendorMap.size} vendors, ${cmMap.size} cutting masters, ${fabricMap.size} fabrics, ${made} job cards (${orphan} orphan).`);
+  console.log(`Seeded: ${vendorMap.size} vendors, ${cmMap.size} cutting masters, ${fabricMap.size} fabrics, ${fcRows} fabric colours, ${made} job cards (${orphan} orphan).`);
   console.log(`Commercial: ${productMap.size} products, ${trimMap.size} trims, ${tmoves} trim moves, ${catalog.boms.length} BOMs, ${pos} POs, ${(catalog.users as any[]).length} users.`);
 }
 

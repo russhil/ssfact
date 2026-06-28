@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getJob } from "@/lib/jobs";
 import { getCurrentUser } from "@/lib/auth";
+import { colorKey } from "@/lib/colour";
 import { Card, Badge } from "@/components/ui";
 import { FabricActualsForm } from "@/components/fabric-actuals-form";
 import { num, inr, fmtDate, pct } from "@/lib/format";
@@ -37,6 +38,39 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   const returned = j.returnNotes.reduce((a, r) => a + r.qty, 0);
   const itemDesc = j.product.itemDesc ?? j.product.name;
   const styleNo = j.product.styleNo ?? j.product.skuCode;
+
+  // per-colour fabric (real data on most cards; legacy cards fall back to a single row)
+  const returnedByColour = new Map<string, number>();
+  for (const r of j.returnNotes)
+    returnedByColour.set(colorKey(r.color), (returnedByColour.get(colorKey(r.color)) ?? 0) + r.qty);
+  const hasFabricLines = j.fabricLines.length > 0;
+  const fabricGsm = j.product.fabric?.gsm ?? null;
+  const fabricWidth = j.product.fabric?.rollWidth ?? null;
+  const actualsLines = hasFabricLines
+    ? j.fabricLines.map((l) => ({
+        color: l.color,
+        estAvg: l.estAvg,
+        actualAvg: l.actualAvg,
+        gsm: l.gsm,
+        rollWidth: l.rollWidth,
+        qtyIssued: l.qtyIssued ?? 0,
+        qtyUsed: l.qtyUsed ?? l.qtyIssued ?? 0,
+        returned: returnedByColour.get(colorKey(l.color)) ?? 0,
+        locked: returnedByColour.has(colorKey(l.color)),
+      }))
+    : [
+        {
+          color: "",
+          estAvg: j.estAvg,
+          actualAvg: j.actualAvg,
+          gsm: null,
+          rollWidth: null,
+          qtyIssued: j.fabricDispatched ?? j.estFabric ?? 0,
+          qtyUsed: j.fabricUsed ?? 0,
+          returned,
+          locked: j.returnNotes.length > 0,
+        },
+      ];
 
   const meta = [
     ["Style No", styleNo],
@@ -124,35 +158,65 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         </Card>
       </div>
 
-      {/* estimate vs actual fabric */}
+      {/* estimate vs actual fabric — per colour */}
       <Card className="mt-3.5 p-5">
-        <h3 className="mb-3 text-[13px] font-bold">Fabric · Estimate vs Actual</h3>
-        <div className="grid grid-cols-4 gap-3.5 text-[12px]">
-          {[
-            ["Est avg", j.estAvg != null ? `${j.estAvg} ${unit.toLowerCase()}/pc` : "—"],
-            ["Est fabric", j.estFabric != null ? `${num(j.estFabric)} ${unit.toLowerCase()}` : "—"],
-            ["Actual avg", j.actualAvg != null ? `${j.actualAvg} ${unit.toLowerCase()}/pc` : "—"],
-            ["Dispatched", j.fabricDispatched != null ? `${num(j.fabricDispatched)} ${unit.toLowerCase()}` : "—"],
-            ["Used", j.fabricUsed != null ? `${num(j.fabricUsed)} ${unit.toLowerCase()}` : "—"],
-            ["Returned", returned > 0 ? `${num(returned)} ${unit.toLowerCase()}` : "—"],
-          ].map(([l, v]) => (
-            <div key={l}>
-              <div className="text-[11px] text-faint">{l}</div>
-              <div className="mt-0.5 font-semibold tnum">{v}</div>
-            </div>
-          ))}
-        </div>
-        {u?.role !== "VENDOR" && (
-          <FabricActualsForm
-            jobCardId={j.id}
-            unit={unit}
-            estAvg={j.estAvg}
-            estFabric={j.estFabric}
-            actualAvg={j.actualAvg}
-            fabricDispatched={j.fabricDispatched}
-            fabricUsed={j.fabricUsed}
-            hasReturn={j.returnNotes.length > 0}
-          />
+        <h3 className="mb-3 text-[13px] font-bold">
+          Fabric · Estimate vs Actual{" "}
+          {hasFabricLines && <span className="font-medium text-faint">· per colour ({unit.toLowerCase()})</span>}
+        </h3>
+        {hasFabricLines ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
+                  <th className="px-2 py-2 font-semibold">Colour</th>
+                  <th className="px-2 py-2 text-right font-semibold">Assumed avg</th>
+                  <th className="px-2 py-2 text-right font-semibold">Actual avg</th>
+                  <th className="px-2 py-2 text-right font-semibold">GSM</th>
+                  <th className="px-2 py-2 text-right font-semibold">Width</th>
+                  <th className="px-2 py-2 text-right font-semibold">Issued</th>
+                  <th className="px-2 py-2 text-right font-semibold">Used</th>
+                  <th className="px-2 py-2 text-right font-semibold">Returned</th>
+                </tr>
+              </thead>
+              <tbody>
+                {j.fabricLines.map((l) => {
+                  const ret = returnedByColour.get(colorKey(l.color)) ?? 0;
+                  return (
+                    <tr key={l.id} className="border-b border-slate-50 last:border-0">
+                      <td className="px-2 py-1.5 font-semibold text-slate-600">{l.color || "—"}</td>
+                      <td className="px-2 py-1.5 text-right tnum">{l.estAvg != null ? num(l.estAvg, 3) : "—"}</td>
+                      <td className="px-2 py-1.5 text-right tnum">{l.actualAvg != null ? num(l.actualAvg, 3) : "—"}</td>
+                      <td className="px-2 py-1.5 text-right tnum text-slate-500">{l.gsm ?? fabricGsm ?? "—"}</td>
+                      <td className="px-2 py-1.5 text-right tnum text-slate-500">{l.rollWidth ?? fabricWidth ?? "—"}</td>
+                      <td className="px-2 py-1.5 text-right font-bold tnum">{l.qtyIssued != null ? num(l.qtyIssued) : "—"}</td>
+                      <td className="px-2 py-1.5 text-right tnum">{l.qtyUsed != null ? num(l.qtyUsed) : "—"}</td>
+                      <td className="px-2 py-1.5 text-right tnum text-emerald-600">{ret > 0 ? num(ret) : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="grid grid-cols-4 gap-3.5 text-[12px]">
+            {[
+              ["Est avg", j.estAvg != null ? `${j.estAvg} ${unit.toLowerCase()}/pc` : "—"],
+              ["Est fabric", j.estFabric != null ? `${num(j.estFabric)} ${unit.toLowerCase()}` : "—"],
+              ["Actual avg", j.actualAvg != null ? `${j.actualAvg} ${unit.toLowerCase()}/pc` : "—"],
+              ["Dispatched", j.fabricDispatched != null ? `${num(j.fabricDispatched)} ${unit.toLowerCase()}` : "—"],
+              ["Used", j.fabricUsed != null ? `${num(j.fabricUsed)} ${unit.toLowerCase()}` : "—"],
+              ["Returned", returned > 0 ? `${num(returned)} ${unit.toLowerCase()}` : "—"],
+            ].map(([l, v]) => (
+              <div key={l}>
+                <div className="text-[11px] text-faint">{l}</div>
+                <div className="mt-0.5 font-semibold tnum">{v}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {u?.role !== "VENDOR" && j.product.fabricId != null && (
+          <FabricActualsForm jobCardId={j.id} unit={unit} lines={actualsLines} />
         )}
       </Card>
 

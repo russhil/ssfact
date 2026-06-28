@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createJobCard } from "@/lib/actions";
 import type { JobProductOption } from "@/lib/inventory";
+import { colorKey } from "@/lib/colour";
 import { STAGES, STAGE_LABEL, splitByRatio, type Stage } from "@/lib/job-labels";
 import { Badge } from "@/components/ui";
 import { num, inr } from "@/lib/format";
@@ -47,6 +48,11 @@ export function NewJobCardForm({
   const [colorMode, setColorMode] = useState<ColorMode>("ratio");
   const [activeColors, setActiveColors] = useState<string[]>([]);
   const [manualCell, setManualCell] = useState<Record<string, number>>({});
+
+  // per-colour fabric overrides (keyed by colourKey); blank ⇒ inherit defaults
+  const [colorAvg, setColorAvg] = useState<Record<string, number>>({});
+  const [colorGsm, setColorGsm] = useState<Record<string, number>>({});
+  const [colorWidth, setColorWidth] = useState<Record<string, number>>({});
 
   const sizes = useMemo(() => sizeRatio.map(([s]) => s), [sizeRatio]);
   const colors = picked?.colors ?? [];
@@ -99,12 +105,34 @@ export function NewJobCardForm({
     return t;
   }, [matrix, sizes]);
 
-  // fabric estimate
-  const required = picked?.avgConsumption ? cutQty * picked.avgConsumption : null;
-  const available = picked?.fabricAvailable ?? null;
-  const enough = required != null && available != null ? available >= required : null;
-  const leftover = required != null && available != null ? available - required : null;
-  const usedAfter = required != null && available != null && available > 0 ? required / available : null;
+  // per-colour fabric estimate — each colour draws from that colour's stock
+  const fabricRows = useMemo(() => {
+    if (!picked) return [];
+    const byColour = new Map<string, { display: string; qty: number }>();
+    for (const r of matrix) {
+      if (r.qty <= 0) continue;
+      const disp = r.color || COLORLESS;
+      const key = disp === COLORLESS ? "" : colorKey(disp);
+      const e = byColour.get(key) ?? { display: disp, qty: 0 };
+      e.qty += r.qty;
+      byColour.set(key, e);
+    }
+    const defAvg = picked.avgConsumption ?? null;
+    return [...byColour.entries()].map(([key, { display, qty }]) => {
+      const avg = colorAvg[key] ?? defAvg ?? null;
+      const required = avg != null ? Math.round(qty * avg * 100) / 100 : null;
+      const available = display === COLORLESS ? picked.fabricAvailable : picked.fabricByColor[key] ?? 0;
+      const enough = required != null && available != null ? available >= required : null;
+      return {
+        key, display, qty, avg, required, available, enough,
+        gsm: colorGsm[key] ?? picked.fabricGsm ?? null,
+        width: colorWidth[key] ?? picked.fabricRollWidth ?? null,
+      };
+    });
+  }, [picked, matrix, colorAvg, colorGsm, colorWidth]);
+
+  const totalRequired = fabricRows.reduce((a, r) => a + (r.required ?? 0), 0);
+  const anyShort = fabricRows.some((r) => r.enough === false);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -126,6 +154,9 @@ export function NewJobCardForm({
     setSizeRatio(p.sizeRatio);
     setManualSizeQty({});
     setManualCell({});
+    setColorAvg({});
+    setColorGsm({});
+    setColorWidth({});
     setActiveColors(p.colors.map((c) => c.name)); // default: all colors in play
   }
 
@@ -142,6 +173,14 @@ export function NewJobCardForm({
         vendorName: vendor,
         cuttingMaster: master,
         matrix: matrix.filter((m) => m.qty > 0),
+        fabricLines: fabricRows
+          .filter((r) => r.display !== COLORLESS)
+          .map((r) => ({
+            color: r.display,
+            estAvg: colorAvg[r.key] ?? null,
+            gsm: colorGsm[r.key] ?? null,
+            rollWidth: colorWidth[r.key] ?? null,
+          })),
         stage,
         plannedEtd: etd || undefined,
       });
@@ -446,48 +485,66 @@ export function NewJobCardForm({
           {!picked ? (
             <div className="flex h-56 flex-col items-center justify-center text-center text-[12px] text-indigo-300/70">
               <Zap size={22} className="mb-2 opacity-60" />
-              Pick a product — we&apos;ll pull its average and check live stock for you.
+              Pick a product — we&apos;ll split fabric per colour and check each colour&apos;s live stock.
+            </div>
+          ) : fabricRows.length === 0 ? (
+            <div className="flex h-40 flex-col items-center justify-center text-center text-[12px] text-indigo-300/70">
+              Enter cut quantities to see the per-colour fabric requirement.
             </div>
           ) : (
             <>
-              <Row k="Cut Qty" v={`${num(cutQty)} pc`} />
-              <Row k="Avg consumption" v={picked.avgConsumption ? `× ${picked.avgConsumption} ${picked.unit.toLowerCase()}` : "not set"} />
-              <div className="flex items-end justify-between border-b border-white/10 py-2.5">
-                <span className="text-[13px] text-indigo-200">Fabric required</span>
-                <span className="text-[30px] font-extrabold text-white tnum">
-                  {required != null ? num(required, 0) : "—"} <span className="text-[14px]">{picked.unit.toLowerCase()}</span>
+              <div className="flex items-end justify-between border-b border-white/10 pb-2.5">
+                <span className="text-[13px] text-indigo-200">Total fabric required</span>
+                <span className="text-[26px] font-extrabold text-white tnum">
+                  {num(totalRequired, 0)} <span className="text-[13px]">{picked.unit.toLowerCase()}</span>
                 </span>
               </div>
 
-              <div className="mt-4">
-                <Row k={`${picked.fabricName ?? "Fabric"} — in stock`} v={available != null ? `${num(available)} ${picked.unit.toLowerCase()}` : "—"} border={false} />
-                <div className="my-2 h-2 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className={`h-full rounded-full ${enough === false ? "bg-gradient-to-r from-rose-400 to-rose-500" : "bg-gradient-to-r from-emerald-400 to-cyan-400"}`}
-                    style={{ width: `${Math.min(100, (usedAfter ?? 0) * 100)}%` }}
-                  />
-                </div>
-                {leftover != null && (
-                  <div className="flex justify-between text-[11px] text-indigo-200/80">
-                    <span>
-                      after issue:{" "}
-                      <b className={leftover >= 0 ? "text-emerald-300" : "text-rose-300"}>
-                        {num(Math.abs(leftover))} {picked.unit.toLowerCase()} {leftover >= 0 ? "left" : "short"}
-                      </b>
-                    </span>
-                    <span>{usedAfter != null ? `${Math.min(100, Math.round(usedAfter * 100))}% used` : ""}</span>
-                  </div>
-                )}
+              <div className="mt-3 max-h-[420px] space-y-2.5 overflow-y-auto pr-0.5">
+                {fabricRows.map((r) => {
+                  const usedAfter =
+                    r.required != null && r.available != null && r.available > 0 ? r.required / r.available : null;
+                  return (
+                    <div key={r.key} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[12px] font-bold text-white">{r.display}</span>
+                        <span className="text-[11px] text-indigo-200/80">{num(r.qty)} pc</span>
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-1.5">
+                        <MiniInput label={`avg ${picked.unit.toLowerCase()}/pc`} value={colorAvg[r.key]} placeholder={picked.avgConsumption ?? undefined} onChange={(v) => setColorAvg((p) => upd(p, r.key, v))} />
+                        <MiniInput label="gsm" value={colorGsm[r.key]} placeholder={picked.fabricGsm ?? undefined} onChange={(v) => setColorGsm((p) => upd(p, r.key, v))} />
+                        <MiniInput label="width" value={colorWidth[r.key]} placeholder={picked.fabricRollWidth ?? undefined} onChange={(v) => setColorWidth((p) => upd(p, r.key, v))} />
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-[11px]">
+                        <span className="text-indigo-200/80">
+                          need <b className="text-white tnum">{r.required != null ? num(r.required) : "—"}</b>
+                          {" · "}stock <b className="tnum">{r.available != null ? num(r.available) : "—"}</b>
+                        </span>
+                        {r.enough == null ? (
+                          <span className="text-indigo-300">—</span>
+                        ) : r.enough ? (
+                          <span className="flex items-center gap-1 font-bold text-emerald-300"><Check size={13} /> ok</span>
+                        ) : (
+                          <span className="flex items-center gap-1 font-bold text-rose-300"><AlertTriangle size={13} /> short</span>
+                        )}
+                      </div>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className={`h-full rounded-full ${r.enough === false ? "bg-gradient-to-r from-rose-400 to-rose-500" : "bg-gradient-to-r from-emerald-400 to-cyan-400"}`}
+                          style={{ width: `${Math.min(100, (usedAfter ?? 0) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3 text-[13px]">
                 <span className="text-indigo-200">Stock check</span>
-                {enough == null ? (
-                  <span className="text-indigo-300">—</span>
-                ) : enough ? (
-                  <span className="flex items-center gap-1.5 font-bold text-emerald-300"><Check size={15} /> Enough fabric</span>
+                {anyShort ? (
+                  <span className="flex items-center gap-1.5 font-bold text-rose-300"><AlertTriangle size={15} /> Some colours short — raise indent</span>
                 ) : (
-                  <span className="flex items-center gap-1.5 font-bold text-rose-300"><AlertTriangle size={15} /> Short — raise indent</span>
+                  <span className="flex items-center gap-1.5 font-bold text-emerald-300"><Check size={15} /> All colours covered</span>
                 )}
               </div>
             </>
@@ -554,11 +611,36 @@ function Field({ label, value, auto }: { label: string; value: string; auto: boo
   );
 }
 
-function Row({ k, v, border = true }: { k: string; v: string; border?: boolean }) {
+// Set/clear a per-colour override; clearing reverts to the inherited default.
+function upd(rec: Record<string, number>, key: string, v: number | null): Record<string, number> {
+  const next = { ...rec };
+  if (v == null || Number.isNaN(v)) delete next[key];
+  else next[key] = v;
+  return next;
+}
+
+function MiniInput({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: number | undefined;
+  placeholder?: number;
+  onChange: (v: number | null) => void;
+}) {
   return (
-    <div className={`flex items-center justify-between py-2.5 text-[13px] ${border ? "border-b border-white/10" : ""}`}>
-      <span className="text-indigo-200">{k}</span>
-      <span className="font-bold tnum">{v}</span>
-    </div>
+    <label className="block">
+      <span className="mb-0.5 block truncate text-[9px] uppercase tracking-wide text-indigo-300/70">{label}</span>
+      <input
+        type="number"
+        step="0.01"
+        value={value ?? ""}
+        placeholder={placeholder != null ? String(placeholder) : "—"}
+        onChange={(e) => onChange(e.target.value === "" ? null : +e.target.value)}
+        className="w-full rounded-md border border-white/15 bg-white/10 px-1.5 py-1 text-center text-[11px] font-semibold text-white tnum outline-none placeholder:text-indigo-300/40 focus:border-indigo-300"
+      />
+    </label>
   );
 }

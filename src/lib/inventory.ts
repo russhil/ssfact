@@ -1,37 +1,99 @@
 import { db } from "@/lib/db";
 import { getTrimStock } from "@/lib/trims";
+import { colorKey } from "@/lib/colour";
+
+export type StockStatus = "OK" | "Low" | "Indent";
+
+export function stockStatus(available: number, usedPct: number): StockStatus {
+  if (available <= 0) return "Indent";
+  if (usedPct >= 0.85) return "Low";
+  return "OK";
+}
+
+export type FabricColorStock = {
+  id: number;
+  color: string;
+  opening: number;
+  current: number;
+  usedPct: number;
+  status: StockStatus;
+};
+
+export type FabricSupplierInfo = { id: number; name: string; rate: number | null };
 
 export type FabricStock = {
   id: number;
   name: string;
   unit: string;
+  // master presets
+  gsm: number | null;
+  rollWidth: number | null;
+  form: string | null;
+  ratePerUnit: number | null;
+  suppliers: FabricSupplierInfo[];
+  // stock roll-up
   opening: number;
   issued: number;
   received: number;
   available: number;
   usedPct: number;
+  colors: FabricColorStock[]; // per-colour balances (empty for legacy colourless fabrics)
 };
 
 export async function getFabricStock(): Promise<FabricStock[]> {
   const fabrics = await db.fabric.findMany({
-    include: { movements: true },
+    include: {
+      movements: true,
+      colors: { orderBy: { color: "asc" } },
+      suppliers: { orderBy: { name: "asc" } },
+    },
     orderBy: { name: "asc" },
   });
   return fabrics
     .map((f) => {
       const issued = f.movements.filter((m) => m.type === "ISSUE").reduce((a, m) => a + m.qty, 0);
       const received = f.movements.filter((m) => m.type === "RECEIPT").reduce((a, m) => a + m.qty, 0);
-      const available = f.openingStock + received - issued;
-      const usedPct = f.openingStock + received > 0 ? issued / (f.openingStock + received) : 0;
+
+      const colors: FabricColorStock[] = f.colors.map((c) => {
+        const usedPct = c.openingStock > 0 ? (c.openingStock - c.currentStock) / c.openingStock : 0;
+        return {
+          id: c.id,
+          color: c.color,
+          opening: c.openingStock,
+          current: c.currentStock,
+          usedPct,
+          status: stockStatus(c.currentStock, usedPct),
+        };
+      });
+
+      // When the fabric is held per colour, the per-colour snapshot is authoritative
+      // (mirrors the trims store). Otherwise fall back to the movement-derived balance.
+      let opening: number;
+      let available: number;
+      if (colors.length > 0) {
+        opening = colors.reduce((a, c) => a + c.opening, 0);
+        available = colors.reduce((a, c) => a + c.current, 0);
+      } else {
+        opening = f.openingStock;
+        available = f.openingStock + received - issued;
+      }
+      const usedPct = opening > 0 ? (opening - available) / opening : 0;
+
       return {
         id: f.id,
         name: f.name,
         unit: f.unit,
-        opening: f.openingStock,
+        gsm: f.gsm,
+        rollWidth: f.rollWidth,
+        form: f.form,
+        ratePerUnit: f.ratePerUnit,
+        suppliers: f.suppliers.map((s) => ({ id: s.id, name: s.name, rate: s.rate })),
+        opening,
         issued,
         received,
         available,
         usedPct,
+        colors,
       };
     })
     .sort((a, b) => b.usedPct - a.usedPct);
@@ -53,6 +115,11 @@ export type JobProductOption = {
   fabricId: number | null;
   fabricName: string | null;
   fabricAvailable: number | null;
+  // fabric master presets (defaults for the lay; overridable per colour on the card)
+  fabricGsm: number | null;
+  fabricRollWidth: number | null;
+  fabricForm: string | null;
+  fabricByColor: Record<string, number>; // colourKey -> current stock for this fabric
   imageUrl: string | null;
   colors: { name: string; hex: string | null }[];
   sizeRatio: [string, number][];
@@ -83,7 +150,7 @@ export async function getJobProductOptions(): Promise<JobProductOption[]> {
   const [products, fabricStock, trimStock] = await Promise.all([
     db.product.findMany({
       include: {
-        fabric: true,
+        fabric: { include: { colors: true } },
         colors: { orderBy: { sortOrder: "asc" } },
         boms: { include: { lines: { include: { trimItem: true } } } },
       },
@@ -102,6 +169,8 @@ export async function getJobProductOptions(): Promise<JobProductOption[]> {
       (colors.length > 0
         ? colors.map((c) => [c.name, 1 / colors.length] as [string, number])
         : []);
+    const fabricByColor: Record<string, number> = {};
+    for (const c of p.fabric?.colors ?? []) fabricByColor[colorKey(c.color)] = c.currentStock;
     const bom = p.boms.flatMap((b) =>
       b.lines.map((l) => {
         const trim = l.trimItem ? trimById.get(l.trimItem.id) : null;
@@ -126,6 +195,10 @@ export async function getJobProductOptions(): Promise<JobProductOption[]> {
       fabricId: p.fabricId,
       fabricName: p.fabric?.name ?? null,
       fabricAvailable: p.fabricId ? fabricAvail.get(p.fabricId) ?? null : null,
+      fabricGsm: p.fabric?.gsm ?? null,
+      fabricRollWidth: p.fabric?.rollWidth ?? null,
+      fabricForm: p.fabric?.form ?? null,
+      fabricByColor,
       imageUrl: p.imageUrl,
       colors,
       sizeRatio: parseRatio(p.sizeRatioJson) ?? DEFAULT_SIZE_RATIO,
@@ -140,6 +213,6 @@ export async function getFabricLedger(fabricId: number) {
     where: { fabricId },
     include: { jobCard: { include: { product: true } } },
     orderBy: { date: "desc" },
-    take: 50,
+    take: 80,
   });
 }

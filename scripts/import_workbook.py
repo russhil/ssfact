@@ -9,7 +9,12 @@ combos, missing SKUs) and synthesize the bits the workbook never tracked
 import json, os, re, datetime
 import openpyxl
 
-WB = os.path.expanduser("~/Downloads/DAILY UPDATES STOCK FORM 28-11-2025 (1).xlsx")
+_WB_NAME = "DAILY UPDATES STOCK FORM 28-11-2025 (1).xlsx"
+_WB_CANDIDATES = [
+    os.path.expanduser(f"~/Downloads/Sportsun Factory Data/{_WB_NAME}"),
+    os.path.expanduser(f"~/Downloads/{_WB_NAME}"),
+]
+WB = next((p for p in _WB_CANDIDATES if os.path.exists(p)), _WB_CANDIDATES[0])
 OUT = os.path.join(os.path.dirname(__file__), "..", "prisma", "seed.json")
 
 # CONSOLIDATED STATUS column indices
@@ -104,8 +109,55 @@ def dispatch_events(si, disp, order_date):
     ]
 
 
+def si_num(s):
+    """Extract the integer SI number from 'SI -01' / 'SI-242' for cross-sheet matching."""
+    m = re.search(r"\d+", str(s) if s is not None else "")
+    return int(m.group()) if m else None
+
+
+def fabric_colors(wb, si_sheets, si):
+    """Read the per-colour 'FABRIC DETAIL' block from a job card's own SI sheet.
+
+    Each SI sheet has a block headed 'S.NO | FABRIC COLOR | REQ. PCS |
+    REQD QTY (IN MTR.) | ROLLS'. ~55 of the sheets fill it in with the real
+    per-colour fabric issued (the rest are blank templates). Returns
+    [{color, reqPcs, reqMtr, rolls}] for the filled colour lines, else [].
+    """
+    sheet = si_sheets.get(si_num(si))
+    if not sheet:
+        return []
+    ws = wb[sheet]
+    grid = list(ws.iter_rows(min_row=1, max_row=22, values_only=True))
+    # Locate the 'FABRIC COLOR' header cell -> (row index, colour column index).
+    hr = hc = None
+    for ri, row in enumerate(grid):
+        for ci, v in enumerate(row or ()):
+            if isinstance(v, str) and "FABRIC COLOR" in v.upper():
+                hr, hc = ri, ci
+                break
+        if hr is not None:
+            break
+    if hr is None:
+        return []
+    out = []
+    for row in grid[hr + 1:hr + 11]:  # up to 8 colour lines + slack
+        if not row or hc >= len(row):
+            continue
+        raw = row[hc]
+        color = re.sub(r"\s+", " ", str(raw).strip()).upper() if raw not in (None, "") else ""
+        if not color or color in ("TTL", "TOTAL"):
+            continue
+        get = lambda off: num(row[hc + off]) if hc + off < len(row) else None
+        req_pcs, req_mtr, rolls = get(1), get(2), get(3)
+        if req_pcs is None and req_mtr is None and rolls is None:
+            continue  # colour name with no numbers — skip empty template echo
+        out.append({"color": color, "reqPcs": req_pcs, "reqMtr": req_mtr, "rolls": rolls})
+    return out
+
+
 def main():
     wb = openpyxl.load_workbook(WB, read_only=True, data_only=True)
+    si_sheets = {si_num(n): n for n in wb.sheetnames if n.upper().startswith("SI-")}
 
     vendors = {}
     for r in wb["VENDOR_LIST"].iter_rows(values_only=True):
@@ -187,6 +239,7 @@ def main():
             "status": status,
             "remark": (str(r[C_REMARK]).strip() if r[C_REMARK] else None),
             "fabric": fabric_name,
+            "fabricColors": fabric_colors(wb, si_sheets, si),
             "sizeBreakup": size_breakup(si, cut),
             "dispatches": dispatch_events(si, min(disp, cut) if cut else disp, order_date),
         })
@@ -218,7 +271,10 @@ def main():
           f"fabrics={len(fabric_list)} styles={len(styles)} jobCards={len(jobcards)}")
     tc = sum(j["cutQty"] for j in jobcards)
     td = sum(j["dispatchedQty"] for j in jobcards)
+    with_colors = sum(1 for j in jobcards if j.get("fabricColors"))
+    color_lines = sum(len(j.get("fabricColors") or []) for j in jobcards)
     print(f"total cut={tc:,.0f} dispatched={td:,.0f} -> seed.json")
+    print(f"per-colour fabric: {with_colors} job cards, {color_lines} colour lines extracted")
 
 
 if __name__ == "__main__":
