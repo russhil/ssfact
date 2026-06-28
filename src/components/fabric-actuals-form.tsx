@@ -24,13 +24,17 @@ export function FabricActualsForm({
   jobCardId,
   unit,
   lines,
+  defaultArrangedBy = "",
 }: {
   jobCardId: number;
   unit: string;
   lines: ActualsLine[];
+  defaultArrangedBy?: string;
 }) {
   const router = useRouter();
   const u = unit.toLowerCase();
+  const [by, setBy] = useState(defaultArrangedBy);
+  const [challan, setChallan] = useState("");
   const [drafts, setDrafts] = useState<Draft[]>(
     lines.map((l) => ({
       avg: l.actualAvg != null ? String(l.actualAvg) : l.estAvg != null ? String(l.estAvg) : "",
@@ -60,6 +64,8 @@ export function FabricActualsForm({
           gsm: l.gsm,
           rollWidth: l.rollWidth,
         })),
+        arrangedBy: by || null,
+        challan: challan || null,
       });
       setDone(r.returnQty > 0 ? `Saved · ${num(r.returnQty)} ${u} returned to stock` : "Saved");
       router.refresh();
@@ -107,6 +113,10 @@ export function FabricActualsForm({
             })}
           </tbody>
         </table>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="arranged by" className="w-32 rounded-md border border-border px-2 py-1 text-[11px] outline-none focus:border-primary" />
+        <input value={challan} onChange={(e) => setChallan(e.target.value)} placeholder="challan #" className="w-28 rounded-md border border-border px-2 py-1 text-[11px] outline-none focus:border-primary" />
       </div>
       <div className="mt-2.5 flex items-center justify-between">
         <span className="text-[12px] text-muted">

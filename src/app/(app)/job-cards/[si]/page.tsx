@@ -118,7 +118,27 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         ))}
       </div>
 
-      <div className="mt-3.5 grid grid-cols-[1fr_1fr] gap-3.5">
+      {/* What's next — optional, plain-language nudges derived from what's logged */}
+      <div className="mt-3.5 flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-faint">What&apos;s next</span>
+        {j.product.fabricId != null && j.fabricLines.some((l) => l.qtyUsed == null) && (
+          <a href="#fabric" className="rounded-full border border-border px-3 py-1 text-[12px] font-medium hover:bg-slate-50">Enter actual average</a>
+        )}
+        {(j.trimsPending || j.jobLines.some((l) => (l.requiredQty ?? l.totalQty ?? 0) - (l.issuedQty ?? 0) > 0)) && (
+          <a href="#trims" className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[12px] font-medium text-amber-700 hover:bg-amber-100">Issue trims</a>
+        )}
+        {balance > 0 && (
+          <Link href="/dispatch" className="rounded-full border border-border px-3 py-1 text-[12px] font-medium hover:bg-slate-50">Log received</Link>
+        )}
+        {balance <= 0 && (j.product.fabricId == null || j.fabricLines.every((l) => l.qtyUsed != null)) && (
+          <span className="text-[12px] font-medium text-emerald-600">All caught up ✓</span>
+        )}
+      </div>
+      {j.remark && (
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">📝 {j.remark}</div>
+      )}
+
+      <div className="mt-3.5 grid grid-cols-1 gap-3.5 md:grid-cols-2">
         {/* details */}
         <Card className="p-5">
           <h3 className="mb-3 text-[13px] font-bold">Order Details</h3>
@@ -160,6 +180,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
       </div>
 
       {/* estimate vs actual fabric — per colour */}
+      <div id="fabric" />
       <Card className="mt-3.5 p-5">
         <h3 className="mb-3 text-[13px] font-bold">
           Fabric · Estimate vs Actual{" "}
@@ -217,7 +238,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           </div>
         )}
         {u?.role !== "VENDOR" && j.product.fabricId != null && (
-          <FabricActualsForm jobCardId={j.id} unit={unit} lines={actualsLines} />
+          <FabricActualsForm jobCardId={j.id} unit={unit} lines={actualsLines} defaultArrangedBy={u?.displayName ?? ""} />
         )}
       </Card>
 
@@ -276,6 +297,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
       )}
 
       {/* Trim sheet (editable issue log) */}
+      <div id="trims" />
       {j.jobLines.length > 0 && (
         <TrimSheet
           canEdit={u?.role === "ADMIN" || u?.role === "STAFF"}

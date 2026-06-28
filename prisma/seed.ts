@@ -83,6 +83,8 @@ async function main() {
   await db.product.deleteMany();
   await db.trimMovement.deleteMany();
   await db.trimItem.deleteMany();
+  await db.fabricOrder.deleteMany();
+  await db.supplier.deleteMany();
   await db.user.deleteMany();
   await db.style.deleteMany();
   await db.fabricColor.deleteMany();

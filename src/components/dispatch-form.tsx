@@ -8,11 +8,13 @@ import { Truck, Check } from "lucide-react";
 
 export type DispatchJob = { id: number; siNo: string; item: string; vendor: string; balance: number };
 
-export function DispatchForm({ jobs }: { jobs: DispatchJob[] }) {
+export function DispatchForm({ jobs, defaultArrangedBy = "" }: { jobs: DispatchJob[]; defaultArrangedBy?: string }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [jobId, setJobId] = useState<number | null>(null);
   const [qty, setQty] = useState(0);
+  const [challan, setChallan] = useState("");
+  const [by, setBy] = useState(defaultArrangedBy);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState<string | null>(null);
 
@@ -28,11 +30,12 @@ export function DispatchForm({ jobs }: { jobs: DispatchJob[] }) {
     if (!job || qty <= 0) return;
     setSaving(true);
     try {
-      const r = await addDispatch({ jobCardId: job.id, qty });
+      const r = await addDispatch({ jobCardId: job.id, qty, challan: challan || undefined, arrangedBy: by || null });
       setDone(`Logged +${num(qty)} against ${r.siNo}${r.closed ? " — now closed ✅" : ""}`);
       setJobId(null);
       setQ("");
       setQty(0);
+      setChallan("");
       router.refresh();
     } finally {
       setSaving(false);
@@ -81,6 +84,10 @@ export function DispatchForm({ jobs }: { jobs: DispatchJob[] }) {
             onChange={(e) => setQty(Math.min(job.balance, Math.max(0, +e.target.value)))}
             className="mb-3 w-full rounded-lg border border-border px-3 py-2.5 text-[13px] font-semibold outline-none focus:border-primary"
           />
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <input value={challan} onChange={(e) => setChallan(e.target.value)} placeholder="Challan #" className="rounded-lg border border-border px-3 py-2 text-[12px] outline-none focus:border-primary" />
+            <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="Arranged by" className="rounded-lg border border-border px-3 py-2 text-[12px] outline-none focus:border-primary" />
+          </div>
         </>
       )}
 

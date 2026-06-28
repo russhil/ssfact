@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { getJobs, siSlug } from "@/lib/jobs";
+import { getCurrentUser } from "@/lib/auth";
 import { DispatchForm } from "@/components/dispatch-form";
 import { Card, PageHeader } from "@/components/ui";
 import { num, fmtDate } from "@/lib/format";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DispatchPage() {
   const jobs = await getJobs();
+  const me = await getCurrentUser();
   const open = jobs
     .filter((j) => j.balance > 0)
     .sort((a, b) => b.balance - a.balance)
@@ -33,8 +35,8 @@ export default async function DispatchPage() {
   return (
     <div className="p-6">
       <PageHeader title="Receipts" subtitle="Log goods received from vendors against open job cards — balances and the dashboard update instantly. (Market dispatch to dealers is a separate stream in E-manage.)" />
-      <div className="grid grid-cols-[1fr_1.3fr] gap-3.5">
-        <DispatchForm jobs={openJobs} />
+      <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1fr_1.3fr]">
+        <DispatchForm jobs={openJobs} defaultArrangedBy={me?.displayName ?? ""} />
 
         <Card className="overflow-hidden p-0">
           <div className="border-b border-border px-5 py-3 text-[13px] font-bold">Recent Receipts</div>

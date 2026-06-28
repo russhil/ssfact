@@ -242,6 +242,8 @@ export type FabricActualsInput = {
     gsm?: number | null;
     rollWidth?: number | null;
   }[];
+  arrangedBy?: string | null;
+  challan?: string | null;
   note?: string;
 };
 
@@ -270,7 +272,9 @@ export async function recordFabricActuals(input: FabricActualsInput) {
           qtyUsed: l.qtyUsed,
           gsm: l.gsm ?? existing.gsm,
           rollWidth: l.rollWidth ?? existing.rollWidth,
-        },
+          arrangedBy: input.arrangedBy ?? existing.arrangedBy,
+          challan: input.challan ?? existing.challan,
+        } as any,
       });
     } else if (fabricId) {
       await db.jobFabricLine.create({
@@ -279,6 +283,7 @@ export async function recordFabricActuals(input: FabricActualsInput) {
           estAvg: l.actualAvg ?? null, actualAvg: l.actualAvg ?? null,
           gsm: l.gsm ?? null, rollWidth: l.rollWidth ?? null,
           qtyIssued: l.qtyIssued, qtyUsed: l.qtyUsed, jobCardId: job.id,
+          arrangedBy: input.arrangedBy ?? null, challan: input.challan ?? null,
         } as any,
       });
     }
@@ -391,6 +396,7 @@ export async function addDispatch(input: {
   date?: string;
   challan?: string;
   note?: string;
+  arrangedBy?: string | null;
 }) {
   await requireRole("ADMIN", "STAFF");
   const job = await db.jobCard.findUnique({ where: { id: input.jobCardId } });
@@ -411,7 +417,8 @@ export async function addDispatch(input: {
             qty: input.qty,
             challan: input.challan ?? null,
             note: input.note ?? null,
-          },
+            arrangedBy: input.arrangedBy ?? null,
+          } as any,
         ],
       },
     },

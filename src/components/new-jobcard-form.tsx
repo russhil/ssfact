@@ -38,6 +38,8 @@ export function NewJobCardForm({
   const [master, setMaster] = useState(masters.find((m) => m.includes("Attri")) ?? masters[0] ?? "");
   const [etd, setEtd] = useState("");
   const [stage, setStage] = useState<Stage>("CUTTING");
+  const [remark, setRemark] = useState("");
+  const [newSize, setNewSize] = useState("");
   const [saving, setSaving] = useState(false);
 
   // cut sizing
@@ -223,6 +225,7 @@ export function NewJobCardForm({
             dimension: r.dimension,
             perPieceQty: r.perPieceQty || 0,
           })),
+        remark: remark.trim() || undefined,
         stage,
         plannedEtd: etd || undefined,
       });
@@ -253,7 +256,7 @@ export function NewJobCardForm({
         </button>
       </div>
 
-      <div className="grid grid-cols-[1.25fr_1fr] gap-3.5">
+      <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
         {/* form */}
         <div className="rounded-card border border-border bg-surface p-5">
           <h3 className="mb-4 text-[11px] font-bold uppercase tracking-wide text-muted">Order details</h3>
@@ -342,6 +345,12 @@ export function NewJobCardForm({
             </div>
           </div>
 
+          {/* remark (optional — fast capture) */}
+          <div className="mt-2.5">
+            <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Remark <span className="font-normal text-faint">(optional)</span></label>
+            <input value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="e.g. urgent, colour pending from party…" className="w-full rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
+          </div>
+
           {picked && (
             <>
               {/* cut sizing */}
@@ -350,6 +359,29 @@ export function NewJobCardForm({
                   Cut sizing · Total <span className="font-bold text-primary-ink">{num(cutQty)} pcs</span>
                 </label>
                 <Toggle value={cutMode} onChange={setCutMode} options={[["ratio", "By ratio"], ["manual", "Manual"]]} />
+              </div>
+
+              {/* flexible size set — add/remove a size column for this card only */}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {sizes.map((s) => (
+                  <span key={s} className="inline-flex items-center gap-1 rounded-full border border-border bg-slate-50 px-2 py-0.5 text-[11px] font-semibold">
+                    {s}
+                    <button type="button" onClick={() => setSizeRatio((r) => r.filter(([n]) => n !== s))} className="text-faint hover:text-danger"><X size={11} /></button>
+                  </span>
+                ))}
+                <input
+                  value={newSize}
+                  onChange={(e) => setNewSize(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newSize.trim()) {
+                      const n = newSize.trim().toUpperCase();
+                      setSizeRatio((r) => (r.some(([x]) => x === n) ? r : [...r, [n, 0.1]]));
+                      setNewSize("");
+                    }
+                  }}
+                  placeholder="+ size"
+                  className="w-16 rounded-full border border-dashed border-border px-2 py-0.5 text-[11px] outline-none focus:border-primary"
+                />
               </div>
 
               {cutMode === "ratio" && (
