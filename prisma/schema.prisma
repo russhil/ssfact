@@ -109,12 +109,14 @@ model Vendor {
   id       Int        @id @default(autoincrement())
   name     String     @unique
   kind     VendorKind @default(EXTERNAL)
+  active   Boolean    @default(true)
   jobCards JobCard[]
 }
 
 model CuttingMaster {
   id       Int       @id @default(autoincrement())
   name     String    @unique
+  active   Boolean   @default(true)
   jobCards JobCard[]
 }
 
@@ -457,6 +459,7 @@ model Supplier {
   city         String?
   phone        String?
   remarks      String?
+  active       Boolean       @default(true)
   trims        TrimItem[]
   fabricOrders FabricOrder[]
 

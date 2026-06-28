@@ -1,19 +1,19 @@
-import { getTrimStock, getTrimSummary } from "@/lib/trims";
-import { TrimsTable } from "@/components/trims-table";
+import { getTrimSummary } from "@/lib/trims";
+import { getTrimMaster, getSuppliers } from "@/lib/masters";
+import { TrimMasterManager } from "@/components/trim-master-manager";
 import { Card, PageHeader } from "@/components/ui";
 import { num } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function TrimsPage() {
-  const [rows, summary] = await Promise.all([getTrimStock(), getTrimSummary()]);
-  const families = [...new Set(rows.map((r) => r.family).filter((f): f is string => !!f))].sort();
+  const [trims, summary, suppliers] = await Promise.all([getTrimMaster(), getTrimSummary(), getSuppliers()]);
 
   return (
     <div className="p-6">
       <PageHeader
-        title="Trims Store"
-        subtitle="Live trims & accessories stock — zips, drawcord, niwad tape, labels, elastic. Current = latest physical count from the store register."
+        title="Trim Master"
+        subtitle="One unified trim master across the 7 categories — stock, supplier, rate & specs. Add a trim with ~4 fields; current = latest physical count."
       />
 
       <div className="mb-4 grid grid-cols-4 gap-3.5">
@@ -35,7 +35,7 @@ export default async function TrimsPage() {
         </Card>
       </div>
 
-      <TrimsTable rows={rows} families={families} />
+      <TrimMasterManager trims={trims} suppliers={suppliers.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }))} />
     </div>
   );
 }

@@ -585,3 +585,154 @@ export async function removeBomLine(input: { id: number }) {
   revalidatePath("/catalog");
   return { ok: true };
 }
+
+// ── Change 05 — masters & procurement ──
+
+export async function createSupplier(input: { name: string; type?: string | null; city?: string | null; phone?: string | null; remarks?: string | null }) {
+  await requireRole("ADMIN", "STAFF");
+  if (!input.name.trim()) throw new Error("Name required");
+  const s = await db.supplier.create({
+    data: { name: input.name.trim(), type: (input.type ?? null) as any, city: input.city ?? null, phone: input.phone ?? null, remarks: input.remarks ?? null },
+  });
+  revalidatePath("/suppliers");
+  return { id: s.id };
+}
+
+export async function updateSupplier(input: { id: number; name?: string; type?: string | null; city?: string | null; phone?: string | null; remarks?: string | null; active?: boolean }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.supplier.update({
+    where: { id: input.id },
+    data: {
+      ...(input.name != null ? { name: input.name.trim() } : {}),
+      ...(input.type !== undefined ? { type: (input.type ?? null) as any } : {}),
+      ...(input.city !== undefined ? { city: input.city } : {}),
+      ...(input.phone !== undefined ? { phone: input.phone } : {}),
+      ...(input.remarks !== undefined ? { remarks: input.remarks } : {}),
+      ...(input.active !== undefined ? { active: input.active } : {}),
+    },
+  });
+  revalidatePath("/suppliers");
+  return { ok: true };
+}
+
+export async function createFabricOrder(input: {
+  fabricId: number; color?: string | null; supplierId?: number | null; qty: number; unit?: "KG" | "MTR";
+  rate?: number | null; gsm?: number | null; expectedDate?: string | null; status?: string; remarks?: string | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  await db.fabricOrder.create({
+    data: {
+      fabricId: input.fabricId, color: input.color ? colorKey(input.color) : null, supplierId: input.supplierId ?? null,
+      qty: input.qty, unit: (input.unit ?? "MTR") as any, rate: input.rate ?? null, gsm: input.gsm ?? null,
+      status: (input.status ?? "PLANNING") as any, orderDate: new Date(),
+      expectedDate: input.expectedDate ? new Date(input.expectedDate) : null, remarks: input.remarks ?? null,
+    },
+  });
+  revalidatePath("/fabric-orders");
+  return { ok: true };
+}
+
+export async function updateFabricOrderStatus(input: { id: number; status: string }) {
+  await requireRole("ADMIN", "STAFF");
+  if (input.status === "RECEIVED") return receiveFabricOrder({ id: input.id });
+  await db.fabricOrder.update({ where: { id: input.id }, data: { status: input.status as any } });
+  revalidatePath("/fabric-orders");
+  return { ok: true };
+}
+
+/** Receive a fabric order: land qty into the colour's stock once (guard via receivedDate). */
+export async function receiveFabricOrder(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const o = await db.fabricOrder.findUnique({ where: { id: input.id } });
+  if (!o) throw new Error("Order not found");
+  if (o.receivedDate) return { ok: true, already: true as const }; // double-receive guard
+  const now = new Date();
+  await db.$transaction(async (tx) => {
+    await tx.fabricOrder.update({ where: { id: o.id }, data: { status: "RECEIVED", receivedDate: now } });
+    const color = o.color ? colorKey(o.color) : null;
+    await tx.stockMovement.create({ data: { type: "RECEIPT", qty: o.qty, date: now, fabricId: o.fabricId, color, note: "Fabric order received" } as any });
+    if (color) {
+      const fc = await tx.fabricColor.upsert({
+        where: { fabricId_color: { fabricId: o.fabricId, color } },
+        create: { fabricId: o.fabricId, color, openingStock: o.qty, currentStock: o.qty },
+        update: { currentStock: { increment: o.qty } },
+      });
+      void fc;
+    } else {
+      await tx.fabric.update({ where: { id: o.fabricId }, data: { openingStock: { increment: o.qty } } });
+    }
+  });
+  revalidatePath("/fabric-orders");
+  revalidatePath("/inventory");
+  return { ok: true };
+}
+
+export async function createTrim(input: {
+  name: string; category?: string | null; supplierId?: number | null; ratePerUnit?: number | null; unit?: string | null;
+  openingStock?: number; size?: string | null; material?: string | null; weight?: string | null; shape?: string | null; color?: string | null; remarks?: string | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  if (!input.name.trim()) throw new Error("Name required");
+  const opening = input.openingStock ?? 0;
+  const norm = input.name.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const t = await db.trimItem.create({
+    data: {
+      name: input.name.trim(), normName: norm, openingStock: opening, currentStock: opening,
+      category: (input.category ?? null) as any, supplierId: input.supplierId ?? null,
+      ratePerUnit: input.ratePerUnit ?? null, unit: input.unit ?? "pcs",
+      size: input.size ?? null, material: input.material ?? null, weight: input.weight ?? null,
+      shape: input.shape ?? null, color: input.color ?? null, remarks: input.remarks ?? null,
+    } as any,
+  });
+  revalidatePath("/trims");
+  return { id: t.id };
+}
+
+export async function updateTrim(input: {
+  id: number; name?: string; category?: string | null; supplierId?: number | null; ratePerUnit?: number | null;
+  unit?: string | null; status?: string; size?: string | null; material?: string | null; weight?: string | null;
+  shape?: string | null; color?: string | null; remarks?: string | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const { id, ...rest } = input;
+  await db.trimItem.update({ where: { id }, data: rest as any });
+  revalidatePath("/trims");
+  revalidatePath(`/trims/${id}`);
+  return { ok: true };
+}
+
+/** Stock grows via receipts (writes a movement rather than overwriting). */
+export async function recordTrimReceipt(input: { trimItemId: number; qty: number; rate?: number | null; invoice?: string | null; supplierId?: number | null }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.$transaction(async (tx) => {
+    await tx.trimMovement.create({ data: { type: "RECEIPT", qty: input.qty, date: new Date(), rate: input.rate ?? null, invoice: input.invoice ?? null, trimItemId: input.trimItemId } });
+    await tx.trimItem.update({ where: { id: input.trimItemId }, data: { currentStock: { increment: input.qty } } });
+  });
+  revalidatePath("/trims");
+  revalidatePath(`/trims/${input.trimItemId}`);
+  return { ok: true };
+}
+
+export async function upsertVendor(input: { id?: number; name: string; kind?: "EXTERNAL" | "INHOUSE"; active?: boolean }) {
+  await requireRole("ADMIN", "STAFF");
+  if (!input.name.trim()) throw new Error("Name required");
+  if (input.id) {
+    await db.vendor.update({ where: { id: input.id }, data: { name: input.name.trim(), ...(input.kind ? { kind: input.kind as any } : {}), ...(input.active !== undefined ? { active: input.active } : {}) } as any });
+  } else {
+    await db.vendor.create({ data: { name: input.name.trim(), kind: (input.kind ?? "EXTERNAL") as any } });
+  }
+  revalidatePath("/vendors");
+  return { ok: true };
+}
+
+export async function upsertCuttingMaster(input: { id?: number; name: string; active?: boolean }) {
+  await requireRole("ADMIN", "STAFF");
+  if (!input.name.trim()) throw new Error("Name required");
+  if (input.id) {
+    await db.cuttingMaster.update({ where: { id: input.id }, data: { name: input.name.trim(), ...(input.active !== undefined ? { active: input.active } : {}) } as any });
+  } else {
+    await db.cuttingMaster.create({ data: { name: input.name.trim() } });
+  }
+  revalidatePath("/vendors");
+  return { ok: true };
+}
