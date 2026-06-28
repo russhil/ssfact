@@ -127,11 +127,14 @@ export type JobProductOption = {
   bom: {
     material: string;
     color: string | null;
+    dimension: string;
     perPieceQty: number | null;
     trimItemId: number | null;
     trimName: string | null;
     trimCurrent: number | null;
   }[];
+  // trim master grouped for the swap picker (Change 02)
+  trimMaster: { group: string; items: { id: number; name: string; currentStock: number }[] }[];
 };
 
 function parseRatio(json: string | null | undefined): [string, number][] | null {
@@ -147,7 +150,7 @@ function parseRatio(json: string | null | undefined): [string, number][] | null 
 
 /** Everything the job-card form needs, per product: spec, colors, ratios, BOM + live trim stock. */
 export async function getJobProductOptions(): Promise<JobProductOption[]> {
-  const [products, fabricStock, trimStock] = await Promise.all([
+  const [products, fabricStock, trimStock, allTrims] = await Promise.all([
     db.product.findMany({
       include: {
         fabric: { include: { colors: true } },
@@ -158,9 +161,23 @@ export async function getJobProductOptions(): Promise<JobProductOption[]> {
     }),
     getFabricStock(),
     getTrimStock(),
+    db.trimItem.findMany({
+      select: { id: true, name: true, currentStock: true, category: true, family: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
   const fabricAvail = new Map(fabricStock.map((s) => [s.id, s.available]));
   const trimById = new Map(trimStock.map((t) => [t.id, t]));
+
+  // Trim master grouped by category (fallback family) — drives the swap picker.
+  const groups = new Map<string, { id: number; name: string; currentStock: number }[]>();
+  for (const t of allTrims) {
+    const g = t.category ?? t.family ?? "OTHER";
+    (groups.get(g) ?? groups.set(g, []).get(g)!).push({ id: t.id, name: t.name, currentStock: t.currentStock });
+  }
+  const trimMaster = [...groups.entries()]
+    .map(([group, items]) => ({ group, items }))
+    .sort((a, b) => a.group.localeCompare(b.group));
 
   return products.map((p) => {
     const colors = p.colors.map((c) => ({ name: c.name, hex: c.hex }));
@@ -177,7 +194,8 @@ export async function getJobProductOptions(): Promise<JobProductOption[]> {
         return {
           material: l.material,
           color: l.color,
-          perPieceQty: l.qty,
+          dimension: (l.dimension ?? "FLAT") as string,
+          perPieceQty: l.perPieceQty ?? l.qty,
           trimItemId: l.trimItemId,
           trimName: l.trimItem?.name ?? null,
           trimCurrent: l.trimItem ? trim?.current ?? l.trimItem.currentStock : null,
@@ -204,6 +222,7 @@ export async function getJobProductOptions(): Promise<JobProductOption[]> {
       sizeRatio: parseRatio(p.sizeRatioJson) ?? DEFAULT_SIZE_RATIO,
       colorRatio,
       bom,
+      trimMaster,
     };
   });
 }

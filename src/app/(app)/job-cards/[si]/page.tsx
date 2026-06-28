@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { colorKey } from "@/lib/colour";
 import { Card, Badge } from "@/components/ui";
 import { FabricActualsForm } from "@/components/fabric-actuals-form";
+import { TrimSheet } from "@/components/trim-sheet";
 import { num, inr, fmtDate, pct } from "@/lib/format";
 import { STAGE_LABEL, stageTone, type Stage } from "@/lib/job-labels";
 import { ArrowLeft } from "lucide-react";
@@ -274,35 +275,25 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         </Card>
       )}
 
-      {/* BOM card */}
+      {/* Trim sheet (editable issue log) */}
       {j.jobLines.length > 0 && (
-        <Card className="mt-3.5 overflow-hidden p-0">
-          <div className="border-b border-border px-5 py-3 text-[13px] font-bold">
-            Bill of Materials <span className="font-medium text-faint">· frozen at job creation</span>
-          </div>
-          <table className="w-full text-[12px]">
-            <thead>
-              <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
-                <th className="px-5 py-2.5 font-semibold">Material</th>
-                <th className="px-5 py-2.5 font-semibold">Colour</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Per pc</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Total Used</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Trim Now</th>
-              </tr>
-            </thead>
-            <tbody>
-              {j.jobLines.map((l) => (
-                <tr key={l.id} className="border-b border-slate-50 last:border-0">
-                  <td className="px-5 py-2 font-medium">{l.material}</td>
-                  <td className="px-5 py-2 text-slate-500">{l.color ?? "—"}</td>
-                  <td className="px-5 py-2 text-right tnum text-slate-500">{l.perPieceQty != null ? num(l.perPieceQty, 2) : "—"}</td>
-                  <td className="px-5 py-2 text-right font-bold tnum">{l.totalQty != null ? num(l.totalQty) : "—"}</td>
-                  <td className="px-5 py-2 text-right tnum text-slate-500">{l.trimItem ? num(l.trimItem.currentStock) : "not tracked"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <TrimSheet
+          canEdit={u?.role === "ADMIN" || u?.role === "STAFF"}
+          defaultArrangedBy={u?.displayName ?? ""}
+          lines={j.jobLines.map((l) => ({
+            id: l.id,
+            material: l.material,
+            color: l.color,
+            dimension: l.dimension ?? "FLAT",
+            requiredQty: l.requiredQty ?? l.totalQty ?? null,
+            issuedQty: l.issuedQty ?? null,
+            arrangedBy: l.arrangedBy ?? null,
+            issueDate: l.issueDate ? l.issueDate.toISOString() : null,
+            challan: l.challan ?? null,
+            trimName: l.trimItem?.name ?? null,
+            trimCurrent: l.trimItem ? l.trimItem.currentStock : null,
+          }))}
+        />
       )}
     </div>
   );

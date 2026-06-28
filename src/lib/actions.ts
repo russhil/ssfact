@@ -6,6 +6,8 @@ import { requireRole } from "@/lib/auth";
 import { colorKey } from "@/lib/colour";
 import { revalidatePath } from "next/cache";
 
+type BomDim = "COLOR" | "SIZE" | "FLAT";
+
 export type NewJobInput = {
   productId: number;
   vendorName: string;
@@ -13,9 +15,27 @@ export type NewJobInput = {
   matrix: { size: string; color: string; qty: number }[];
   // per-colour fabric overrides (assumed avg / GSM / roll width); blank ⇒ inherit defaults
   fabricLines?: { color: string; estAvg?: number | null; gsm?: number | null; rollWidth?: number | null }[];
+  // edited trim sheet (Change 02); omit to fall back to the product's preset BOM
+  bomLines?: { trimItemId: number | null; material: string; color?: string | null; dimension: BomDim; perPieceQty: number }[];
+  remark?: string;
   stage?: "CUTTING" | "STITCHING" | "DISPATCH";
   plannedEtd?: string;
 };
+
+// Total trim need = perPieceQty × cutQty, except a COLOUR line tied to one garment
+// colour, which explodes only against that colour's cut quantity.
+function explodeBom(
+  dimension: BomDim,
+  color: string | null | undefined,
+  perPieceQty: number,
+  cutQty: number,
+  cutByColour: Map<string, { qty: number }>
+): number {
+  if (dimension === "COLOR" && color) {
+    return perPieceQty * (cutByColour.get(colorKey(color))?.qty ?? 0);
+  }
+  return perPieceQty * cutQty;
+}
 
 async function nextSiNo(): Promise<string> {
   const jobs = await db.jobCard.findMany({ select: { siNo: true } });
@@ -86,6 +106,34 @@ export async function createJobCard(input: NewJobInput) {
       ? cutQty * defaultAvg
       : null;
 
+  // Build the trim sheet from the edited lines (fall back to the product preset).
+  const presetLines = product.boms.flatMap((b) => b.lines);
+  const rawBom =
+    input.bomLines && input.bomLines.length
+      ? input.bomLines
+      : presetLines.map((l) => ({
+          trimItemId: l.trimItemId,
+          material: l.material,
+          color: l.color,
+          dimension: ((l.dimension ?? "FLAT") as BomDim),
+          perPieceQty: l.perPieceQty ?? l.qty ?? 0,
+        }));
+  const bomPlan = rawBom.map((l) => ({
+    trimItemId: l.trimItemId ?? null,
+    material: l.material,
+    color: l.color ?? null,
+    dimension: l.dimension,
+    perPieceQty: l.perPieceQty ?? 0,
+    requiredQty: explodeBom(l.dimension, l.color, l.perPieceQty ?? 0, cutQty, cutByColour),
+  }));
+  // Flag shortage (trimsPending) against current stock BEFORE depletion.
+  const trimIds = [...new Set(bomPlan.map((l) => l.trimItemId).filter((x): x is number => x != null))];
+  const trims = trimIds.length
+    ? await db.trimItem.findMany({ where: { id: { in: trimIds } }, select: { id: true, currentStock: true } })
+    : [];
+  const trimStock = new Map(trims.map((t) => [t.id, t.currentStock]));
+  const trimsPending = bomPlan.some((l) => l.trimItemId != null && l.requiredQty > (trimStock.get(l.trimItemId) ?? 0));
+
   const siNo = await nextSiNo();
   const now = new Date();
 
@@ -105,11 +153,13 @@ export async function createJobCard(input: NewJobInput) {
         plannedEtd: input.plannedEtd ? new Date(input.plannedEtd) : null,
         status: "ACTIVE",
         stage: input.stage ?? "CUTTING",
+        remark: input.remark ?? null,
+        trimsPending,
         productId: product.id,
         vendorId: vendor.id,
         cuttingMasterId,
         sizeBreakup: { create: matrix.map((m) => ({ size: m.size, color: m.color, qty: m.qty })) },
-      },
+      } as any,
     });
 
     // Per-colour fabric: snapshot a JobFabricLine, issue from that colour's stock,
@@ -146,30 +196,29 @@ export async function createJobCard(input: NewJobInput) {
       }
     }
 
-    // Frozen BOM snapshot + live trim depletion.
-    for (const bom of product.boms) {
-      for (const line of bom.lines) {
-        const perPieceQty = line.qty ?? null;
-        const totalQty = (line.qty ?? 0) * cutQty;
-        await tx.jobBomLine.create({
-          data: {
-            material: line.material,
-            color: line.color,
-            perPieceQty,
-            totalQty: line.trimItemId ? totalQty : perPieceQty != null ? totalQty : null,
-            trimItemId: line.trimItemId,
-            jobCardId: created.id,
-          },
+    // Frozen BOM snapshot (from the EDITED trim sheet) + live trim depletion.
+    for (const line of bomPlan) {
+      await tx.jobBomLine.create({
+        data: {
+          material: line.material,
+          color: line.color,
+          dimension: line.dimension as any,
+          perPieceQty: line.perPieceQty,
+          totalQty: line.requiredQty,
+          requiredQty: line.requiredQty,
+          issuedQty: 0,
+          trimItemId: line.trimItemId,
+          jobCardId: created.id,
+        } as any,
+      });
+      if (line.trimItemId && line.requiredQty > 0) {
+        await tx.trimMovement.create({
+          data: { type: "ISSUE", qty: line.requiredQty, date: now, trimItemId: line.trimItemId },
         });
-        if (line.trimItemId && totalQty > 0) {
-          await tx.trimMovement.create({
-            data: { type: "ISSUE", qty: totalQty, date: now, trimItemId: line.trimItemId },
-          });
-          await tx.trimItem.update({
-            where: { id: line.trimItemId },
-            data: { currentStock: { decrement: totalQty } },
-          });
-        }
+        await tx.trimItem.update({
+          where: { id: line.trimItemId },
+          data: { currentStock: { decrement: line.requiredQty } },
+        });
       }
     }
 
@@ -445,5 +494,87 @@ export async function removeFabricSupplier(input: { id: number }) {
   await requireRole("ADMIN", "STAFF");
   const s = await db.fabricSupplier.delete({ where: { id: input.id } });
   revalidatePath(`/inventory/${s.fabricId}`);
+  return { ok: true };
+}
+
+// ── Change 02 — trim sheet: incremental issue log + preset BOM CRUD ──
+
+/** Log trims physically handed over against a job's BOM line (workbook Issue-Qty/Balance). */
+export async function recordTrimIssue(input: {
+  jobBomLineId: number;
+  issuedQty: number;
+  arrangedBy?: string | null;
+  issueDate?: string | null;
+  challan?: string | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const line = await db.jobBomLine.update({
+    where: { id: input.jobBomLineId },
+    data: {
+      issuedQty: input.issuedQty,
+      arrangedBy: input.arrangedBy ?? null,
+      issueDate: input.issueDate ? new Date(input.issueDate) : new Date(),
+      challan: input.challan ?? null,
+    } as any,
+    include: { jobCard: { include: { jobLines: true } } },
+  });
+  // Recompute trims-pending live: any line still needing more than the trim's current stock.
+  const trimIds = [...new Set(line.jobCard.jobLines.map((l) => l.trimItemId).filter((x): x is number => x != null))];
+  const trims = trimIds.length
+    ? await db.trimItem.findMany({ where: { id: { in: trimIds } }, select: { id: true, currentStock: true } })
+    : [];
+  const stock = new Map(trims.map((t) => [t.id, t.currentStock]));
+  const pending = line.jobCard.jobLines.some((l) => {
+    const bal = (l.requiredQty ?? l.totalQty ?? 0) - (l.issuedQty ?? 0);
+    return l.trimItemId != null && bal > 0 && (l.requiredQty ?? 0) > (stock.get(l.trimItemId) ?? 0);
+  });
+  await db.jobCard.update({ where: { id: line.jobCardId }, data: { trimsPending: pending } as any });
+  const job = await db.jobCard.findUnique({ where: { id: line.jobCardId }, select: { siNo: true } });
+  if (job) revalidatePath(`/job-cards/${siSlug(job.siNo)}`);
+  revalidatePath("/pending-trims");
+  return { ok: true };
+}
+
+/** Preset BOM CRUD (admin/staff) — edit a product's reusable trim template. */
+export async function upsertBomLine(input: {
+  id?: number;
+  productId: number;
+  trimItemId: number | null;
+  material: string;
+  color?: string | null;
+  dimension: "COLOR" | "SIZE" | "FLAT";
+  perPieceQty: number;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  // ensure the product has a Bom row to hang lines on
+  let bom = await db.bom.findFirst({ where: { productId: input.productId } });
+  if (!bom) {
+    const product = await db.product.findUnique({ where: { id: input.productId } });
+    bom = await db.bom.create({
+      data: { code: product?.bomCode ?? product?.styleNo ?? `P${input.productId}`, styleName: product?.name ?? "", productId: input.productId },
+    });
+  }
+  const data = {
+    material: input.material,
+    color: input.color ?? null,
+    dimension: input.dimension as any,
+    perPieceQty: input.perPieceQty,
+    qty: input.perPieceQty,
+    trimItemId: input.trimItemId,
+  };
+  if (input.id) {
+    await db.bomLine.update({ where: { id: input.id }, data: data as any });
+  } else {
+    await db.bomLine.create({ data: { ...data, bomId: bom.id } as any });
+  }
+  revalidatePath("/catalog");
+  revalidatePath(`/catalog/${input.productId}`);
+  return { ok: true };
+}
+
+export async function removeBomLine(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.bomLine.delete({ where: { id: input.id } });
+  revalidatePath("/catalog");
   return { ok: true };
 }

@@ -9,13 +9,15 @@ import { colorKey } from "@/lib/colour";
 import { STAGES, STAGE_LABEL, splitByRatio, type Stage } from "@/lib/job-labels";
 import { Badge } from "@/components/ui";
 import { num, inr } from "@/lib/format";
-import { Zap, Check, AlertTriangle, ArrowLeft } from "lucide-react";
+import { Zap, Check, AlertTriangle, ArrowLeft, Plus, X } from "lucide-react";
 
 const COLORLESS = "—";
 const cellKey = (size: string, color: string) => `${size}|||${color}`;
 
 type CutMode = "ratio" | "manual";
 type ColorMode = "ratio" | "manual";
+type BomDim = "COLOR" | "SIZE" | "FLAT";
+type BomRow = { trimItemId: number | null; material: string; color: string; dimension: BomDim; perPieceQty: number };
 
 export function NewJobCardForm({
   products,
@@ -53,6 +55,9 @@ export function NewJobCardForm({
   const [colorAvg, setColorAvg] = useState<Record<string, number>>({});
   const [colorGsm, setColorGsm] = useState<Record<string, number>>({});
   const [colorWidth, setColorWidth] = useState<Record<string, number>>({});
+
+  // editable trim sheet (Change 02)
+  const [bomRows, setBomRows] = useState<BomRow[]>([]);
 
   const sizes = useMemo(() => sizeRatio.map(([s]) => s), [sizeRatio]);
   const colors = picked?.colors ?? [];
@@ -147,6 +152,33 @@ export function NewJobCardForm({
       .slice(0, 6);
   }, [query, products]);
 
+  // per-colour cut quantities (for COLOUR-dimension trim explosion)
+  const cutByColour = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of matrix) if (r.qty > 0) { const k = colorKey(r.color); m.set(k, (m.get(k) ?? 0) + r.qty); }
+    return m;
+  }, [matrix]);
+  const trimById = useMemo(() => {
+    const m = new Map<number, { name: string; currentStock: number }>();
+    for (const g of picked?.trimMaster ?? []) for (const it of g.items) m.set(it.id, { name: it.name, currentStock: it.currentStock });
+    return m;
+  }, [picked]);
+  function bomRequired(r: BomRow): number {
+    if (r.dimension === "COLOR" && r.color) return (r.perPieceQty || 0) * (cutByColour.get(colorKey(r.color)) ?? 0);
+    return (r.perPieceQty || 0) * cutQty;
+  }
+  function presetRows(p: JobProductOption): BomRow[] {
+    return (p.bom ?? []).map((b) => ({
+      trimItemId: b.trimItemId,
+      material: b.material,
+      color: b.color ?? "",
+      dimension: ((b.dimension as BomDim) ?? "FLAT"),
+      perPieceQty: b.perPieceQty ?? 0,
+    }));
+  }
+  const setBomRow = (i: number, patch: Partial<BomRow>) =>
+    setBomRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+
   function pick(p: JobProductOption) {
     setPicked(p);
     setQuery(p.styleNo);
@@ -157,6 +189,7 @@ export function NewJobCardForm({
     setColorAvg({});
     setColorGsm({});
     setColorWidth({});
+    setBomRows(presetRows(p));
     setActiveColors(p.colors.map((c) => c.name)); // default: all colors in play
   }
 
@@ -180,6 +213,15 @@ export function NewJobCardForm({
             estAvg: colorAvg[r.key] ?? null,
             gsm: colorGsm[r.key] ?? null,
             rollWidth: colorWidth[r.key] ?? null,
+          })),
+        bomLines: bomRows
+          .filter((r) => r.trimItemId != null || r.material.trim())
+          .map((r) => ({
+            trimItemId: r.trimItemId,
+            material: r.material.trim() || (r.trimItemId ? trimById.get(r.trimItemId)?.name ?? "" : ""),
+            color: r.color || null,
+            dimension: r.dimension,
+            perPieceQty: r.perPieceQty || 0,
           })),
         stage,
         plannedEtd: etd || undefined,
@@ -431,40 +473,87 @@ export function NewJobCardForm({
                 </>
               )}
 
-              {/* BOM panel */}
-              {picked.bom.length > 0 && (
-                <div className="mt-4">
-                  <h4 className="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted">Bill of materials · ×{num(cutQty)} pcs</h4>
-                  <div className="overflow-hidden rounded-lg border border-border">
+              {/* editable trim sheet (BOM) */}
+              <div className="mt-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wide text-muted">Trim sheet · ×{num(cutQty)} pcs</h4>
+                  <div className="flex gap-1.5">
+                    <button type="button" onClick={() => setBomRows(presetRows(picked))} className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">
+                      Load preset
+                    </button>
+                    <button type="button" onClick={() => setBomRows((r) => [...r, { trimItemId: null, material: "", color: "", dimension: "FLAT", perPieceQty: 0 }])} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">
+                      <Plus size={12} /> Add row
+                    </button>
+                  </div>
+                </div>
+                {bomRows.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-border py-3 text-center text-[11px] text-faint">No trims — load the preset or add rows.</p>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-border">
                     <table className="w-full text-[12px]">
                       <thead>
                         <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
-                          <th className="px-3 py-2 font-semibold">Material</th>
-                          <th className="px-3 py-2 font-semibold">Colour</th>
-                          <th className="px-3 py-2 text-right font-semibold">Per pc</th>
-                          <th className="px-3 py-2 text-right font-semibold">Total</th>
-                          <th className="px-3 py-2 text-right font-semibold">In store</th>
+                          <th className="px-2 py-2 font-semibold">Trim (from master)</th>
+                          <th className="px-2 py-2 font-semibold">Dim</th>
+                          <th className="px-2 py-2 font-semibold">Colour</th>
+                          <th className="px-2 py-2 text-right font-semibold">Per pc</th>
+                          <th className="px-2 py-2 text-right font-semibold">Required</th>
+                          <th className="px-2 py-2 text-right font-semibold">In store</th>
+                          <th className="px-2 py-2"></th>
                         </tr>
                       </thead>
                       <tbody>
-                        {picked.bom.map((l, i) => {
-                          const total = (l.perPieceQty ?? 0) * cutQty;
-                          const short = l.trimCurrent != null && total > l.trimCurrent;
+                        {bomRows.map((r, i) => {
+                          const required = bomRequired(r);
+                          const stock = r.trimItemId != null ? trimById.get(r.trimItemId)?.currentStock ?? null : null;
+                          const short = stock != null && required > stock;
                           return (
                             <tr key={i} className="border-b border-slate-50 last:border-0">
-                              <td className="px-3 py-1.5 font-medium">{l.material}</td>
-                              <td className="px-3 py-1.5 text-slate-500">{l.color ?? "—"}</td>
-                              <td className="px-3 py-1.5 text-right tnum text-slate-500">{l.perPieceQty != null ? num(l.perPieceQty, 2) : "—"}</td>
-                              <td className={`px-3 py-1.5 text-right font-bold tnum ${short ? "text-danger" : ""}`}>{l.perPieceQty != null ? num(total) : "—"}</td>
-                              <td className="px-3 py-1.5 text-right">
-                                {l.trimCurrent != null ? (
-                                  <span className="inline-flex items-center gap-1.5">
-                                    <span className={`tnum font-semibold ${short ? "text-danger" : ""}`}>{num(l.trimCurrent)}</span>
+                              <td className="px-2 py-1">
+                                <select
+                                  value={r.trimItemId ?? ""}
+                                  onChange={(e) => {
+                                    const id = e.target.value ? +e.target.value : null;
+                                    setBomRow(i, { trimItemId: id, material: id ? trimById.get(id)?.name ?? r.material : r.material });
+                                  }}
+                                  className="w-full min-w-[150px] rounded-md border border-border bg-white px-1.5 py-1 text-[11px] outline-none focus:border-primary"
+                                >
+                                  <option value="">{r.material || "— pick trim —"}</option>
+                                  {(picked.trimMaster ?? []).map((g) => (
+                                    <optgroup key={g.group} label={g.group}>
+                                      {g.items.map((it) => (
+                                        <option key={it.id} value={it.id}>{it.name} ({num(it.currentStock)})</option>
+                                      ))}
+                                    </optgroup>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="px-2 py-1">
+                                <select value={r.dimension} onChange={(e) => setBomRow(i, { dimension: e.target.value as BomDim })} className="rounded-md border border-border bg-white px-1 py-1 text-[11px] outline-none focus:border-primary">
+                                  <option value="FLAT">Flat</option>
+                                  <option value="COLOR">Colour</option>
+                                  <option value="SIZE">Size</option>
+                                </select>
+                              </td>
+                              <td className="px-2 py-1">
+                                <input value={r.color} onChange={(e) => setBomRow(i, { color: e.target.value })} placeholder="—" className="w-20 rounded-md border border-border px-1.5 py-1 text-[11px] outline-none focus:border-primary" />
+                              </td>
+                              <td className="px-1 py-1">
+                                <input type="number" step="0.001" value={r.perPieceQty || ""} onChange={(e) => setBomRow(i, { perPieceQty: +e.target.value })} className="w-16 rounded-md border border-border px-1.5 py-1 text-right text-[11px] tnum outline-none focus:border-primary" />
+                              </td>
+                              <td className={`px-2 py-1 text-right font-bold tnum ${short ? "text-danger" : ""}`}>{num(required)}</td>
+                              <td className="px-2 py-1 text-right">
+                                {stock != null ? (
+                                  <span className="inline-flex items-center gap-1">
+                                    <span className={`tnum ${short ? "text-danger font-semibold" : "text-slate-500"}`}>{num(stock)}</span>
                                     {short && <Badge tone="danger">Short</Badge>}
                                   </span>
                                 ) : (
-                                  <span className="text-[11px] text-faint">not tracked</span>
+                                  <span className="text-[10px] text-faint">untracked</span>
                                 )}
+                              </td>
+                              <td className="px-1 py-1 text-right">
+                                <button type="button" onClick={() => setBomRows((rows) => rows.filter((_, idx) => idx !== i))} className="text-faint hover:text-danger"><X size={13} /></button>
                               </td>
                             </tr>
                           );
@@ -472,8 +561,11 @@ export function NewJobCardForm({
                       </tbody>
                     </table>
                   </div>
-                </div>
-              )}
+                )}
+                {bomRows.some((r) => { const s = r.trimItemId != null ? trimById.get(r.trimItemId)?.currentStock ?? null : null; return s != null && bomRequired(r) > s; }) && (
+                  <p className="mt-1.5 text-[11px] text-danger">Some trims are short — the card still saves and is flagged in Pending Trims.</p>
+                )}
+              </div>
             </>
           )}
         </div>
