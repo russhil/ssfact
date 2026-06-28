@@ -65,6 +65,46 @@ enum ProductionStatus {
   COMPLETED
 }
 
+// How a BOM line's trim is consumed against the size×colour matrix.
+enum BomDimension {
+  COLOR // explode × that colour's cut qty
+  SIZE // explode × that size's cut qty
+  FLAT // same on every piece (× total cut qty)
+}
+
+enum SupplierType {
+  CHINA
+  IMPORTER
+  AGENT
+  MANUFACTURER
+}
+
+// The 7 head trim categories (unified from the fragmented trim databases).
+enum TrimCategory {
+  BUTTON
+  ZIP
+  TAG
+  CARDBOARD
+  MASTERPACK
+  LABEL
+  POLYBAG // packaging / panni
+  OTHER
+}
+
+enum TrimStatus {
+  ACTIVE
+  PLANNING
+  DISCONTINUED
+}
+
+enum FabricOrderStatus {
+  PLANNING
+  SAMPLE_PENDING
+  ORDER_PLACED
+  RECEIVED
+  DISCARDED
+}
+
 model Vendor {
   id       Int        @id @default(autoincrement())
   name     String     @unique
@@ -95,6 +135,7 @@ model Fabric {
   movements      StockMovement[]
   returnNotes    ReturnNote[]
   jobFabricLines JobFabricLine[]
+  fabricOrders   FabricOrder[]
 }
 
 // Stock is held per colour under each fabric (factory holds finished, dyed fabric
@@ -162,6 +203,7 @@ model JobCard {
   status          JobStatus @default(ACTIVE)
   stage           JobStage  @default(CUTTING)
   remark          String?
+  trimsPending    Boolean   @default(false) // set when BOM needs exceed trim stock at save (Pending Trims)
 
   product         Product        @relation(fields: [productId], references: [id])
   productId       Int
@@ -197,6 +239,8 @@ model JobFabricLine {
   rollWidth Float?
   qtyIssued Float?
   qtyUsed   Float?
+  arrangedBy String? // who issued the fabric (defaults to logged-in user)
+  challan    String?
   jobCard   JobCard @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
   jobCardId Int
 
@@ -205,13 +249,14 @@ model JobFabricLine {
 }
 
 model DispatchEvent {
-  id        Int      @id @default(autoincrement())
-  date      DateTime
-  qty       Float
-  challan   String?
-  note      String?
-  jobCard   JobCard  @relation(fields: [jobCardId], references: [id])
-  jobCardId Int
+  id         Int      @id @default(autoincrement())
+  date       DateTime
+  qty        Float
+  challan    String?
+  note       String?
+  arrangedBy String? // who logged the receipt (defaults to logged-in user)
+  jobCard    JobCard  @relation(fields: [jobCardId], references: [id])
+  jobCardId  Int
 
   @@index([jobCardId])
 }
@@ -230,14 +275,20 @@ model SizeBreakup {
 // Frozen BOM snapshot of what a job card actually consumed (immutable even if the
 // product BOM later changes). Drives real-time trim depletion at job creation.
 model JobBomLine {
-  id          Int       @id @default(autoincrement())
+  id          Int          @id @default(autoincrement())
   material    String
   color       String?
+  dimension   BomDimension @default(FLAT)
   perPieceQty Float?
-  totalQty    Float? // perPieceQty × cutQty — the amount decremented
-  trimItem    TrimItem? @relation(fields: [trimItemId], references: [id])
+  totalQty    Float? // legacy: perPieceQty × cutQty
+  requiredQty Float? // exploded need against the matrix (the amount depleted)
+  issuedQty   Float?       @default(0) // logged over time; balance = requiredQty - issuedQty (derived)
+  arrangedBy  String?
+  issueDate   DateTime?
+  challan     String?
+  trimItem    TrimItem?    @relation(fields: [trimItemId], references: [id])
   trimItemId  Int?
-  jobCard     JobCard   @relation(fields: [jobCardId], references: [id])
+  jobCard     JobCard      @relation(fields: [jobCardId], references: [id])
   jobCardId   Int
 
   @@index([jobCardId])
@@ -347,16 +398,18 @@ model Bom {
 }
 
 model BomLine {
-  id         Int       @id @default(autoincrement())
-  sNo        Int?
-  material   String
-  color      String?
-  qty        Float?
-  avg        String?
-  bom        Bom       @relation(fields: [bomId], references: [id])
-  bomId      Int
-  trimItem   TrimItem? @relation(fields: [trimItemId], references: [id])
-  trimItemId Int?
+  id          Int          @id @default(autoincrement())
+  sNo         Int?
+  material    String
+  color       String?
+  qty         Float? // legacy per-piece qty (kept for migration)
+  perPieceQty Float? // source going forward (per-one-piece count)
+  dimension   BomDimension @default(FLAT)
+  avg         String?
+  bom         Bom          @relation(fields: [bomId], references: [id])
+  bomId       Int
+  trimItem    TrimItem?    @relation(fields: [trimItemId], references: [id])
+  trimItemId  Int?
 
   @@index([bomId])
   @@index([trimItemId])
@@ -367,15 +420,72 @@ model TrimItem {
   sno          String?
   name         String         @unique
   normName     String
-  family       String?
+  family       String? // legacy free-text family (kept for back-compat)
   openingStock Float          @default(0)
   currentStock Float          @default(0) // authoritative snapshot
+  // unified trim master fields
+  category     TrimCategory?
+  supplier     Supplier?      @relation(fields: [supplierId], references: [id])
+  supplierId   Int?
+  ratePerUnit  Float?
+  unit         String? // pcs / mtr / kg / set
+  status       TrimStatus     @default(ACTIVE)
+  remarks      String?
+  imageUrl     String?
+  // optional spec fields (surfaced per category, never forced)
+  size          String?
+  material      String?
+  weight        String?
+  shape         String?
+  color         String?
+  estMonthlyReq Float? // OWNER-PLANNING only — hidden from the staff entry form
   movements    TrimMovement[]
   bomLines     BomLine[]
   jobLines     JobBomLine[]
 
   @@index([normName])
   @@index([family])
+  @@index([category])
+  @@index([supplierId])
+}
+
+// Shared supplier master (fabric orders + every trim category point here).
+model Supplier {
+  id           Int           @id @default(autoincrement())
+  name         String        @unique
+  type         SupplierType?
+  city         String?
+  phone        String?
+  remarks      String?
+  trims        TrimItem[]
+  fabricOrders FabricOrder[]
+
+  @@index([type])
+}
+
+// Procurement pipeline that feeds fabric INTO colour stock.
+model FabricOrder {
+  id            Int               @id @default(autoincrement())
+  fabric        Fabric            @relation(fields: [fabricId], references: [id])
+  fabricId      Int
+  color         String? // which colour this order lands in on receipt
+  supplier      Supplier?         @relation(fields: [supplierId], references: [id])
+  supplierId    Int?
+  qty           Float
+  unit          FabricUnit        @default(MTR)
+  rate          Float?
+  gsm           Float?
+  colorCount    Int?
+  status        FabricOrderStatus @default(PLANNING)
+  shadeCardDone Boolean           @default(false)
+  orderDate     DateTime?
+  expectedDate  DateTime?
+  receivedDate  DateTime? // set on receive — also the double-receive guard
+  remarks       String?
+
+  @@index([fabricId])
+  @@index([supplierId])
+  @@index([status])
 }
 
 model TrimMovement {

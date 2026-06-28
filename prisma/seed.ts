@@ -30,6 +30,43 @@ function synthStock(name: string): number {
   return 800 + (h % 26) * 90;
 }
 
+// Map the legacy free-text trim family → the 7 unified head categories (Change 05).
+function familyToCategory(family: string | null | undefined): string | null {
+  const f = (family ?? "").toUpperCase();
+  if (!f) return null;
+  if (f.includes("BUTTON")) return "BUTTON";
+  if (f.includes("ZIP")) return "ZIP";
+  if (f.includes("TAG")) return "TAG";
+  if (f.includes("CARDBOARD") || f.includes("CARTON")) return "CARDBOARD";
+  if (f.includes("MASTERPACK") || f.includes("MASTER PACK")) return "MASTERPACK";
+  if (f.includes("LABEL") || f.includes("LABLE") || f.includes("TICKET") || f.includes("STICKER") || f.includes("HEAT"))
+    return "LABEL";
+  if (f.includes("PACKAGING") || f.includes("POLY") || f.includes("PANNI")) return "POLYBAG";
+  // tapes, threads, cords, elastic, fusing, hanger, collar, reflector → OTHER
+  if (
+    ["THREAD", "NIWAD", "NADA", "ELASTIC", "SHOULDER", "FUSING", "HANGER", "COLLAR", "CORD", "REFLECT"].some((k) =>
+      f.includes(k)
+    )
+  )
+    return "OTHER";
+  return "OTHER";
+}
+
+// BOM consumption pattern inferred from the trim's family (Change 02).
+function dimensionForFamily(family: string | null | undefined): "COLOR" | "SIZE" | "FLAT" {
+  const f = (family ?? "").toUpperCase();
+  if (["THREAD", "NIWAD", "HEAT", "COLLAR", "CORD", "NADA"].some((k) => f.includes(k))) return "COLOR";
+  if (f.includes("LABEL") || f.includes("LABLE") || f.includes("TICKET")) return "SIZE";
+  return "FLAT";
+}
+
+// Clean a free-text vendor/supplier name; null for junk.
+function cleanSupplier(s: string | null | undefined): string | null {
+  const v = (s ?? "").trim().replace(/\s+/g, " ");
+  if (!v || /^(TBC|NA|N\/A|\?|-)$/i.test(v)) return null;
+  return v;
+}
+
 async function main() {
   console.log("Clearing existing data…");
   await db.returnNote.deleteMany();
@@ -170,6 +207,7 @@ async function main() {
 
   // Job cards (re-pointed to productId)
   let made = 0, orphan = 0;
+  const seededJobs: { id: number; productId: number; cutQty: number; status: string }[] = [];
   for (const j of seed.jobCards) {
     const productId = styleToProduct.get(norm(j.styleNo));
     if (!productId) { orphan++; continue; }
@@ -239,16 +277,48 @@ async function main() {
       }
       await db.fabricColor.update({ where: { id: fcId }, data: { currentStock: { decrement: fc.reqMtr! } } });
     }
+    seededJobs.push({ id: created.id, productId, cutQty: j.cutQty ?? 0, status: j.status });
     made++;
   }
 
-  // Trim items + movements
+  // Pre-scan trim movements → latest rate + representative vendor per trim (for the master).
+  const trimRate = new Map<string, number>();
+  const trimVendor = new Map<string, string>();
+  for (const m of catalog.trimMovements as any[]) {
+    if (typeof m.rate === "number" && m.rate > 0) trimRate.set(m.itemNorm, m.rate);
+    const v = cleanSupplier(m.vendor);
+    if (v) trimVendor.set(m.itemNorm, v);
+  }
+
+  // Supplier master — seed from distinct trim-movement vendors (Change 05 Part A).
+  const supplierByName = new Map<string, number>(); // UPPER name -> id
+  for (const raw of new Set([...trimVendor.values()].map((v) => v))) {
+    const key = raw.toUpperCase();
+    if (supplierByName.has(key)) continue;
+    const s = await db.supplier.create({ data: { name: raw } });
+    supplierByName.set(key, s.id);
+  }
+
+  // Trim items (unified master) + movements
   const trimMap = new Map<string, number>();
+  const trimFamilyByNorm = new Map<string, string | null>();
+  const trimStockByNorm = new Map<string, number>(); // snapshot for pending calc
   for (const t of catalog.trimItems as any[]) {
+    const vendor = trimVendor.get(t.normName);
+    const supplierId = vendor ? supplierByName.get(vendor.toUpperCase()) ?? null : null;
     const r = await db.trimItem.create({
-      data: { sno: t.sno, name: t.name, normName: t.normName, family: t.family, openingStock: t.openingStock ?? 0, currentStock: t.currentStock ?? 0 },
+      data: {
+        sno: t.sno, name: t.name, normName: t.normName, family: t.family,
+        openingStock: t.openingStock ?? 0, currentStock: t.currentStock ?? 0,
+        category: familyToCategory(t.family) as any,
+        unit: "pcs", status: "ACTIVE",
+        ratePerUnit: trimRate.get(t.normName) ?? null,
+        supplierId,
+      },
     });
     trimMap.set(t.normName, r.id);
+    trimFamilyByNorm.set(t.normName, t.family ?? null);
+    trimStockByNorm.set(t.normName, t.currentStock ?? 0);
   }
   let tmoves = 0;
   for (const m of catalog.trimMovements as any[]) {
@@ -260,15 +330,82 @@ async function main() {
     tmoves++;
   }
 
-  // BOMs + lines
+  // BOMs + lines (perPieceQty + dimension now drive the editable trim sheet — Change 02)
+  const bomByProductId = new Map<number, any[]>(); // productId -> exploded-ready line specs
   for (const b of catalog.boms as any[]) {
     const productId = b.productExtId ? productMap.get(b.productExtId) ?? null : null;
+    const lines = b.lines.map((l: any) => {
+      const trimNorm = l.trimMatchNorm ?? null;
+      const trimItemId = trimNorm ? trimMap.get(trimNorm) ?? null : null;
+      const dimension = dimensionForFamily(trimNorm ? trimFamilyByNorm.get(trimNorm) : null);
+      return {
+        sNo: l.sNo, material: l.material, color: l.color, qty: l.qty,
+        perPieceQty: l.qty, dimension: dimension as any, avg: l.avg, trimItemId, trimNorm,
+      };
+    });
     await db.bom.create({
       data: {
         code: b.code, styleName: b.styleName, productId,
-        lines: { create: b.lines.map((l: any) => ({ sNo: l.sNo, material: l.material, color: l.color, qty: l.qty, avg: l.avg, trimItemId: l.trimMatchNorm ? trimMap.get(l.trimMatchNorm) ?? null : null })) },
+        lines: { create: lines.map(({ trimNorm, ...rest }: any) => rest) },
       },
     });
+    if (productId) bomByProductId.set(productId, (bomByProductId.get(productId) ?? []).concat(lines));
+  }
+
+  // Historical BOM snapshot per job card (JobBomLine) + Pending-Trims flag.
+  // requiredQty = perPieceQty × cutQty (Σ over colours/sizes = cutQty for any dimension).
+  // currentStock is already net of historical consumption, so we do NOT re-deplete.
+  let jbl = 0, pendingCards = 0;
+  for (const jc of seededJobs) {
+    const lines = bomByProductId.get(jc.productId) ?? [];
+    if (!lines.length) continue;
+    const closed = jc.status === "CLOSED";
+    let pending = false;
+    const create = lines.map((l: any) => {
+      const required = (l.perPieceQty ?? 0) * jc.cutQty;
+      const stock = l.trimNorm ? trimStockByNorm.get(l.trimNorm) ?? 0 : 0;
+      if (!closed && l.trimItemId && required > stock) pending = true;
+      return {
+        material: l.material, color: l.color, dimension: l.dimension,
+        perPieceQty: l.perPieceQty, totalQty: required, requiredQty: required,
+        issuedQty: closed ? required : 0, trimItemId: l.trimItemId,
+      };
+    });
+    await db.jobBomLine.createMany({ data: create.map((c: any) => ({ ...c, jobCardId: jc.id })) });
+    jbl += create.length;
+    if (pending) {
+      await db.jobCard.update({ where: { id: jc.id }, data: { trimsPending: true } });
+      pendingCards++;
+    }
+  }
+
+  // Fabric orders — demo procurement pipeline (Change 05 Part C)
+  const anySupplier = [...supplierByName.values()][0] ?? null;
+  const fabricOrderSpecs: { fabric: string; color: string; qty: number; status: string; days: number; rate: number }[] = [
+    { fabric: "Max Polo", color: "NAVY", qty: 1500, status: "ORDER_PLACED", days: 12, rate: 320 },
+    { fabric: "Max Polo", color: "BLACK", qty: 1200, status: "PLANNING", days: 0, rate: 320 },
+    { fabric: "Ns Cotton", color: "AIR FORCE", qty: 2000, status: "ORDER_PLACED", days: 8, rate: 285 },
+    { fabric: "Playcool Eco", color: "BLACK", qty: 1800, status: "RECEIVED", days: -5, rate: 410 },
+    { fabric: "Polyster Terry", color: "NAVY", qty: 900, status: "SAMPLE_PENDING", days: 20, rate: 260 },
+    { fabric: "Fourway Lycra", color: "BLACK", qty: 1100, status: "PLANNING", days: 0, rate: 540 },
+    { fabric: "Popcorn", color: "BLACK", qty: 700, status: "ORDER_PLACED", days: 15, rate: 375 },
+    { fabric: "Playcool Eco", color: "NAVY", qty: 1300, status: "RECEIVED", days: -12, rate: 410 },
+  ];
+  let fos = 0;
+  const today = new Date();
+  for (const s of fabricOrderSpecs) {
+    const fid = fabricMap.get(s.fabric);
+    if (!fid) continue;
+    const expected = new Date(today.getTime() + s.days * 86_400_000);
+    await db.fabricOrder.create({
+      data: {
+        fabricId: fid, color: cu(s.color), supplierId: anySupplier, qty: s.qty, rate: s.rate,
+        status: s.status as any, orderDate: today,
+        expectedDate: s.status === "RECEIVED" ? null : expected,
+        receivedDate: s.status === "RECEIVED" ? expected : null,
+      },
+    });
+    fos++;
   }
 
   // Production orders
@@ -292,6 +429,7 @@ async function main() {
 
   console.log(`Seeded: ${vendorMap.size} vendors, ${cmMap.size} cutting masters, ${fabricMap.size} fabrics, ${fcRows} fabric colours, ${made} job cards (${orphan} orphan).`);
   console.log(`Commercial: ${productMap.size} products, ${trimMap.size} trims, ${tmoves} trim moves, ${catalog.boms.length} BOMs, ${pos} POs, ${(catalog.users as any[]).length} users.`);
+  console.log(`Change 05: ${supplierByName.size} suppliers, ${fos} fabric orders. BOM snapshot: ${jbl} job-bom lines, ${pendingCards} cards flagged trims-pending.`);
 }
 
 main()
