@@ -67,6 +67,70 @@ function cleanSupplier(s: string | null | undefined): string | null {
   return v;
 }
 
+// ── De-dupe / alias maps (master-data handoff) ──
+// Build a raw(UPPER) → canonical lookup from a {canonical: [raw spellings]} table.
+function buildAlias(table: Record<string, string[]>): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const [canon, raws] of Object.entries(table)) {
+    m.set(canon.toUpperCase(), canon);
+    for (const r of raws) m.set(r.toUpperCase(), canon);
+  }
+  return m;
+}
+const SUPPLIER_ALIAS = buildAlias({
+  "In House": ["IN HOUSE"], "Ushman": ["USHMAN"], "Raman Reti": ["RAMAN RETI"], "Mama Ji": ["MAMA JI"],
+  "Gautam Agencies": ["GAUTAM AGENCIES", "GAUTAM AGENCISE"], "Gulshan Ji": ["GULSHAN JI"],
+  "J.P. Ji": ["J.P JI", "J P JI"], "Grover Store": ["GROVER STORE"], "Sanni Gandhinagar": ["SANNI GADHINAGER"],
+  "Jain Narrow": ["JAIN NARROW"], "Balkishan Ji": ["BALKISHAN JI"], "K.D. Enterprise": ["K.D INTERPRISE"],
+  "M.P. Fashion": ["M.P FASHION"], "Jalwa Global": ["JALWA GLOBLE"], "Vinayak Ji": ["VINAYAK JI"],
+  "Sannvi Narrow": ["SANNVI NARROW"], "Begampur": ["BEGAMPUR"], "Ludhiana": ["LUDHIYANA"], "Screen Art": ["SCREEN ART"],
+  "Dashmesh": ["DASHMESH", "DESHMESH"], "Durga Prints": ["DURGA PRINTS"], "Chaudhary Labels": ["CHAUDHARY LABLES"],
+  "Oberai Prime": ["OBERAI PRIME"], "Sahatam Ji": ["SAHATAM JI"], "Sanjeev Seroff": ["SANJEEV SEROFF"],
+  "Satvik Ji": ["SATVIK JI"], "Titan Zip": ["TITAN ZIP"], "Janaksons": ["JANAKSONS"], "Jiwan Store": ["JIWAN STORE"],
+  "Myoho": ["MYOHO"], "Siddharth Marketing": ["SIDDHARTH MARKETING"], "Viney": ["VINEY"],
+  "Kasturi Traders": ["KASTURI TRADERS"], "Mani Textiles": ["MANI TEXTILES"], "Midas Garments": ["MIDAS GARMENTS"],
+  "P.S. Accessories": ["P.S.ACCESSORIES"], "Saroj Ji": ["SAROJ JI"], "Sukriti Creations": ["SUKRITI CREATIONS"],
+  "Gopesh Ji": ["GOPESH JI"], "BDS Traders Bhagawan": ["BDS TRADERS BHAGAWAN"],
+});
+const VENDOR_ALIAS = buildAlias({
+  "Maa Garments": ["MAA GARM.", "MAA GARMENTS"],
+  "Ramanreti": ["RAMANRETI", "RAMANRETTI", "RAMAN RETI"],
+  "In House Mantu": ["INHOUSE MANTU", "INHOUSE-MANTU", "IN HOUSE MANTU RAMANRETI"],
+});
+const COLOUR_ALIAS = buildAlias({
+  "AIRFORCE": ["AIR FORCE"], "DARK AIRFORCE": ["D.AIRFORCE"], "DARK GREY": ["D.GREY", "D GREY"],
+  "LIGHT GREY": ["L.GREY", "L GREY"], "MEDIUM GREY": ["M.GREY", "M GREY"],
+  "FOREST GREEN": ["F.GREEN"], "LIGHT GREEN": ["L.GREEN"], "MEDIUM GREEN": ["M.GREEN"],
+  "KHAKI": ["KHAKEE", "KHAKHI"], "NAVY MELANGE": ["NAVY MELG."], "DENIM BLUE": ["DENIUM BLUE"], "ROYAL BLUE": ["ROYAL"],
+});
+const aliased = (m: Map<string, string>, raw: string | null | undefined): string | null => {
+  const c = cleanSupplier(raw);
+  return c ? m.get(c.toUpperCase()) ?? c : null;
+};
+// Canonical colour key (de-duped, then normalised for matching).
+const cc = (s: string | null | undefined) => {
+  const k = cu(s);
+  return COLOUR_ALIAS.get(k) ?? k;
+};
+
+// Canonical head categories (Change 07) + collapse of the messy seed strings.
+const HEAD_CATEGORIES = [
+  "Roundneck", "Polo", "Tracksuit", "Track Upper w/ Mesh", "Track Upper w/o Mesh", "Jackets", "Fleece Tracksuit",
+  "Upper Fleece", "Vest / Cut Sleeves", "Shorts", "Trackpant", "Tights", "Kids", "Women", "Accessories", "Bags",
+  "Shoes", "Sports Kits", "Shirt", "Half Zipper", "Cargo", "Swimming", "Skating", "Cricket",
+];
+function canonHeadCategory(raw: string | null | undefined): string | null {
+  const v = (raw ?? "").trim();
+  if (!v) return null;
+  const up = v.toUpperCase();
+  // statuses masquerading as categories → drop (handled by ProductStatus)
+  if (/(FUTURE PLAN|NEW SAMPLING|SAMPLING|DISCONTINUE)/.test(up)) return null;
+  const exact = HEAD_CATEGORIES.find((c) => c.toUpperCase() === up);
+  if (exact) return exact;
+  const contains = HEAD_CATEGORIES.find((c) => up.includes(c.toUpperCase()) || c.toUpperCase().includes(up));
+  return contains ?? v; // keep free entry (enum + free)
+}
+
 async function main() {
   console.log("Clearing existing data…");
   await db.returnNote.deleteMany();
@@ -93,12 +157,13 @@ async function main() {
   await db.cuttingMaster.deleteMany();
   await db.vendor.deleteMany();
 
-  // Vendors (+ fallback)
-  const vendorNames = new Set(seed.vendors.map((v: any) => v.name));
-  vendorNames.add("Unassigned");
-  const vendorMap = new Map<string, number>();
-  for (const name of vendorNames) {
-    const src = seed.vendors.find((v: any) => v.name === name);
+  // Vendors (+ fallback) — de-duped to canonical names (spelling twins merged)
+  const vendorCanon = (raw: string | null | undefined) => aliased(VENDOR_ALIAS, raw) ?? "Unassigned";
+  const vendorMap = new Map<string, number>(); // canonical name -> id
+  const canonVendorNames = new Set<string>(["Unassigned"]);
+  for (const v of seed.vendors as any[]) canonVendorNames.add(vendorCanon(v.name));
+  for (const name of canonVendorNames) {
+    const src = (seed.vendors as any[]).find((v) => vendorCanon(v.name) === name);
     const v = await db.vendor.create({ data: { name, kind: (src?.kind ?? "EXTERNAL") as any } });
     vendorMap.set(name, v.id);
   }
@@ -147,13 +212,13 @@ async function main() {
   for (const p of catalog.products as any[]) {
     if (p.fabric) {
       const set = fabricPalette.get(p.fabric) ?? new Set<string>();
-      for (const c of p.colors ?? []) if (c?.name) set.add(cu(c.name));
+      for (const c of p.colors ?? []) if (c?.name) set.add(cc(c.name));
       fabricPalette.set(p.fabric, set);
     }
     const r = await db.product.create({
       data: {
         extId: p.extId, skuCode: p.skuCode, normSku: p.normSku, styleNo: p.styleNo,
-        name: p.name, itemDesc: p.itemDesc, headCategory: p.headCategory,
+        name: p.name, itemDesc: p.itemDesc, headCategory: canonHeadCategory(p.headCategory),
         mrp: p.mrp, customWsRate: p.customWsRate, status: p.status as any,
         styleGroup: p.styleGroup, bomCode: p.bomCode,
         avgConsumption: p.avgConsumption, unit: (p.unit ?? "MTR") as any,
@@ -181,7 +246,7 @@ async function main() {
     for (const fc of j.fabricColors) {
       const mtr = typeof fc.reqMtr === "number" ? fc.reqMtr : 0;
       if (!fc.color || mtr <= 0) continue;
-      const k = cu(fc.color);
+      const k = cc(fc.color);
       m.set(k, (m.get(k) ?? 0) + mtr);
     }
     if (m.size) colorIssued.set(j.fabric, m);
@@ -213,7 +278,7 @@ async function main() {
   for (const j of seed.jobCards) {
     const productId = styleToProduct.get(norm(j.styleNo));
     if (!productId) { orphan++; continue; }
-    const vendorId = (j.vendor ? vendorMap.get(j.vendor) : undefined) ?? vendorMap.get("Unassigned")!;
+    const vendorId = vendorMap.get(vendorCanon(j.vendor)) ?? vendorMap.get("Unassigned")!;
     const cuttingMasterId = j.cuttingMaster ? cmMap.get(j.cuttingMaster) ?? null : null;
     const issueQty = j.fabricConsumed ?? (j.cutQty && j.avgConsumption ? j.cutQty * j.avgConsumption : null);
     const fid = await fabricId(j.fabric);
@@ -225,7 +290,7 @@ async function main() {
       fid && Array.isArray((j as any).fabricColors)
         ? (j as any).fabricColors
             .map((fc: any) => ({
-              color: cu(fc.color),
+              color: cc(fc.color),
               reqMtr: typeof fc.reqMtr === "number" ? fc.reqMtr : null,
               reqPcs: typeof fc.reqPcs === "number" ? fc.reqPcs : null,
             }))
@@ -292,13 +357,14 @@ async function main() {
     if (v) trimVendor.set(m.itemNorm, v);
   }
 
-  // Supplier master — seed from distinct trim-movement vendors (Change 05 Part A).
-  const supplierByName = new Map<string, number>(); // UPPER name -> id
-  for (const raw of new Set([...trimVendor.values()].map((v) => v))) {
-    const key = raw.toUpperCase();
-    if (supplierByName.has(key)) continue;
-    const s = await db.supplier.create({ data: { name: raw } });
-    supplierByName.set(key, s.id);
+  // Supplier master — seed from trim-movement vendors, de-duped to canonical (Change 05 + handoff A).
+  const supplierCanon = (raw: string | null | undefined) => aliased(SUPPLIER_ALIAS, raw);
+  const supplierByName = new Map<string, number>(); // canonical name -> id
+  for (const raw of trimVendor.values()) {
+    const canon = supplierCanon(raw);
+    if (!canon || supplierByName.has(canon)) continue;
+    const s = await db.supplier.create({ data: { name: canon } });
+    supplierByName.set(canon, s.id);
   }
 
   // Trim items (unified master) + movements
@@ -307,7 +373,7 @@ async function main() {
   const trimStockByNorm = new Map<string, number>(); // snapshot for pending calc
   for (const t of catalog.trimItems as any[]) {
     const vendor = trimVendor.get(t.normName);
-    const supplierId = vendor ? supplierByName.get(vendor.toUpperCase()) ?? null : null;
+    const supplierId = vendor ? supplierByName.get(supplierCanon(vendor) ?? "") ?? null : null;
     const r = await db.trimItem.create({
       data: {
         sno: t.sno, name: t.name, normName: t.normName, family: t.family,
@@ -423,9 +489,18 @@ async function main() {
 
   // Users (role-based login)
   const pw = process.env.SEED_PASSWORD ?? "sportsun123";
+  const seededUsernames = new Set<string>();
   for (const u of (catalog.users as any[]) ?? []) {
     await db.user.create({
       data: { username: u.username, displayName: u.displayName, role: u.role as any, vendorName: u.vendorName, passwordHash: hashPassword(pw) },
+    });
+    seededUsernames.add(u.username);
+  }
+  // Challan signers in the Drive files: Satya (trims), Jyotika (fabric), Jishing (cutting).
+  // Jishing has no login yet — add as STAFF (handoff D).
+  if (!seededUsernames.has("jishing")) {
+    await db.user.create({
+      data: { username: "jishing", displayName: "Jishing", role: "STAFF", passwordHash: hashPassword(pw) },
     });
   }
 
