@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getJob } from "@/lib/jobs";
+import { getJob, siSlug } from "@/lib/jobs";
 import { getCurrentUser } from "@/lib/auth";
 import { colorKey } from "@/lib/colour";
 import { Card, Badge } from "@/components/ui";
 import { FabricActualsForm } from "@/components/fabric-actuals-form";
 import { TrimSheet } from "@/components/trim-sheet";
+import { StatusTimeline } from "@/components/status-timeline";
 import { num, inr, fmtDate, pct } from "@/lib/format";
 import { STAGE_LABEL, stageTone, type Stage } from "@/lib/job-labels";
 import { ArrowLeft } from "lucide-react";
@@ -101,6 +102,9 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           </div>
           <p className="mt-0.5 text-[13px] text-muted">{itemDesc} · {styleNo}</p>
         </div>
+        <Link href={`/challan/${siSlug(j.siNo)}`} className="rounded-lg border border-border px-3.5 py-2 text-[13px] font-semibold text-primary-ink hover:bg-slate-50">
+          Share challan
+        </Link>
       </div>
 
       {/* top stats */}
@@ -137,6 +141,16 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
       {j.remark && (
         <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">📝 {j.remark}</div>
       )}
+
+      <StatusTimeline
+        steps={[
+          { label: "Cut", date: j.cuttingIssuedOn ?? j.orderDate, done: !!j.cuttingIssuedOn || j.cutQty > 0 },
+          { label: "Fabric issued", date: j.fabricIssueDate, done: j.fabricLines.some((l) => (l.qtyIssued ?? 0) > 0) || !!j.fabricIssueDate },
+          { label: "Stitching", date: null, done: stage === "STITCHING" || stage === "DISPATCH" || j.dispatchedQty > 0 },
+          { label: "Received", date: j.dispatches[0]?.date ?? null, done: j.dispatchedQty > 0 },
+          { label: "Closed", date: j.dispatches[j.dispatches.length - 1]?.date ?? null, done: j.status === "CLOSED" },
+        ]}
+      />
 
       <div className="mt-3.5 grid grid-cols-1 gap-3.5 md:grid-cols-2">
         {/* details */}

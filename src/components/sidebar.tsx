@@ -12,6 +12,9 @@ import {
   Package,
   PackageCheck,
   Scissors,
+  AlertTriangle,
+  Users,
+  ShoppingCart,
   LogOut,
 } from "lucide-react";
 import { logout } from "@/lib/auth-actions";
@@ -32,7 +35,10 @@ const nav: NavItem[] = [
   { href: "/production-orders", label: "Production", icon: PackageCheck, roles: ["ADMIN"] },
   { href: "/catalog", label: "Product Master", icon: Package, roles: ["ADMIN"] },
   { href: "/inventory", label: "Inventory", icon: Boxes, roles: ["ADMIN", "STAFF"] },
+  { href: "/fabric-orders", label: "Fabric Orders", icon: ShoppingCart, roles: ["ADMIN", "STAFF"] },
   { href: "/trims", label: "Trims", icon: Scissors, roles: ["ADMIN", "STAFF", "TRIMS"] },
+  { href: "/pending-trims", label: "Pending Trims", icon: AlertTriangle, roles: ["ADMIN", "STAFF", "TRIMS"] },
+  { href: "/suppliers", label: "Suppliers", icon: Users, roles: ["ADMIN", "STAFF"] },
   { href: "/vendors", label: "Vendors", icon: Factory, roles: ["ADMIN", "STAFF"] },
   { href: "/dispatch", label: "Receipts", icon: Truck, roles: ["ADMIN", "STAFF"] },
   { href: "/reports", label: "Reports", icon: BarChart3, roles: ["ADMIN"] },

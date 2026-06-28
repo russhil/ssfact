@@ -10,7 +10,11 @@ const ROUTE_ROLES: { prefix: string; roles: Role[] }[] = [
   { prefix: "/inventory", roles: ["ADMIN", "STAFF"] },
   { prefix: "/dispatch", roles: ["ADMIN", "STAFF"] },
   { prefix: "/trims", roles: ["ADMIN", "STAFF", "TRIMS"] },
+  { prefix: "/pending-trims", roles: ["ADMIN", "STAFF", "TRIMS"] },
+  { prefix: "/suppliers", roles: ["ADMIN", "STAFF"] },
+  { prefix: "/fabric-orders", roles: ["ADMIN", "STAFF"] },
   { prefix: "/job-cards", roles: ["ADMIN", "STAFF", "VENDOR"] },
+  { prefix: "/challan", roles: ["ADMIN", "STAFF", "VENDOR"] },
 ];
 
 export async function proxy(req: NextRequest) {

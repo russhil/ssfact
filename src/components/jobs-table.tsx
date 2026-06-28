@@ -112,13 +112,16 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
                 </td>
                 <td className="px-4 py-2.5 text-slate-500 tnum">{fmtDate(r.plannedEtd)}</td>
                 <td className="px-4 py-2.5">
-                  {r.overdue ? (
-                    <Badge tone="danger">Overdue</Badge>
-                  ) : r.status === "CLOSED" ? (
-                    <Badge tone="ok">Closed</Badge>
-                  ) : (
-                    <Badge tone="primary">Active</Badge>
-                  )}
+                  <div className="flex flex-wrap items-center gap-1">
+                    {r.overdue ? (
+                      <Badge tone="danger">Overdue</Badge>
+                    ) : r.status === "CLOSED" ? (
+                      <Badge tone="ok">Closed</Badge>
+                    ) : (
+                      <Badge tone="primary">Active</Badge>
+                    )}
+                    {r.trimsPending && <Badge tone="warn">Trims short</Badge>}
+                  </div>
                 </td>
               </tr>
             ))}

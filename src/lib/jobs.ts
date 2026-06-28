@@ -19,6 +19,7 @@ export type JobRow = {
   fill: number;
   status: string;
   overdue: boolean;
+  trimsPending: boolean;
   plannedEtd: Date | null;
   orderDate: Date | null;
 };
@@ -42,6 +43,7 @@ export async function getJobs(scope?: JobScope): Promise<JobRow[]> {
     fill: j.cutQty ? j.dispatchedQty / j.cutQty : 0,
     status: j.status,
     overdue: isOverdue(j, now),
+    trimsPending: (j as { trimsPending?: boolean }).trimsPending ?? false,
     plannedEtd: j.plannedEtd,
     orderDate: j.orderDate,
   }));
