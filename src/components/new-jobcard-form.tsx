@@ -407,7 +407,8 @@ export function NewJobCardForm({
                     {cutMode === "manual" ? (
                       <input
                         type="number"
-                        value={manualSizeQty[s] ?? 0}
+                        value={manualSizeQty[s] || ""}
+                        placeholder="0"
                         onChange={(e) => setManualSizeQty((p) => ({ ...p, [s]: Math.max(0, +e.target.value) }))}
                         className="mt-1 w-full rounded-md border border-border bg-slate-50 py-1.5 text-center text-[12px] font-bold tnum outline-none focus:border-primary"
                       />
@@ -480,7 +481,8 @@ export function NewJobCardForm({
                                     {colorMode === "manual" ? (
                                       <input
                                         type="number"
-                                        value={manualCell[cellKey(s, c)] ?? 0}
+                                        value={manualCell[cellKey(s, c)] || ""}
+                                        placeholder="0"
                                         onChange={(e) => setManualCell((p) => ({ ...p, [cellKey(s, c)]: Math.max(0, +e.target.value) }))}
                                         className="w-full min-w-[44px] rounded-md border border-border bg-slate-50 py-1 text-center text-[11px] font-bold tnum outline-none focus:border-primary"
                                       />
