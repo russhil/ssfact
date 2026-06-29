@@ -15,30 +15,53 @@ export type ProductRow = {
   mrp: number | null;
   wholesale: number | null;
   status: string;
+  samplingStatus: string | null;
+  productionLot: string | null;
+  fabricName: string | null;
+  imageUrl: string | null;
   hasBom: boolean;
   inProduction: boolean;
+  whereInProduction: string | null; // derived from open job cards
 };
+
+const STAGE_LABEL: Record<string, string> = { CUTTING: "Cutting", STITCHING: "Stitching", DISPATCH: "Dispatch" };
 
 export async function getProducts(): Promise<ProductRow[]> {
   const products = await db.product.findMany({
     include: {
+      fabric: { select: { name: true } },
+      images: { orderBy: { sortOrder: "asc" }, take: 1, select: { thumbUrl: true, url: true } },
+      jobCards: { where: { status: "ACTIVE" }, orderBy: { id: "desc" }, take: 1, select: { stage: true, dispatchedQty: true, cutQty: true } },
       _count: { select: { boms: true, jobCards: true } },
     },
   });
   return products
-    .map((p) => ({
-    id: p.id,
-    extId: p.extId,
-    skuCode: p.skuCode,
-    name: p.name,
-    headCategory: p.headCategory,
-    styleGroup: p.styleGroup,
-    mrp: p.mrp,
-    wholesale: wholesale(p.mrp, p.customWsRate),
-    status: p.status,
-    hasBom: p._count.boms > 0,
-    inProduction: p._count.jobCards > 0,
-  }))
+    .map((p) => {
+      const open = p.jobCards[0];
+      const where = open
+        ? `${STAGE_LABEL[open.stage] ?? open.stage}${open.cutQty ? ` · ${Math.round((open.dispatchedQty / open.cutQty) * 100)}% recd` : ""}`
+        : p._count.jobCards > 0
+          ? "All closed"
+          : null;
+      return {
+        id: p.id,
+        extId: p.extId,
+        skuCode: p.skuCode,
+        name: p.name,
+        headCategory: p.headCategory,
+        styleGroup: p.styleGroup,
+        mrp: p.mrp,
+        wholesale: wholesale(p.mrp, p.customWsRate),
+        status: p.status,
+        samplingStatus: p.samplingStatus,
+        productionLot: p.productionLot,
+        fabricName: p.fabric?.name ?? null,
+        imageUrl: p.images[0]?.thumbUrl ?? p.images[0]?.url ?? p.imageUrl ?? null,
+        hasBom: p._count.boms > 0,
+        inProduction: p._count.jobCards > 0,
+        whereInProduction: where,
+      };
+    })
     .sort((a, b) => (a.headCategory ?? "~~").localeCompare(b.headCategory ?? "~~") || a.name.localeCompare(b.name));
 }
 
@@ -96,6 +119,18 @@ export type ProductDetail = {
   } | null;
   boms: { id: number; code: string; styleName: string; matched: number; total: number; lines: BomLineView[] }[];
   orders: { orderNo: string; targetQty: number; avgMonthlySale: number | null; status: string; urgency: string | null; orderDate: Date | null }[];
+  // Change 07 production/sampling attributes + gallery
+  samplingStatus: string | null;
+  productionLot: string | null;
+  fabricName: string | null;
+  fabricRemarks: string | null;
+  otherRemarks: string | null;
+  avgConsumption: number | null;
+  unit: string;
+  customWsRate: number | null;
+  colors: { id: number; name: string; hex: string | null }[];
+  images: { id: number; url: string; thumbUrl: string | null; caption: string | null }[];
+  fabricOrders: { id: number; color: string | null; qty: number; status: string }[];
 };
 
 export async function getProductDetail(skuOrExtId: string): Promise<ProductDetail | null> {
@@ -105,6 +140,9 @@ export async function getProductDetail(skuOrExtId: string): Promise<ProductDetai
       jobCards: { orderBy: { id: "asc" } },
       boms: { include: { lines: { include: { trimItem: true }, orderBy: { id: "asc" } } } },
       productionOrders: { orderBy: { orderNo: "asc" } },
+      fabric: { include: { fabricOrders: true } },
+      colors: { orderBy: { sortOrder: "asc" } },
+      images: { orderBy: { sortOrder: "asc" } },
     },
   });
   if (!product) return null;
@@ -168,5 +206,16 @@ export async function getProductDetail(skuOrExtId: string): Promise<ProductDetai
       urgency: o.urgency,
       orderDate: o.orderDate,
     })),
+    samplingStatus: product.samplingStatus,
+    productionLot: product.productionLot,
+    fabricName: product.fabric?.name ?? null,
+    fabricRemarks: product.fabricRemarks,
+    otherRemarks: product.otherRemarks,
+    avgConsumption: product.avgConsumption,
+    unit: product.unit,
+    customWsRate: product.customWsRate,
+    colors: product.colors.map((c) => ({ id: c.id, name: c.name, hex: c.hex })),
+    images: product.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, caption: i.caption })),
+    fabricOrders: (product.fabric?.fabricOrders ?? []).map((o) => ({ id: o.id, color: o.color, qty: o.qty, status: o.status as string })),
   };
 }

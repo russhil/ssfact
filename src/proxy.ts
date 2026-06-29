@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { verifySession, SESSION_COOKIE, type Role } from "@/lib/session";
 
 const ROUTE_ROLES: { prefix: string; roles: Role[] }[] = [
-  { prefix: "/catalog", roles: ["ADMIN"] },
+  { prefix: "/catalog", roles: ["ADMIN", "STAFF"] },
   { prefix: "/styles", roles: ["ADMIN"] },
   { prefix: "/production-orders", roles: ["ADMIN"] },
   { prefix: "/reports", roles: ["ADMIN"] },

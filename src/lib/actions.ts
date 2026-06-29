@@ -775,3 +775,51 @@ export async function reorderImages(input: { ids: number[] }) {
   await db.$transaction(input.ids.map((id, i) => db.imageAsset.update({ where: { id }, data: { sortOrder: i } })));
   return { ok: true };
 }
+
+// ── Change 07 — product master ──
+
+export async function updateProduct(input: {
+  id: number; name?: string; headCategory?: string | null; status?: string;
+  samplingStatus?: string | null; productionLot?: string | null; fabricRemarks?: string | null; otherRemarks?: string | null;
+  mrp?: number | null; customWsRate?: number | null; avgConsumption?: number | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const { id, ...rest } = input;
+  await db.product.update({
+    where: { id },
+    data: {
+      ...(rest.name !== undefined ? { name: rest.name } : {}),
+      ...(rest.headCategory !== undefined ? { headCategory: rest.headCategory } : {}),
+      ...(rest.status !== undefined ? { status: rest.status as any } : {}),
+      ...(rest.samplingStatus !== undefined ? { samplingStatus: (rest.samplingStatus || null) as any } : {}),
+      ...(rest.productionLot !== undefined ? { productionLot: (rest.productionLot || null) as any } : {}),
+      ...(rest.fabricRemarks !== undefined ? { fabricRemarks: rest.fabricRemarks } : {}),
+      ...(rest.otherRemarks !== undefined ? { otherRemarks: rest.otherRemarks } : {}),
+      ...(rest.mrp !== undefined ? { mrp: rest.mrp } : {}),
+      ...(rest.customWsRate !== undefined ? { customWsRate: rest.customWsRate } : {}),
+      ...(rest.avgConsumption !== undefined ? { avgConsumption: rest.avgConsumption } : {}),
+    } as any,
+  });
+  revalidatePath("/catalog");
+  revalidatePath(`/catalog/${id}`);
+  return { ok: true };
+}
+
+export async function addProductColor(input: { productId: number; name: string; hex?: string | null }) {
+  await requireRole("ADMIN", "STAFF");
+  const name = input.name.trim();
+  if (!name) throw new Error("Colour required");
+  await db.productColor.upsert({
+    where: { productId_name: { productId: input.productId, name } },
+    create: { productId: input.productId, name, hex: input.hex ?? null },
+    update: { hex: input.hex ?? null },
+  });
+  revalidatePath(`/catalog/${input.productId}`);
+  return { ok: true };
+}
+
+export async function removeProductColor(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.productColor.delete({ where: { id: input.id } });
+  return { ok: true };
+}

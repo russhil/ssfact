@@ -3,23 +3,30 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Factory } from "lucide-react";
 import { getProductDetail, STATUS_LABEL, statusTone } from "@/lib/catalog";
 import { PO_STATUS_LABEL, poStatusTone } from "@/lib/production";
+import { getCurrentUser } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
+import { ImageUploader } from "@/components/image-uploader";
+import { ProductMasterForm } from "@/components/product-master-form";
 import { num, inr, fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 const trimTone = (s: "ok" | "low" | "short") => (s === "short" ? "danger" : s === "low" ? "warn" : "ok");
 const trimLabel = (s: "ok" | "low" | "short") => (s === "short" ? "Short" : s === "low" ? "Low" : "OK");
+const lbl = (s: string | null) => (s ? s.replace(/_/g, " ") : "—");
 
 export default async function ProductDetail({ params }: { params: Promise<{ sku: string }> }) {
   const { sku } = await params;
   const p = await getProductDetail(decodeURIComponent(sku));
   if (!p) notFound();
+  const u = await getCurrentUser();
+  const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
+  const canSeeCost = u?.role === "ADMIN"; // cost hidden from office/production view
 
   return (
     <div className="p-6">
       <Link href="/catalog" className="mb-4 inline-flex items-center gap-1.5 text-[12px] font-medium text-muted hover:text-ink">
-        <ArrowLeft size={14} /> Catalog
+        <ArrowLeft size={14} /> Product Master
       </Link>
 
       <div className="mb-5 flex flex-wrap items-center gap-2.5">
@@ -29,18 +36,51 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
         {p.styleNo && <span className="text-[12px] text-faint">Style #{p.styleNo}</span>}
       </div>
 
-      <div className="grid grid-cols-4 gap-3.5">
-        {[
-          ["MRP", inr(p.mrp)],
-          ["Wholesale", inr(p.wholesale)],
-          ["Category", p.headCategory ?? "—"],
-          ["Style Group", p.styleGroup ?? "—"],
-        ].map(([l, v]) => (
+      <div className="grid grid-cols-2 gap-3.5 md:grid-cols-4">
+        {([
+          ...(canSeeCost ? [["MRP", inr(p.mrp)], ["Wholesale", inr(p.wholesale)]] : [["Category", p.headCategory ?? "—"], ["Fabric", p.fabricName ?? "—"]]),
+          ["Sampling", lbl(p.samplingStatus)],
+          ["Production lot", lbl(p.productionLot)],
+        ] as [string, string][]).map(([l, v]) => (
           <Card key={l} className="p-4">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{l}</div>
-            <div className="mt-1.5 text-[18px] font-extrabold tnum">{v}</div>
+            <div className="mt-1.5 text-[18px] font-extrabold">{v}</div>
           </Card>
         ))}
+      </div>
+
+      {/* gallery + edit form */}
+      <div className="mt-3.5 grid grid-cols-1 gap-3.5 md:grid-cols-2">
+        <Card className="p-5">
+          {canEdit ? (
+            <ImageUploader entity="product" entityId={p.id} kind="product" multiple images={p.images} label="Product photos" />
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {p.images.map((i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={i.id} src={i.thumbUrl ?? i.url} alt="" loading="lazy" className="h-24 w-24 rounded-lg border border-border object-cover" />
+              ))}
+              {p.images.length === 0 && <p className="text-[12px] text-muted">No photos.</p>}
+            </div>
+          )}
+          {(p.fabricRemarks || p.otherRemarks) && (
+            <div className="mt-3 space-y-1 text-[12px]">
+              {p.fabricRemarks && <div><span className="text-faint">Fabric: </span>{p.fabricRemarks}</div>}
+              {p.otherRemarks && <div><span className="text-faint">Remarks: </span>{p.otherRemarks}</div>}
+            </div>
+          )}
+        </Card>
+
+        {canEdit && (
+          <ProductMasterForm
+            product={{
+              id: p.id, name: p.name, headCategory: p.headCategory, status: p.status,
+              samplingStatus: p.samplingStatus, productionLot: p.productionLot, fabricRemarks: p.fabricRemarks, otherRemarks: p.otherRemarks,
+              avgConsumption: p.avgConsumption, mrp: p.mrp, customWsRate: p.customWsRate, colors: p.colors,
+            }}
+            canSeeCost={canSeeCost}
+          />
+        )}
       </div>
 
       {/* Live production — from the linked workbook style's job cards */}

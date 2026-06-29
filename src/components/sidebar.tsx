@@ -33,7 +33,7 @@ const nav: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard, roles: ALL },
   { href: "/job-cards", label: "Job Cards", icon: ClipboardList, roles: ["ADMIN", "STAFF", "VENDOR"] },
   { href: "/production-orders", label: "Production", icon: PackageCheck, roles: ["ADMIN"] },
-  { href: "/catalog", label: "Product Master", icon: Package, roles: ["ADMIN"] },
+  { href: "/catalog", label: "Product Master", icon: Package, roles: ["ADMIN", "STAFF"] },
   { href: "/inventory", label: "Inventory", icon: Boxes, roles: ["ADMIN", "STAFF"] },
   { href: "/fabric-orders", label: "Fabric Orders", icon: ShoppingCart, roles: ["ADMIN", "STAFF"] },
   { href: "/trims", label: "Trims", icon: Scissors, roles: ["ADMIN", "STAFF", "TRIMS"] },

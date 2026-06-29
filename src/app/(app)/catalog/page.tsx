@@ -1,4 +1,5 @@
 import { getProducts, getCatalogSummary } from "@/lib/catalog";
+import { getCurrentUser } from "@/lib/auth";
 import { CatalogTable } from "@/components/catalog-table";
 import { Card, PageHeader } from "@/components/ui";
 import { num } from "@/lib/format";
@@ -6,7 +7,8 @@ import { num } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function CatalogPage() {
-  const [rows, summary] = await Promise.all([getProducts(), getCatalogSummary()]);
+  const [rows, summary, u] = await Promise.all([getProducts(), getCatalogSummary(), getCurrentUser()]);
+  const canSeeCost = u?.role === "ADMIN"; // office/production view hides cost
 
   const kpis: [string, string | number, string?][] = [
     ["Total SKUs", num(summary.total)],
@@ -31,7 +33,7 @@ export default async function CatalogPage() {
         ))}
       </div>
 
-      <CatalogTable rows={rows} categories={summary.byCategory.map((c) => c.name)} />
+      <CatalogTable rows={rows} categories={summary.byCategory.map((c) => c.name)} canSeeCost={canSeeCost} />
     </div>
   );
 }
