@@ -43,3 +43,6 @@ next-env.d.ts
 
 /src/generated/prisma
 .playwright-mcp
+
+# local image uploads (Change 06 local provider)
+.uploads/

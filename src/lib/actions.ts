@@ -736,3 +736,42 @@ export async function upsertCuttingMaster(input: { id?: number; name: string; ac
   revalidatePath("/vendors");
   return { ok: true };
 }
+
+// ── Change 06 — images ──
+
+type ImgEntity = "trim" | "fabric" | "fabricOrder" | "product";
+const IMG_FK: Record<ImgEntity, "trimItemId" | "fabricId" | "fabricOrderId" | "productId"> = {
+  trim: "trimItemId", fabric: "fabricId", fabricOrder: "fabricOrderId", product: "productId",
+};
+
+export async function attachImages(input: { entity: ImgEntity; entityId: number; kind?: string | null; items: { url: string; thumbUrl?: string | null }[] }) {
+  await requireRole("ADMIN", "STAFF");
+  const fk = IMG_FK[input.entity];
+  const existing = await db.imageAsset.count({ where: { [fk]: input.entityId } as any });
+  await db.imageAsset.createMany({
+    data: input.items.map((it, i) => ({ url: it.url, thumbUrl: it.thumbUrl ?? it.url, kind: input.kind ?? input.entity, sortOrder: existing + i, [fk]: input.entityId } as any)),
+  });
+  // product primary thumbnail: set imageUrl if empty
+  if (input.entity === "product" && input.items[0]) {
+    const p = await db.product.findUnique({ where: { id: input.entityId }, select: { imageUrl: true } });
+    if (!p?.imageUrl) await db.product.update({ where: { id: input.entityId }, data: { imageUrl: input.items[0].url } });
+    revalidatePath(`/catalog/${input.entityId}`);
+    revalidatePath("/catalog");
+  }
+  if (input.entity === "fabric" || input.entity === "fabricOrder") revalidatePath("/inventory");
+  if (input.entity === "trim") revalidatePath("/trims");
+  if (input.entity === "fabricOrder") revalidatePath("/fabric-orders");
+  return { ok: true };
+}
+
+export async function removeImage(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.imageAsset.delete({ where: { id: input.id } });
+  return { ok: true };
+}
+
+export async function reorderImages(input: { ids: number[] }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.$transaction(input.ids.map((id, i) => db.imageAsset.update({ where: { id }, data: { sortOrder: i } })));
+  return { ok: true };
+}

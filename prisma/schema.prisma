@@ -105,6 +105,18 @@ enum FabricOrderStatus {
   DISCARDED
 }
 
+enum SamplingStatus {
+  PLANNING
+  DESIGN_FABRIC_PENDING
+  SAMPLE_ORDERED
+  READY
+}
+
+enum ProductionLot {
+  OLD_CUT_SIZE
+  NEW_LOT
+}
+
 model Vendor {
   id       Int        @id @default(autoincrement())
   name     String     @unique
@@ -138,6 +150,7 @@ model Fabric {
   returnNotes    ReturnNote[]
   jobFabricLines JobFabricLine[]
   fabricOrders   FabricOrder[]
+  images         ImageAsset[]
 }
 
 // Stock is held per colour under each fabric (factory holds finished, dyed fabric
@@ -365,11 +378,17 @@ model Product {
   imageUrl       String?
   sizeRatioJson  String? // JSON [["S",0.08],...] — per-product configurable size ratio
   colorRatioJson String? // JSON [["RED",0.5],...] — default color split
+  // production/sampling attributes (Change 07 — from Notion product master)
+  samplingStatus SamplingStatus?
+  productionLot  ProductionLot?
+  fabricRemarks  String?
+  otherRemarks   String?
 
   colors           ProductColor[]
   jobCards         JobCard[]
   boms             Bom[]
   productionOrders ProductionOrder[]
+  images           ImageAsset[]
 
   @@index([headCategory])
   @@index([normSku])
@@ -444,6 +463,7 @@ model TrimItem {
   movements    TrimMovement[]
   bomLines     BomLine[]
   jobLines     JobBomLine[]
+  images       ImageAsset[]
 
   @@index([normName])
   @@index([family])
@@ -485,6 +505,7 @@ model FabricOrder {
   expectedDate  DateTime?
   receivedDate  DateTime? // set on receive — also the double-receive guard
   remarks       String?
+  images        ImageAsset[]
 
   @@index([fabricId])
   @@index([supplierId])
@@ -503,6 +524,31 @@ model TrimMovement {
   trimItemId Int
 
   @@index([trimItemId])
+}
+
+// Generic image gallery — nullable FKs let one table serve every entity, many per entity.
+model ImageAsset {
+  id        Int      @id @default(autoincrement())
+  url       String
+  thumbUrl  String?
+  caption   String?
+  kind      String? // "product" | "swatch" | "shade_card" | "trim"
+  sortOrder Int?
+  createdAt DateTime @default(now())
+
+  trimItem      TrimItem?    @relation(fields: [trimItemId], references: [id], onDelete: Cascade)
+  trimItemId    Int?
+  fabric        Fabric?      @relation(fields: [fabricId], references: [id], onDelete: Cascade)
+  fabricId      Int?
+  fabricOrder   FabricOrder? @relation(fields: [fabricOrderId], references: [id], onDelete: Cascade)
+  fabricOrderId Int?
+  product       Product?     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId     Int?
+
+  @@index([trimItemId])
+  @@index([fabricId])
+  @@index([fabricOrderId])
+  @@index([productId])
 }
 
 model ProductionOrder {
