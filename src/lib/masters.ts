@@ -17,6 +17,26 @@ export async function getColours() {
   return rows.map((c) => ({ id: c.id, name: c.name, hex: c.hex, active: c.active }));
 }
 
+export type LookupRow = { id: number; code: string; label: string; hex: string | null; parentId: number | null; sortOrder: number; active: boolean };
+
+/** Active rows for a kind (ordered) — drives the LookupSelect dropdowns. */
+export async function listLookups(kind: string): Promise<LookupRow[]> {
+  const rows = await db.lookup.findMany({ where: { kind: kind as any, active: true }, orderBy: [{ sortOrder: "asc" }, { label: "asc" }] });
+  return rows.map((r) => ({ id: r.id, code: r.code, label: r.label, hex: r.hex, parentId: r.parentId, sortOrder: r.sortOrder, active: r.active }));
+}
+
+/** All rows of a kind (incl. inactive) — for the Masters hub management list. */
+export async function listLookupsAll(kind: string): Promise<LookupRow[]> {
+  const rows = await db.lookup.findMany({ where: { kind: kind as any }, orderBy: [{ sortOrder: "asc" }, { label: "asc" }] });
+  return rows.map((r) => ({ id: r.id, code: r.code, label: r.label, hex: r.hex, parentId: r.parentId, sortOrder: r.sortOrder, active: r.active }));
+}
+
+/** Head categories with their sub-categories nested, for the Categories tree tab. */
+export async function getCategoryTree() {
+  const [heads, subs] = await Promise.all([listLookupsAll("HEAD_CATEGORY"), listLookupsAll("SUB_CATEGORY")]);
+  return heads.map((h) => ({ ...h, children: subs.filter((s) => s.parentId === h.id) }));
+}
+
 export type TrimMasterRow = {
   id: number; name: string; category: string | null; family: string | null;
   supplier: string | null; ratePerUnit: number | null; unit: string | null;
@@ -71,4 +91,14 @@ export async function getFabricOrder(id: number) {
 
 export async function getFabricPickList() {
   return db.fabric.findMany({ select: { id: true, name: true, unit: true }, orderBy: { name: "asc" } });
+}
+
+export async function getVendorList() {
+  const rows = await db.vendor.findMany({ include: { _count: { select: { jobCards: true } } }, orderBy: { name: "asc" } });
+  return rows.map((v) => ({ id: v.id, name: v.name, kind: v.kind as string, active: (v as { active?: boolean }).active ?? true, jobs: v._count.jobCards }));
+}
+
+export async function getCuttingMasterList() {
+  const rows = await db.cuttingMaster.findMany({ include: { _count: { select: { jobCards: true } } }, orderBy: { name: "asc" } });
+  return rows.map((c) => ({ id: c.id, name: c.name, active: (c as { active?: boolean }).active ?? true, jobs: c._count.jobCards }));
 }

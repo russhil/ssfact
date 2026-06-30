@@ -151,6 +151,7 @@ async function main() {
   await db.fabricOrder.deleteMany();
   await db.supplier.deleteMany();
   await db.colour.deleteMany();
+  await db.lookup.deleteMany();
   await db.user.deleteMany();
   await db.style.deleteMany();
   await db.fabricColor.deleteMany();
@@ -462,6 +463,29 @@ async function main() {
     colours++;
   }
 
+  // ── Lookup master (Change 09) — seed the simple dropdown lists from existing data ──
+  const slug = (s: string) => s.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
+  async function seedLookups(kind: string, labels: (string | null | undefined)[]) {
+    const seen = new Set<string>();
+    let order = 0;
+    for (const raw of labels) {
+      const label = (raw ?? "").trim();
+      if (!label) continue;
+      const code = slug(label);
+      if (!code || seen.has(code)) continue;
+      seen.add(code);
+      await db.lookup.create({ data: { kind: kind as any, code, label, sortOrder: order++ } });
+    }
+    return seen.size;
+  }
+  const prods = catalog.products as any[];
+  const lkHead = await seedLookups("HEAD_CATEGORY", [...new Set(prods.map((p) => canonHeadCategory(p.headCategory)))]);
+  const lkStyle = await seedLookups("STYLE_GROUP", [...new Set(prods.map((p) => p.styleGroup))]);
+  await seedLookups("UNIT", ["MTR", "KG", "PCS", "SET", "ROLL"]);
+  await seedLookups("SUPPLIER_TYPE", ["CHINA", "IMPORTER", "AGENT", "MANUFACTURER"]);
+  await seedLookups("TRIM_CATEGORY", ["BUTTON", "ZIP", "TAG", "CARDBOARD", "MASTERPACK", "LABEL", "POLYBAG", "OTHER"]);
+  const lookups = lkHead + lkStyle + 5 + 4 + 8;
+
   // Fabric orders — demo procurement pipeline, now MULTI-COLOUR (Change 08)
   const anySupplier = [...supplierByName.values()][0] ?? null;
   if (anySupplier) {
@@ -526,6 +550,7 @@ async function main() {
   console.log(`Commercial: ${productMap.size} products, ${trimMap.size} trims, ${tmoves} trim moves, ${catalog.boms.length} BOMs, ${pos} POs, ${(catalog.users as any[]).length} users.`);
   console.log(`Change 05: ${supplierByName.size} suppliers, ${fos} fabric orders. BOM snapshot: ${jbl} job-bom lines, ${pendingCards} cards flagged trims-pending.`);
   console.log(`Change 08: ${colours} colours in master.`);
+  console.log(`Change 09: ${lookups} lookups (${lkHead} head categories, ${lkStyle} style groups + units/types/trim-cats).`);
 }
 
 main()

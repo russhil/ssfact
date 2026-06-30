@@ -1,12 +1,18 @@
 import Link from "next/link";
 import { getJobs } from "@/lib/jobs";
+import { getVendorList, getCuttingMasterList } from "@/lib/masters";
+import { getCurrentUser } from "@/lib/auth";
 import { Card, Bar, PageHeader } from "@/components/ui";
+import { VendorCuttingManager } from "@/components/vendor-cutting-manager";
 import { num, pct } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function VendorsPage() {
   const jobs = await getJobs();
+  const me = await getCurrentUser();
+  const canEdit = me?.role === "ADMIN" || me?.role === "STAFF";
+  const [vendorList, cuttingList] = canEdit ? await Promise.all([getVendorList(), getCuttingMasterList()]) : [[], []];
 
   const map = new Map<string, { name: string; jobs: number; active: number; cut: number; disp: number; overdue: number }>();
   for (const j of jobs) {
@@ -26,7 +32,12 @@ export default async function VendorsPage() {
   return (
     <div className="p-6">
       <PageHeader title="Vendors" subtitle="Stitching units — in-house and external — ranked by volume and fill rate." />
-      <div className="grid grid-cols-2 gap-3.5">
+      {canEdit && (
+        <div className="mb-4">
+          <VendorCuttingManager vendors={vendorList} masters={cuttingList} />
+        </div>
+      )}
+      <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
         {vendors.map((v) => (
           <Card key={v.name} className="p-5">
             <div className="mb-3 flex items-start justify-between">

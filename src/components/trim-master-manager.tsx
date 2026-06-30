@@ -5,9 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createTrim } from "@/lib/actions";
 import { Card, Badge } from "@/components/ui";
+import { LookupSelect } from "@/components/masters/lookup-select";
 import { num } from "@/lib/format";
 import { Plus } from "lucide-react";
-import type { TrimMasterRow } from "@/lib/masters";
+import type { TrimMasterRow, LookupRow } from "@/lib/masters";
 
 const CATEGORIES = ["BUTTON", "ZIP", "TAG", "CARDBOARD", "MASTERPACK", "LABEL", "POLYBAG", "OTHER"];
 // Which optional spec fields surface per category (never forced).
@@ -24,7 +25,7 @@ const CATEGORY_FIELDS: Record<string, ("size" | "material" | "color" | "weight" 
 
 type Pick = { id: number; name: string };
 
-export function TrimMasterManager({ trims, suppliers }: { trims: TrimMasterRow[]; suppliers: Pick[] }) {
+export function TrimMasterManager({ trims, suppliers, categories = [] }: { trims: TrimMasterRow[]; suppliers: Pick[]; categories?: LookupRow[] }) {
   const router = useRouter();
   const [tab, setTab] = useState<string>("ALL");
   const [adding, setAdding] = useState(false);
@@ -72,9 +73,7 @@ export function TrimMasterManager({ trims, suppliers }: { trims: TrimMasterRow[]
         <Card className="mb-4 p-4">
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             <Labelled label="Category">
-              <select value={f.category} onChange={(e) => set("category", e.target.value)} className="w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary">
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <LookupSelect kind="TRIM_CATEGORY" options={categories} value={f.category ?? ""} onChange={(v) => set("category", v)} placeholder="Category…" className="w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary" />
             </Labelled>
             <Labelled label="Name"><In v={f.name} on={(v) => set("name", v)} /></Labelled>
             <Labelled label="Supplier">

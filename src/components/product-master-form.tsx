@@ -4,13 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateProduct, addProductColor, removeProductColor } from "@/lib/actions";
 import { Card, Badge } from "@/components/ui";
+import { LookupSelect } from "@/components/masters/lookup-select";
 import { Plus, X, Check } from "lucide-react";
 
-const HEAD_CATEGORIES = [
-  "Roundneck", "Polo", "Tracksuit", "Track Upper w/ Mesh", "Track Upper w/o Mesh", "Jackets", "Fleece Tracksuit",
-  "Upper Fleece", "Vest / Cut Sleeves", "Shorts", "Trackpant", "Tights", "Kids", "Women", "Accessories", "Bags",
-  "Shoes", "Sports Kits", "Shirt", "Half Zipper", "Cargo", "Swimming", "Skating", "Cricket",
-];
 const STATUS = ["ACTIVE", "NEW_ARTICLE", "FUTURE_PLAN", "DISCONTINUED", "IN_PROCESS"];
 const SAMPLING = ["", "PLANNING", "DESIGN_FABRIC_PENDING", "SAMPLE_ORDERED", "READY"];
 const LOTS = ["", "OLD_CUT_SIZE", "NEW_LOT"];
@@ -22,7 +18,7 @@ type P = {
   colors: { id: number; name: string; hex: string | null }[];
 };
 
-export function ProductMasterForm({ product, canSeeCost }: { product: P; canSeeCost: boolean }) {
+export function ProductMasterForm({ product, canSeeCost, headCategories = [] }: { product: P; canSeeCost: boolean; headCategories?: { id: number; code: string; label: string; hex: string | null; parentId: number | null; sortOrder: number; active: boolean }[] }) {
   const router = useRouter();
   const [f, setF] = useState({
     name: product.name, headCategory: product.headCategory ?? "", status: product.status,
@@ -66,8 +62,7 @@ export function ProductMasterForm({ product, canSeeCost }: { product: P; canSeeC
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3">
         <Field label="Name"><input value={f.name} onChange={(e) => set("name", e.target.value)} className={inp} /></Field>
         <Field label="Head category">
-          <input list="headcats" value={f.headCategory} onChange={(e) => set("headCategory", e.target.value)} className={inp} />
-          <datalist id="headcats">{HEAD_CATEGORIES.map((c) => <option key={c} value={c} />)}</datalist>
+          <LookupSelect kind="HEAD_CATEGORY" options={headCategories} value={f.headCategory} onChange={(v) => set("headCategory", v)} placeholder="Category…" className={inp} />
         </Field>
         <Field label="Status"><Sel v={f.status} on={(v) => set("status", v)} opts={STATUS} /></Field>
         <Field label="Sampling status"><Sel v={f.samplingStatus} on={(v) => set("samplingStatus", v)} opts={SAMPLING} /></Field>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Factory } from "lucide-react";
 import { getProductDetail, STATUS_LABEL, statusTone } from "@/lib/catalog";
+import { listLookups } from "@/lib/masters";
 import { PO_STATUS_LABEL, poStatusTone } from "@/lib/production";
 import { getCurrentUser } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
@@ -22,6 +23,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
   const u = await getCurrentUser();
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
   const canSeeCost = u?.role === "ADMIN"; // cost hidden from office/production view
+  const headCategories = canEdit ? await listLookups("HEAD_CATEGORY") : [];
 
   return (
     <div className="p-6">
@@ -79,6 +81,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
               avgConsumption: p.avgConsumption, mrp: p.mrp, customWsRate: p.customWsRate, colors: p.colors,
             }}
             canSeeCost={canSeeCost}
+            headCategories={headCategories}
           />
         )}
       </div>

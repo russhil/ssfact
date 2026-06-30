@@ -497,6 +497,34 @@ model Colour {
   createdAt DateTime @default(now())
 }
 
+// Generic master for every simple reusable dropdown list (Change 09). Stable `code`
+// (never changes), editable `label`. parentId gives category → sub-category.
+enum LookupKind {
+  HEAD_CATEGORY
+  SUB_CATEGORY
+  UNIT
+  SUPPLIER_TYPE
+  TRIM_CATEGORY
+  STYLE_GROUP
+}
+
+model Lookup {
+  id        Int        @id @default(autoincrement())
+  kind      LookupKind
+  code      String
+  label     String
+  hex       String?
+  parentId  Int?
+  parent    Lookup?    @relation("LookupTree", fields: [parentId], references: [id])
+  children  Lookup[]   @relation("LookupTree")
+  sortOrder Int        @default(0)
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+
+  @@unique([kind, code])
+  @@index([kind, parentId])
+}
+
 // Procurement pipeline that feeds fabric INTO colour stock.
 model FabricOrder {
   id            Int               @id @default(autoincrement())

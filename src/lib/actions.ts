@@ -937,3 +937,52 @@ export async function removeProductColor(input: { id: number }) {
   await db.productColor.delete({ where: { id: input.id } });
   return { ok: true };
 }
+
+// ── Change 09: Lookup master (generic dropdown lists) ──
+const lookupSlug = (s: string) => s.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
+
+export async function createLookup(input: { kind: string; label: string; parentId?: number | null; hex?: string | null }) {
+  await requireRole("ADMIN", "STAFF");
+  const label = input.label.trim();
+  if (!label) throw new Error("Label required");
+  const code = lookupSlug(label);
+  if (!code) throw new Error("Invalid label");
+  const existing = await db.lookup.findUnique({ where: { kind_code: { kind: input.kind as any, code } } });
+  if (existing) return { id: existing.id, label: existing.label };
+  const max = await db.lookup.aggregate({ where: { kind: input.kind as any }, _max: { sortOrder: true } });
+  const c = await db.lookup.create({
+    data: { kind: input.kind as any, code, label, parentId: input.parentId ?? null, hex: input.hex ?? null, sortOrder: (max._max.sortOrder ?? 0) + 1 },
+  });
+  revalidatePath("/masters");
+  return { id: c.id, label: c.label };
+}
+
+export async function updateLookup(input: { id: number; label?: string; parentId?: number | null; hex?: string | null; active?: boolean }) {
+  await requireRole("ADMIN", "STAFF");
+  if (input.parentId === input.id) throw new Error("A list value cannot be its own parent");
+  await db.lookup.update({
+    where: { id: input.id }, // NOTE: code is intentionally never updated (stable key)
+    data: {
+      ...(input.label !== undefined ? { label: input.label.trim() } : {}),
+      ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
+      ...(input.hex !== undefined ? { hex: input.hex } : {}),
+      ...(input.active !== undefined ? { active: input.active } : {}),
+    },
+  });
+  revalidatePath("/masters");
+  return { ok: true };
+}
+
+export async function deactivateLookup(input: { id: number; active?: boolean }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.lookup.update({ where: { id: input.id }, data: { active: input.active ?? false } });
+  revalidatePath("/masters");
+  return { ok: true };
+}
+
+export async function reorderLookup(input: { ids: number[] }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.$transaction(input.ids.map((id, i) => db.lookup.update({ where: { id }, data: { sortOrder: i } })));
+  revalidatePath("/masters");
+  return { ok: true };
+}

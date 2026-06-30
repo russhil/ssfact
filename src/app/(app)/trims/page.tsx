@@ -1,5 +1,5 @@
 import { getTrimSummary } from "@/lib/trims";
-import { getTrimMaster, getSuppliers } from "@/lib/masters";
+import { getTrimMaster, getSuppliers, listLookups } from "@/lib/masters";
 import { TrimMasterManager } from "@/components/trim-master-manager";
 import { Card, PageHeader } from "@/components/ui";
 import { num } from "@/lib/format";
@@ -7,7 +7,7 @@ import { num } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function TrimsPage() {
-  const [trims, summary, suppliers] = await Promise.all([getTrimMaster(), getTrimSummary(), getSuppliers()]);
+  const [trims, summary, suppliers, categories] = await Promise.all([getTrimMaster(), getTrimSummary(), getSuppliers(), listLookups("TRIM_CATEGORY")]);
 
   return (
     <div className="p-6">
@@ -35,7 +35,7 @@ export default async function TrimsPage() {
         </Card>
       </div>
 
-      <TrimMasterManager trims={trims} suppliers={suppliers.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }))} />
+      <TrimMasterManager trims={trims} suppliers={suppliers.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }))} categories={categories} />
     </div>
   );
 }

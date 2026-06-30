@@ -4,12 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupplier, updateSupplier } from "@/lib/actions";
 import { Card, Badge } from "@/components/ui";
+import { LookupSelect } from "@/components/masters/lookup-select";
 import { Plus } from "lucide-react";
+import type { LookupRow } from "@/lib/masters";
 
 type Supplier = { id: number; name: string; type: string | null; city: string | null; phone: string | null; address?: string | null; email?: string | null; active: boolean; trims: number; orders: number };
-const TYPES = ["", "CHINA", "IMPORTER", "AGENT", "MANUFACTURER"];
 
-export function SupplierManager({ suppliers }: { suppliers: Supplier[] }) {
+export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier[]; types?: LookupRow[] }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [type, setType] = useState("");
@@ -38,9 +39,7 @@ export function SupplierManager({ suppliers }: { suppliers: Supplier[] }) {
       <Card className="mb-4 p-4">
         <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Supplier name" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
-          <select value={type} onChange={(e) => setType(e.target.value)} className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary">
-            {TYPES.map((t) => <option key={t} value={t}>{t || "Type…"}</option>)}
-          </select>
+          <LookupSelect kind="SUPPLIER_TYPE" options={types} value={type} onChange={setType} placeholder="Type…" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
           <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="City" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (for PO)" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />

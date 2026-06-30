@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   Users,
   ShoppingCart,
+  SlidersHorizontal,
   LogOut,
 } from "lucide-react";
 import { logout } from "@/lib/auth-actions";
@@ -41,6 +42,7 @@ const nav: NavItem[] = [
   { href: "/suppliers", label: "Suppliers", icon: Users, roles: ["ADMIN", "STAFF"] },
   { href: "/vendors", label: "Vendors", icon: Factory, roles: ["ADMIN", "STAFF"] },
   { href: "/dispatch", label: "Receipts", icon: Truck, roles: ["ADMIN", "STAFF"] },
+  { href: "/masters", label: "Masters", icon: SlidersHorizontal, roles: ["ADMIN", "STAFF"] },
   { href: "/reports", label: "Reports", icon: BarChart3, roles: ["ADMIN"] },
 ];
 
