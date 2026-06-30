@@ -1,4 +1,4 @@
-import { getFabricOrders, getFabricPickList, getSuppliers } from "@/lib/masters";
+import { getFabricOrders, getFabricPickList, getSuppliers, getColours } from "@/lib/masters";
 import { Card, PageHeader } from "@/components/ui";
 import { num } from "@/lib/format";
 import { FabricOrderManager } from "@/components/fabric-order-manager";
@@ -6,7 +6,7 @@ import { FabricOrderManager } from "@/components/fabric-order-manager";
 export const dynamic = "force-dynamic";
 
 export default async function FabricOrdersPage() {
-  const [orders, fabrics, suppliers] = await Promise.all([getFabricOrders(), getFabricPickList(), getSuppliers()]);
+  const [orders, fabrics, suppliers, colours] = await Promise.all([getFabricOrders(), getFabricPickList(), getSuppliers(), getColours()]);
   const pending = orders.filter((o) => o.status === "ORDER_PLACED").length;
   const planning = orders.filter((o) => o.status === "PLANNING" || o.status === "SAMPLE_PENDING").length;
   const received = orders.filter((o) => o.status === "RECEIVED").length;
@@ -23,6 +23,7 @@ export default async function FabricOrdersPage() {
         orders={orders}
         fabrics={fabrics.map((f) => ({ id: f.id, name: f.name }))}
         suppliers={suppliers.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }))}
+        colours={colours}
       />
     </div>
   );

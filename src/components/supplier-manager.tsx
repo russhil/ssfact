@@ -6,7 +6,7 @@ import { createSupplier, updateSupplier } from "@/lib/actions";
 import { Card, Badge } from "@/components/ui";
 import { Plus } from "lucide-react";
 
-type Supplier = { id: number; name: string; type: string | null; city: string | null; phone: string | null; active: boolean; trims: number; orders: number };
+type Supplier = { id: number; name: string; type: string | null; city: string | null; phone: string | null; address?: string | null; email?: string | null; active: boolean; trims: number; orders: number };
 const TYPES = ["", "CHINA", "IMPORTER", "AGENT", "MANUFACTURER"];
 
 export function SupplierManager({ suppliers }: { suppliers: Supplier[] }) {
@@ -15,14 +15,16 @@ export function SupplierManager({ suppliers }: { suppliers: Supplier[] }) {
   const [type, setType] = useState("");
   const [city, setCity] = useState("");
   const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function add() {
     if (!name.trim()) return;
     setBusy(true);
     try {
-      await createSupplier({ name, type: type || null, city: city || null, phone: phone || null });
-      setName(""); setType(""); setCity(""); setPhone("");
+      await createSupplier({ name, type: type || null, city: city || null, phone: phone || null, address: address || null, email: email || null });
+      setName(""); setType(""); setCity(""); setPhone(""); setAddress(""); setEmail("");
       router.refresh();
     } finally { setBusy(false); }
   }
@@ -34,14 +36,16 @@ export function SupplierManager({ suppliers }: { suppliers: Supplier[] }) {
   return (
     <>
       <Card className="mb-4 p-4">
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-[1.5fr_1fr_1fr_1fr_auto]">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Supplier name" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
           <select value={type} onChange={(e) => setType(e.target.value)} className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary">
             {TYPES.map((t) => <option key={t} value={t}>{t || "Type…"}</option>)}
           </select>
           <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="City" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
-          <button onClick={add} disabled={busy || !name.trim()} className="inline-flex items-center justify-center gap-1 rounded-lg bg-primary px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-40"><Plus size={14} /> Add</button>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (for PO)" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
+          <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Address (for PO)" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
+          <button onClick={add} disabled={busy || !name.trim()} className="inline-flex items-center justify-center gap-1 rounded-lg bg-primary px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-40 md:col-span-3"><Plus size={14} /> Add supplier</button>
         </div>
       </Card>
 

@@ -478,6 +478,8 @@ model Supplier {
   type         SupplierType?
   city         String?
   phone        String?
+  address      String? // for the PO document
+  email        String? // for the PO email (mailto)
   remarks      String?
   active       Boolean       @default(true)
   trims        TrimItem[]
@@ -486,15 +488,24 @@ model Supplier {
   @@index([type])
 }
 
+// Global colour master (Change 08) — powers the colour dropdown; order lines store a string.
+model Colour {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  hex       String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
 // Procurement pipeline that feeds fabric INTO colour stock.
 model FabricOrder {
   id            Int               @id @default(autoincrement())
   fabric        Fabric            @relation(fields: [fabricId], references: [id])
   fabricId      Int
-  color         String? // which colour this order lands in on receipt
+  color         String? // legacy single-colour (pre-Change-08 rows); new orders use lines[]
   supplier      Supplier?         @relation(fields: [supplierId], references: [id])
   supplierId    Int?
-  qty           Float
+  qty           Float // legacy total; new orders derive total from lines
   unit          FabricUnit        @default(MTR)
   rate          Float?
   gsm           Float?
@@ -505,11 +516,27 @@ model FabricOrder {
   expectedDate  DateTime?
   receivedDate  DateTime? // set on receive — also the double-receive guard
   remarks       String?
+  // PO (Change 08)
+  poNumber      String?           @unique // e.g. PO-2026-001 — set when PO generated, locks the order
+  poGeneratedAt DateTime?
+  sentAt        DateTime? // set when emailed/WhatsApp-shared
+  lines         FabricOrderLine[]
   images        ImageAsset[]
 
   @@index([fabricId])
   @@index([supplierId])
   @@index([status])
+}
+
+// One colour + quantity row of a multi-colour fabric order (Change 08).
+model FabricOrderLine {
+  id            Int         @id @default(autoincrement())
+  fabricOrder   FabricOrder @relation(fields: [fabricOrderId], references: [id], onDelete: Cascade)
+  fabricOrderId Int
+  colour        String // canonical colour string (colorKey)
+  qty           Float
+
+  @@index([fabricOrderId])
 }
 
 model TrimMovement {

@@ -147,8 +147,10 @@ async function main() {
   await db.product.deleteMany();
   await db.trimMovement.deleteMany();
   await db.trimItem.deleteMany();
+  await db.fabricOrderLine.deleteMany();
   await db.fabricOrder.deleteMany();
   await db.supplier.deleteMany();
+  await db.colour.deleteMany();
   await db.user.deleteMany();
   await db.style.deleteMany();
   await db.fabricColor.deleteMany();
@@ -447,17 +449,31 @@ async function main() {
     }
   }
 
-  // Fabric orders — demo procurement pipeline (Change 05 Part C)
+  // ── Colour master (Change 08) — canonical de-duped colours ∪ product palette (with hex) ──
+  const colourHex = new Map<string, string | null>();
+  for (const v of new Set(COLOUR_ALIAS.values())) colourHex.set(cu(v), null);
+  for (const p of catalog.products as any[]) for (const c of p.colors ?? []) {
+    if (c?.name) { const k = cu(c.name); if (!colourHex.get(k)) colourHex.set(k, c.hex ?? colourHex.get(k) ?? null); }
+  }
+  let colours = 0;
+  for (const [name, hex] of colourHex) {
+    if (!name) continue;
+    await db.colour.create({ data: { name, hex } });
+    colours++;
+  }
+
+  // Fabric orders — demo procurement pipeline, now MULTI-COLOUR (Change 08)
   const anySupplier = [...supplierByName.values()][0] ?? null;
-  const fabricOrderSpecs: { fabric: string; color: string; qty: number; status: string; days: number; rate: number }[] = [
-    { fabric: "Max Polo", color: "NAVY", qty: 1500, status: "ORDER_PLACED", days: 12, rate: 320 },
-    { fabric: "Max Polo", color: "BLACK", qty: 1200, status: "PLANNING", days: 0, rate: 320 },
-    { fabric: "Ns Cotton", color: "AIR FORCE", qty: 2000, status: "ORDER_PLACED", days: 8, rate: 285 },
-    { fabric: "Playcool Eco", color: "BLACK", qty: 1800, status: "RECEIVED", days: -5, rate: 410 },
-    { fabric: "Polyster Terry", color: "NAVY", qty: 900, status: "SAMPLE_PENDING", days: 20, rate: 260 },
-    { fabric: "Fourway Lycra", color: "BLACK", qty: 1100, status: "PLANNING", days: 0, rate: 540 },
-    { fabric: "Popcorn", color: "BLACK", qty: 700, status: "ORDER_PLACED", days: 15, rate: 375 },
-    { fabric: "Playcool Eco", color: "NAVY", qty: 1300, status: "RECEIVED", days: -12, rate: 410 },
+  if (anySupplier) {
+    await db.supplier.update({ where: { id: anySupplier }, data: { email: "supplier@example.com", address: "Plot 12, Textile Market, Surat, Gujarat 395002" } });
+  }
+  const fabricOrderSpecs: { fabric: string; status: string; days: number; rate: number; lines: [string, number][] }[] = [
+    { fabric: "Max Polo", status: "ORDER_PLACED", days: 12, rate: 320, lines: [["NAVY", 1500], ["BLACK", 1200], ["ROYAL BLUE", 800]] },
+    { fabric: "Ns Cotton", status: "ORDER_PLACED", days: 8, rate: 285, lines: [["AIRFORCE", 2000], ["BLACK", 1000], ["DARK GREY", 700]] },
+    { fabric: "Playcool Eco", status: "RECEIVED", days: -5, rate: 410, lines: [["BLACK", 1800], ["NAVY", 1300]] },
+    { fabric: "Polyster Terry", status: "SAMPLE_PENDING", days: 20, rate: 260, lines: [["NAVY", 900]] },
+    { fabric: "Fourway Lycra", status: "PLANNING", days: 0, rate: 540, lines: [["BLACK", 1100], ["MAROON", 600]] },
+    { fabric: "Popcorn", status: "ORDER_PLACED", days: 15, rate: 375, lines: [["BLACK", 700], ["GRIFFIN", 500]] },
   ];
   let fos = 0;
   const today = new Date();
@@ -465,12 +481,14 @@ async function main() {
     const fid = fabricMap.get(s.fabric);
     if (!fid) continue;
     const expected = new Date(today.getTime() + s.days * 86_400_000);
+    const total = s.lines.reduce((a, [, q]) => a + q, 0);
     await db.fabricOrder.create({
       data: {
-        fabricId: fid, color: cu(s.color), supplierId: anySupplier, qty: s.qty, rate: s.rate,
+        fabricId: fid, supplierId: anySupplier, qty: total, rate: s.rate,
         status: s.status as any, orderDate: today,
         expectedDate: s.status === "RECEIVED" ? null : expected,
         receivedDate: s.status === "RECEIVED" ? expected : null,
+        lines: { create: s.lines.map(([colour, qty]) => ({ colour: cu(colour), qty })) },
       },
     });
     fos++;
@@ -507,6 +525,7 @@ async function main() {
   console.log(`Seeded: ${vendorMap.size} vendors, ${cmMap.size} cutting masters, ${fabricMap.size} fabrics, ${fcRows} fabric colours, ${made} job cards (${orphan} orphan).`);
   console.log(`Commercial: ${productMap.size} products, ${trimMap.size} trims, ${tmoves} trim moves, ${catalog.boms.length} BOMs, ${pos} POs, ${(catalog.users as any[]).length} users.`);
   console.log(`Change 05: ${supplierByName.size} suppliers, ${fos} fabric orders. BOM snapshot: ${jbl} job-bom lines, ${pendingCards} cards flagged trims-pending.`);
+  console.log(`Change 08: ${colours} colours in master.`);
 }
 
 main()

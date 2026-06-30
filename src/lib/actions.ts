@@ -588,17 +588,17 @@ export async function removeBomLine(input: { id: number }) {
 
 // ── Change 05 — masters & procurement ──
 
-export async function createSupplier(input: { name: string; type?: string | null; city?: string | null; phone?: string | null; remarks?: string | null }) {
+export async function createSupplier(input: { name: string; type?: string | null; city?: string | null; phone?: string | null; address?: string | null; email?: string | null; remarks?: string | null }) {
   await requireRole("ADMIN", "STAFF");
   if (!input.name.trim()) throw new Error("Name required");
   const s = await db.supplier.create({
-    data: { name: input.name.trim(), type: (input.type ?? null) as any, city: input.city ?? null, phone: input.phone ?? null, remarks: input.remarks ?? null },
+    data: { name: input.name.trim(), type: (input.type ?? null) as any, city: input.city ?? null, phone: input.phone ?? null, address: input.address ?? null, email: input.email ?? null, remarks: input.remarks ?? null } as any,
   });
   revalidatePath("/suppliers");
   return { id: s.id };
 }
 
-export async function updateSupplier(input: { id: number; name?: string; type?: string | null; city?: string | null; phone?: string | null; remarks?: string | null; active?: boolean }) {
+export async function updateSupplier(input: { id: number; name?: string; type?: string | null; city?: string | null; phone?: string | null; address?: string | null; email?: string | null; remarks?: string | null; active?: boolean }) {
   await requireRole("ADMIN", "STAFF");
   await db.supplier.update({
     where: { id: input.id },
@@ -607,27 +607,110 @@ export async function updateSupplier(input: { id: number; name?: string; type?: 
       ...(input.type !== undefined ? { type: (input.type ?? null) as any } : {}),
       ...(input.city !== undefined ? { city: input.city } : {}),
       ...(input.phone !== undefined ? { phone: input.phone } : {}),
+      ...(input.address !== undefined ? { address: input.address } : {}),
+      ...(input.email !== undefined ? { email: input.email } : {}),
       ...(input.remarks !== undefined ? { remarks: input.remarks } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
-    },
+    } as any,
   });
   revalidatePath("/suppliers");
   return { ok: true };
 }
 
+// ── Change 08: Colour master + fabric quick-add ──
+export async function createColour(input: { name: string; hex?: string | null }) {
+  await requireRole("ADMIN", "STAFF");
+  const name = colorKey(input.name);
+  if (!name) throw new Error("Colour required");
+  const c = await db.colour.upsert({
+    where: { name },
+    create: { name, hex: input.hex ?? null },
+    update: {},
+  });
+  revalidatePath("/fabric-orders");
+  revalidatePath("/masters");
+  return { id: c.id, name: c.name };
+}
+
+export async function deactivateColour(input: { id: number; active?: boolean }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.colour.update({ where: { id: input.id }, data: { active: input.active ?? false } });
+  revalidatePath("/masters");
+  return { ok: true };
+}
+
+export async function createFabricQuick(input: { name: string; unit?: "KG" | "MTR" }) {
+  await requireRole("ADMIN", "STAFF");
+  const name = input.name.trim();
+  if (!name) throw new Error("Fabric name required");
+  const f = await db.fabric.upsert({
+    where: { name },
+    create: { name, unit: (input.unit ?? "MTR") as any },
+    update: {},
+  });
+  revalidatePath("/fabric-orders");
+  revalidatePath("/inventory");
+  return { id: f.id, name: f.name };
+}
+
+// ── Change 08: multi-colour fabric orders + PO ──
 export async function createFabricOrder(input: {
-  fabricId: number; color?: string | null; supplierId?: number | null; qty: number; unit?: "KG" | "MTR";
-  rate?: number | null; gsm?: number | null; expectedDate?: string | null; status?: string; remarks?: string | null;
+  fabricId: number; supplierId?: number | null; expectedDate?: string | null; rate?: number | null;
+  gsm?: number | null; status?: string; remarks?: string | null; lines: { colour: string; qty: number }[];
 }) {
   await requireRole("ADMIN", "STAFF");
+  const lines = (input.lines ?? [])
+    .map((l) => ({ colour: colorKey(l.colour), qty: l.qty }))
+    .filter((l) => l.colour && l.qty > 0);
+  if (lines.length === 0) throw new Error("Add at least one colour with a quantity");
+  const total = lines.reduce((a, l) => a + l.qty, 0);
   await db.fabricOrder.create({
     data: {
-      fabricId: input.fabricId, color: input.color ? colorKey(input.color) : null, supplierId: input.supplierId ?? null,
-      qty: input.qty, unit: (input.unit ?? "MTR") as any, rate: input.rate ?? null, gsm: input.gsm ?? null,
-      status: (input.status ?? "PLANNING") as any, orderDate: new Date(),
+      fabricId: input.fabricId, supplierId: input.supplierId ?? null,
+      qty: total, rate: input.rate ?? null, gsm: input.gsm ?? null,
+      status: (input.status ?? "ORDER_PLACED") as any, orderDate: new Date(),
       expectedDate: input.expectedDate ? new Date(input.expectedDate) : null, remarks: input.remarks ?? null,
-    },
+      lines: { create: lines },
+    } as any,
   });
+  revalidatePath("/fabric-orders");
+  return { ok: true };
+}
+
+export async function updateFabricOrder(input: {
+  id: number; supplierId?: number | null; expectedDate?: string | null; rate?: number | null;
+  gsm?: number | null; lines?: { colour: string; qty: number }[];
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const o = await db.fabricOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
+  if (!o) throw new Error("Order not found");
+  if (o.poNumber) throw new Error("Order is locked — PO already generated");
+  await db.$transaction(async (tx) => {
+    if (input.lines) {
+      const lines = input.lines.map((l) => ({ colour: colorKey(l.colour), qty: l.qty })).filter((l) => l.colour && l.qty > 0);
+      await tx.fabricOrderLine.deleteMany({ where: { fabricOrderId: input.id } });
+      await tx.fabricOrderLine.createMany({ data: lines.map((l) => ({ ...l, fabricOrderId: input.id })) });
+      await tx.fabricOrder.update({ where: { id: input.id }, data: { qty: lines.reduce((a, l) => a + l.qty, 0) } });
+    }
+    await tx.fabricOrder.update({
+      where: { id: input.id },
+      data: {
+        ...(input.supplierId !== undefined ? { supplierId: input.supplierId } : {}),
+        ...(input.rate !== undefined ? { rate: input.rate } : {}),
+        ...(input.gsm !== undefined ? { gsm: input.gsm } : {}),
+        ...(input.expectedDate !== undefined ? { expectedDate: input.expectedDate ? new Date(input.expectedDate) : null } : {}),
+      },
+    });
+  });
+  revalidatePath("/fabric-orders");
+  return { ok: true };
+}
+
+export async function deleteFabricOrder(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const o = await db.fabricOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
+  if (o?.poNumber) throw new Error("Order is locked — PO already generated");
+  await db.fabricOrder.delete({ where: { id: input.id } });
   revalidatePath("/fabric-orders");
   return { ok: true };
 }
@@ -640,30 +723,61 @@ export async function updateFabricOrderStatus(input: { id: number; status: strin
   return { ok: true };
 }
 
-/** Receive a fabric order: land qty into the colour's stock once (guard via receivedDate). */
+/** Receive a fabric order: land EVERY line's qty into that colour's stock once (guard via receivedDate). */
 export async function receiveFabricOrder(input: { id: number }) {
   await requireRole("ADMIN", "STAFF");
-  const o = await db.fabricOrder.findUnique({ where: { id: input.id } });
+  const o = await db.fabricOrder.findUnique({ where: { id: input.id }, include: { lines: true } });
   if (!o) throw new Error("Order not found");
   if (o.receivedDate) return { ok: true, already: true as const }; // double-receive guard
   const now = new Date();
+  // New multi-colour orders use lines[]; legacy rows fall back to the single color/qty.
+  const rows =
+    o.lines.length > 0
+      ? o.lines.map((l) => ({ colour: colorKey(l.colour), qty: l.qty }))
+      : o.color
+        ? [{ colour: colorKey(o.color), qty: o.qty }]
+        : [];
   await db.$transaction(async (tx) => {
     await tx.fabricOrder.update({ where: { id: o.id }, data: { status: "RECEIVED", receivedDate: now } });
-    const color = o.color ? colorKey(o.color) : null;
-    await tx.stockMovement.create({ data: { type: "RECEIPT", qty: o.qty, date: now, fabricId: o.fabricId, color, note: "Fabric order received" } as any });
-    if (color) {
-      const fc = await tx.fabricColor.upsert({
-        where: { fabricId_color: { fabricId: o.fabricId, color } },
-        create: { fabricId: o.fabricId, color, openingStock: o.qty, currentStock: o.qty },
-        update: { currentStock: { increment: o.qty } },
-      });
-      void fc;
-    } else {
+    if (rows.length === 0) {
       await tx.fabric.update({ where: { id: o.fabricId }, data: { openingStock: { increment: o.qty } } });
+      return;
+    }
+    for (const r of rows) {
+      if (r.qty <= 0) continue;
+      await tx.stockMovement.create({ data: { type: "RECEIPT", qty: r.qty, date: now, fabricId: o.fabricId, color: r.colour, note: "Fabric order received" } as any });
+      await tx.fabricColor.upsert({
+        where: { fabricId_color: { fabricId: o.fabricId, color: r.colour } },
+        create: { fabricId: o.fabricId, color: r.colour, openingStock: r.qty, currentStock: r.qty },
+        update: { currentStock: { increment: r.qty } },
+      });
     }
   });
   revalidatePath("/fabric-orders");
   revalidatePath("/inventory");
+  return { ok: true };
+}
+
+/** Assign PO-YYYY-NNN (yearly sequence), lock the order. Idempotent. */
+export async function generatePO(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const o = await db.fabricOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
+  if (!o) throw new Error("Order not found");
+  if (o.poNumber) return { poNumber: o.poNumber }; // idempotent
+  const year = new Date().getFullYear();
+  const prefix = `PO-${year}-`;
+  const existing = await db.fabricOrder.findMany({ where: { poNumber: { startsWith: prefix } }, select: { poNumber: true } });
+  const maxN = existing.reduce((m, e) => Math.max(m, parseInt(e.poNumber!.slice(prefix.length), 10) || 0), 0);
+  const poNumber = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+  await db.fabricOrder.update({ where: { id: input.id }, data: { poNumber, poGeneratedAt: new Date() } });
+  revalidatePath("/fabric-orders");
+  return { poNumber };
+}
+
+export async function markPOSent(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.fabricOrder.update({ where: { id: input.id }, data: { sentAt: new Date() } });
+  revalidatePath("/fabric-orders");
   return { ok: true };
 }
 

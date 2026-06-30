@@ -6,9 +6,15 @@ export async function getSuppliers() {
     orderBy: { name: "asc" },
   });
   return suppliers.map((s) => ({
-    id: s.id, name: s.name, type: s.type, city: s.city, phone: s.phone, remarks: s.remarks,
-    active: s.active, trims: s._count.trims, orders: s._count.fabricOrders,
+    id: s.id, name: s.name, type: s.type, city: s.city, phone: s.phone,
+    address: (s as { address?: string | null }).address ?? null, email: (s as { email?: string | null }).email ?? null,
+    remarks: s.remarks, active: s.active, trims: s._count.trims, orders: s._count.fabricOrders,
   }));
+}
+
+export async function getColours() {
+  const rows = await db.colour.findMany({ where: { active: true }, orderBy: { name: "asc" } });
+  return rows.map((c) => ({ id: c.id, name: c.name, hex: c.hex, active: c.active }));
 }
 
 export type TrimMasterRow = {
@@ -26,16 +32,41 @@ export async function getTrimMaster(): Promise<TrimMasterRow[]> {
   }));
 }
 
+function poStageOf(o: { poNumber: string | null; sentAt: Date | null }): "Draft" | "PO Generated" | "Sent" {
+  if (o.sentAt) return "Sent";
+  if (o.poNumber) return "PO Generated";
+  return "Draft";
+}
+
 export async function getFabricOrders() {
   const orders = await db.fabricOrder.findMany({
-    include: { fabric: true, supplier: true },
+    include: { fabric: true, supplier: true, lines: true },
     orderBy: [{ status: "asc" }, { expectedDate: "asc" }],
   });
-  return orders.map((o) => ({
-    id: o.id, fabric: o.fabric.name, fabricId: o.fabricId, color: o.color, supplier: o.supplier?.name ?? null,
-    qty: o.qty, unit: o.unit, rate: o.rate, status: o.status as string,
-    expectedDate: o.expectedDate, receivedDate: o.receivedDate,
-  }));
+  return orders.map((o) => {
+    // new orders use lines[]; legacy rows fall back to the single color/qty
+    const lines = o.lines.length > 0 ? o.lines.map((l) => ({ colour: l.colour, qty: l.qty })) : o.color ? [{ colour: o.color, qty: o.qty }] : [];
+    const totalQty = lines.reduce((a, l) => a + l.qty, 0) || o.qty;
+    return {
+      id: o.id, fabric: o.fabric.name, fabricId: o.fabricId, supplier: o.supplier?.name ?? null,
+      lines, totalQty, colourCount: lines.length, unit: o.unit, rate: o.rate, status: o.status as string,
+      expectedDate: o.expectedDate, receivedDate: o.receivedDate,
+      poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
+    };
+  });
+}
+
+export async function getFabricOrder(id: number) {
+  const o = await db.fabricOrder.findUnique({ where: { id }, include: { fabric: true, supplier: true, lines: true } });
+  if (!o) return null;
+  const lines = o.lines.length > 0 ? o.lines.map((l) => ({ colour: l.colour, qty: l.qty })) : o.color ? [{ colour: o.color, qty: o.qty }] : [];
+  return {
+    id: o.id, fabric: o.fabric.name, gsm: o.gsm, unit: o.unit, rate: o.rate, remarks: o.remarks,
+    supplier: o.supplier ? { name: o.supplier.name, address: (o.supplier as { address?: string | null }).address ?? null, phone: o.supplier.phone, email: (o.supplier as { email?: string | null }).email ?? null } : null,
+    lines, totalQty: lines.reduce((a, l) => a + l.qty, 0) || o.qty,
+    status: o.status as string, expectedDate: o.expectedDate, orderDate: o.orderDate,
+    poNumber: o.poNumber, poGeneratedAt: o.poGeneratedAt, sentAt: o.sentAt, poStage: poStageOf(o),
+  };
 }
 
 export async function getFabricPickList() {
