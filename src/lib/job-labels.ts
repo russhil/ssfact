@@ -1,17 +1,34 @@
 // Pure, client-safe job-card helpers (NO db import) — usable from client components.
 
-export type Stage = "CUTTING" | "STITCHING" | "DISPATCH";
+// The real shop-floor lifecycle (Change 12, Part B). Legacy rows may still carry the
+// old "STITCHING" value in the DB — normalise it to ON_MACHINE on read (normStage).
+export type Stage = "FABRIC_AWAITED" | "CUTTING" | "ON_MACHINE" | "FINISHING" | "DISPATCH";
 
-export const STAGES: Stage[] = ["CUTTING", "STITCHING", "DISPATCH"];
+export const STAGES: Stage[] = ["FABRIC_AWAITED", "CUTTING", "ON_MACHINE", "FINISHING", "DISPATCH"];
 
 export const STAGE_LABEL: Record<Stage, string> = {
+  FABRIC_AWAITED: "Fabric awaited",
   CUTTING: "Cutting",
-  STITCHING: "Stitching",
+  ON_MACHINE: "On machine",
+  FINISHING: "Finishing",
   DISPATCH: "Dispatch",
 };
 
-export const stageTone = (s: Stage): "primary" | "warn" | "ok" =>
-  s === "CUTTING" ? "warn" : s === "STITCHING" ? "primary" : "ok";
+/** Normalise a raw DB stage string (incl. legacy "STITCHING") to a current Stage. */
+export const normStage = (s: string | null | undefined): Stage =>
+  s === "STITCHING" ? "ON_MACHINE" : ((s as Stage) ?? "CUTTING");
+
+/** Badge tone for a stage — feeds the ok/warn/primary/danger colour scale. */
+export const stageTone = (s: Stage): "primary" | "warn" | "ok" | "danger" =>
+  s === "FABRIC_AWAITED"
+    ? "danger"
+    : s === "CUTTING"
+      ? "warn"
+      : s === "ON_MACHINE"
+        ? "primary"
+        : s === "FINISHING"
+          ? "warn"
+          : "ok";
 
 export const DEFAULT_SIZE_RATIO: [string, number][] = [
   ["S", 0.08], ["M", 0.17], ["L", 0.25], ["XL", 0.25], ["2XL", 0.17], ["3XL", 0.08],

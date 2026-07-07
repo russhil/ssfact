@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { getTrimStock, type TrimStock } from "@/lib/trims";
 import { wholesale } from "@/lib/catalog-labels";
+import { STAGE_LABEL, normStage } from "@/lib/job-labels";
 
 export { wholesale, STATUS_LABEL, statusTone } from "@/lib/catalog-labels";
 
@@ -23,8 +24,6 @@ export type ProductRow = {
   whereInProduction: string | null; // derived from open job cards
 };
 
-const STAGE_LABEL: Record<string, string> = { CUTTING: "Cutting", STITCHING: "Stitching", DISPATCH: "Dispatch" };
-
 export async function getProducts(): Promise<ProductRow[]> {
   const products = await db.product.findMany({
     include: {
@@ -38,7 +37,7 @@ export async function getProducts(): Promise<ProductRow[]> {
     .map((p) => {
       const open = p.jobCards[0];
       const where = open
-        ? `${STAGE_LABEL[open.stage] ?? open.stage}${open.cutQty ? ` · ${Math.round((open.dispatchedQty / open.cutQty) * 100)}% recd` : ""}`
+        ? `${STAGE_LABEL[normStage(open.stage)]}${open.cutQty ? ` · ${Math.round((open.dispatchedQty / open.cutQty) * 100)}% recd` : ""}`
         : p._count.jobCards > 0
           ? "All closed"
           : null;

@@ -23,7 +23,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
 
   const productOptions = useMemo(() => {
     const m = new Map<number, string>();
-    for (const r of rows) if (!m.has(r.productId)) m.set(r.productId, r.product);
+    for (const r of rows) if (r.productId != null && !m.has(r.productId)) m.set(r.productId, r.product ?? "—");
     return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [rows]);
 

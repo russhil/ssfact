@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { updateProduct, addProductColor, removeProductColor } from "@/lib/actions";
+import { createProduct, updateProduct, addProductColor, removeProductColor } from "@/lib/actions";
 import { Card, Badge } from "@/components/ui";
 import { LookupSelect } from "@/components/masters/lookup-select";
 import { Plus, X, Check } from "lucide-react";
@@ -12,20 +12,32 @@ const SAMPLING = ["", "PLANNING", "DESIGN_FABRIC_PENDING", "SAMPLE_ORDERED", "RE
 const LOTS = ["", "OLD_CUT_SIZE", "NEW_LOT"];
 
 type P = {
-  id: number; name: string; headCategory: string | null; status: string;
+  id: number; name: string; skuCode?: string | null; styleNo?: string | null; headCategory: string | null; status: string;
   samplingStatus: string | null; productionLot: string | null; fabricRemarks: string | null; otherRemarks: string | null;
   avgConsumption: number | null; mrp: number | null; customWsRate: number | null;
   colors: { id: number; name: string; hex: string | null }[];
 };
 
-export function ProductMasterForm({ product, canSeeCost, headCategories = [] }: { product: P; canSeeCost: boolean; headCategories?: { id: number; code: string; label: string; hex: string | null; parentId: number | null; sortOrder: number; active: boolean }[] }) {
+export function ProductMasterForm({
+  product,
+  canSeeCost,
+  headCategories = [],
+  mode = "edit",
+}: {
+  product?: P;
+  canSeeCost: boolean;
+  headCategories?: { id: number; code: string; label: string; hex: string | null; parentId: number | null; sortOrder: number; active: boolean }[];
+  mode?: "create" | "edit";
+}) {
   const router = useRouter();
+  const isCreate = mode === "create";
   const [f, setF] = useState({
-    name: product.name, headCategory: product.headCategory ?? "", status: product.status,
-    samplingStatus: product.samplingStatus ?? "", productionLot: product.productionLot ?? "",
-    fabricRemarks: product.fabricRemarks ?? "", otherRemarks: product.otherRemarks ?? "",
-    avgConsumption: product.avgConsumption != null ? String(product.avgConsumption) : "",
-    mrp: product.mrp != null ? String(product.mrp) : "", customWsRate: product.customWsRate != null ? String(product.customWsRate) : "",
+    name: product?.name ?? "", skuCode: product?.skuCode ?? "", styleNo: product?.styleNo ?? "",
+    headCategory: product?.headCategory ?? "", status: product?.status ?? "ACTIVE",
+    samplingStatus: product?.samplingStatus ?? "", productionLot: product?.productionLot ?? "",
+    fabricRemarks: product?.fabricRemarks ?? "", otherRemarks: product?.otherRemarks ?? "",
+    avgConsumption: product?.avgConsumption != null ? String(product.avgConsumption) : "",
+    mrp: product?.mrp != null ? String(product.mrp) : "", customWsRate: product?.customWsRate != null ? String(product.customWsRate) : "",
   });
   const [newColor, setNewColor] = useState("");
   const [busy, setBusy] = useState(false);
@@ -33,10 +45,23 @@ export function ProductMasterForm({ product, canSeeCost, headCategories = [] }: 
   const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
 
   async function save() {
+    if (isCreate && !f.name.trim()) return;
     setBusy(true);
     try {
+      if (isCreate) {
+        const { extId } = await createProduct({
+          name: f.name, skuCode: f.skuCode || null, styleNo: f.styleNo || null,
+          headCategory: f.headCategory || null, status: f.status,
+          samplingStatus: f.samplingStatus || null, productionLot: f.productionLot || null,
+          fabricRemarks: f.fabricRemarks || null, otherRemarks: f.otherRemarks || null,
+          avgConsumption: f.avgConsumption ? +f.avgConsumption : null,
+          ...(canSeeCost ? { mrp: f.mrp ? +f.mrp : null, customWsRate: f.customWsRate ? +f.customWsRate : null } : {}),
+        });
+        router.push(`/catalog/${extId}`);
+        return; // keep busy through navigation
+      }
       await updateProduct({
-        id: product.id, name: f.name, headCategory: f.headCategory || null, status: f.status,
+        id: product!.id, name: f.name, headCategory: f.headCategory || null, status: f.status,
         samplingStatus: f.samplingStatus || null, productionLot: f.productionLot || null,
         fabricRemarks: f.fabricRemarks || null, otherRemarks: f.otherRemarks || null,
         avgConsumption: f.avgConsumption ? +f.avgConsumption : null,
@@ -44,10 +69,14 @@ export function ProductMasterForm({ product, canSeeCost, headCategories = [] }: 
       });
       setSaved(true); setTimeout(() => setSaved(false), 1800);
       router.refresh();
-    } finally { setBusy(false); }
+      setBusy(false);
+    } catch (e) {
+      alert("Could not save: " + (e as Error).message);
+      setBusy(false);
+    }
   }
   async function addColor() {
-    if (!newColor.trim()) return;
+    if (!product || !newColor.trim()) return;
     setBusy(true);
     try { await addProductColor({ productId: product.id, name: newColor }); setNewColor(""); router.refresh(); } finally { setBusy(false); }
   }
@@ -58,9 +87,11 @@ export function ProductMasterForm({ product, canSeeCost, headCategories = [] }: 
 
   return (
     <Card className="p-5">
-      <h3 className="mb-3 text-[13px] font-bold">Edit Product <span className="font-medium text-faint">· admin / staff</span></h3>
+      <h3 className="mb-3 text-[13px] font-bold">{isCreate ? "New Product" : "Edit Product"} <span className="font-medium text-faint">· admin / staff</span></h3>
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3">
-        <Field label="Name"><input value={f.name} onChange={(e) => set("name", e.target.value)} className={inp} /></Field>
+        <Field label="Name"><input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder={isCreate ? "e.g. TRUMP LOWER" : ""} className={inp} /></Field>
+        <Field label="SKU / article code"><input value={f.skuCode} onChange={(e) => set("skuCode", e.target.value)} placeholder="e.g. TP-TRUMP-824 (or blank)" className={inp} /></Field>
+        <Field label="Style no"><input value={f.styleNo} onChange={(e) => set("styleNo", e.target.value)} placeholder="e.g. #824" className={inp} /></Field>
         <Field label="Head category">
           <LookupSelect kind="HEAD_CATEGORY" options={headCategories} value={f.headCategory} onChange={(v) => set("headCategory", v)} placeholder="Category…" className={inp} />
         </Field>
@@ -74,23 +105,31 @@ export function ProductMasterForm({ product, canSeeCost, headCategories = [] }: 
         <Field label="Other remarks"><input value={f.otherRemarks} onChange={(e) => set("otherRemarks", e.target.value)} className={inp} /></Field>
       </div>
 
-      <div className="mt-3">
-        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-faint">Colours</div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {product.colors.map((c) => (
-            <span key={c.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-slate-50 px-2.5 py-1 text-[11px] font-semibold">
-              {c.hex && <span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ background: c.hex }} />}
-              {c.name}
-              <button onClick={() => delColor(c.id)} className="text-faint hover:text-danger"><X size={11} /></button>
-            </span>
-          ))}
-          <input value={newColor} onChange={(e) => setNewColor(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addColor()} placeholder="+ colour" className="w-24 rounded-full border border-dashed border-border px-2.5 py-1 text-[11px] outline-none focus:border-primary" />
-          <button onClick={addColor} disabled={busy || !newColor.trim()} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1 text-[11px] font-semibold hover:bg-slate-50 disabled:opacity-40"><Plus size={11} /> Add</button>
+      {isCreate ? (
+        <p className="mt-3 rounded-lg border border-dashed border-border bg-slate-50 px-3 py-2 text-[12px] text-muted">
+          Save the product first, then add colours &amp; images on its page.
+        </p>
+      ) : (
+        <div className="mt-3">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-faint">Colours</div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(product?.colors ?? []).map((c) => (
+              <span key={c.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-slate-50 px-2.5 py-1 text-[11px] font-semibold">
+                {c.hex && <span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ background: c.hex }} />}
+                {c.name}
+                <button onClick={() => delColor(c.id)} className="text-faint hover:text-danger"><X size={11} /></button>
+              </span>
+            ))}
+            <input value={newColor} onChange={(e) => setNewColor(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addColor()} placeholder="+ colour" className="w-24 rounded-full border border-dashed border-border px-2.5 py-1 text-[11px] outline-none focus:border-primary" />
+            <button onClick={addColor} disabled={busy || !newColor.trim()} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1 text-[11px] font-semibold hover:bg-slate-50 disabled:opacity-40"><Plus size={11} /> Add</button>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="mt-4 flex items-center gap-2">
-        <button onClick={save} disabled={busy} className="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40">Save</button>
+        <button onClick={save} disabled={busy || (isCreate && !f.name.trim())} className="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40">
+          {isCreate ? "Create product" : "Save"}
+        </button>
         {saved && <span className="inline-flex items-center gap-1 text-[12px] font-medium text-emerald-600"><Check size={14} /> Saved</span>}
         {!canSeeCost && <Badge tone="default">Cost fields hidden — owner only</Badge>}
       </div>

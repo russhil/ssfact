@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
 import { FabricMasterForm } from "@/components/fabric-master-form";
 import { num, pct, fmtDate } from "@/lib/format";
+import { jobItem } from "@/lib/job-display";
 import { ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -159,7 +160,7 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
                     "—"
                   )}
                 </td>
-                <td className="px-5 py-2.5 text-slate-500">{m.jobCard ? m.jobCard.product.itemDesc ?? m.jobCard.product.name : "—"}</td>
+                <td className="px-5 py-2.5 text-slate-500">{m.jobCard ? jobItem(m.jobCard) : "—"}</td>
                 <td className={`px-5 py-2.5 text-right font-bold tnum ${m.type === "ISSUE" ? "text-danger" : "text-emerald-600"}`}>
                   {m.type === "ISSUE" ? "−" : "+"}
                   {num(m.qty)}

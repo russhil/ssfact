@@ -33,10 +33,15 @@ enum JobStatus {
 }
 
 // "Overdue" is derived (isOverdue from plannedEtd), not stored.
+// The real shop-floor flow (Change 12, Part B). STITCHING is kept valid for legacy
+// rows and normalised to ON_MACHINE on read (see normStage in job-labels.ts).
 enum JobStage {
+  FABRIC_AWAITED
   CUTTING
-  STITCHING
+  ON_MACHINE
+  FINISHING
   DISPATCH
+  STITCHING
 }
 
 enum MovementType {
@@ -249,8 +254,20 @@ model JobCard {
   merchandiser String? // person handling the cutting, e.g. "Jyotika"
   mrp          Float? // owner-visible only (canSeeCost)
 
-  product         Product        @relation(fields: [productId], references: [id])
-  productId       Int
+  // made-to-order fallback (Change 12, Part D) — used when there is no catalogue product
+  // (SKU shows ORDER / TBC / NEW STYLE). A job card must have either productId or customItem.
+  customItem  String? // e.g. "JHARKHAND TRACKSUIT"
+  customSku   String? // e.g. "ORDER" / "TBC" / a hand code
+  customStyle String? // e.g. "#1202"
+  customMrp   Float? // owner-visible only, when there's no product MRP
+
+  // optional quality/quantity capture (Change 12, Part G) — never required
+  rejectQty Float? // "18 PCS REJECT"
+  alterQty  Float? // "262 PCS IN ALTER"
+  extraQty  Float? // "39 PCS EXTRA"
+
+  product         Product?       @relation(fields: [productId], references: [id])
+  productId       Int?
   vendor          Vendor         @relation(fields: [vendorId], references: [id])
   vendorId        Int
   cuttingMaster   CuttingMaster? @relation(fields: [cuttingMasterId], references: [id])

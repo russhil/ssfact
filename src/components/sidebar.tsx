@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  LayoutGrid,
   ClipboardList,
   Boxes,
   Factory,
@@ -33,6 +34,7 @@ const ALL: Role[] = ["ADMIN", "STAFF", "VENDOR", "TRIMS"];
 
 const nav: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard, roles: ALL },
+  { href: "/board", label: "Production Board", icon: LayoutGrid, roles: ["ADMIN", "STAFF"] },
   { href: "/job-cards", label: "Job Cards", icon: ClipboardList, roles: ["ADMIN", "STAFF", "VENDOR"] },
   { href: "/production-orders", label: "Production", icon: PackageCheck, roles: ["ADMIN"] },
   { href: "/catalog", label: "Product Master", icon: Package, roles: ["ADMIN", "STAFF"] },

@@ -77,7 +77,14 @@ export type NewJobLayerInput = {
 };
 
 export type NewJobInput = {
-  productId: number;
+  // catalogue product OR a made-to-order free-text item (Change 12, Part D) — one is required
+  productId?: number | null;
+  customItem?: string | null;
+  customSku?: string | null;
+  customStyle?: string | null;
+  customMrp?: number | null;
+  // reuse an existing SI when adding a vendor split / re-cut (Change 12, Part F); else auto-assigned
+  siNo?: string | null;
   vendorName: string;
   cuttingMaster?: string;
   // legacy single-grid entry (kept for back-compat); new cards send `layers` instead
@@ -99,7 +106,7 @@ export type NewJobInput = {
   merchandiser?: string | null;
   mrp?: number | null;
   remark?: string;
-  stage?: "CUTTING" | "STITCHING" | "DISPATCH";
+  stage?: "FABRIC_AWAITED" | "CUTTING" | "ON_MACHINE" | "FINISHING" | "DISPATCH";
   plannedEtd?: string;
 };
 
@@ -130,11 +137,18 @@ async function nextSiNo(): Promise<string> {
 
 export async function createJobCard(input: NewJobInput) {
   const user = await requireRole("ADMIN", "STAFF");
-  const product = await db.product.findUnique({
-    where: { id: input.productId },
-    include: { boms: { include: { lines: true } } },
-  });
-  if (!product) throw new Error("Product not found");
+
+  // A job card must reference a catalogue product OR carry a free-text custom item
+  // (made-to-order, Change 12 Part D).
+  const customItem = input.customItem?.trim() || null;
+  const product = input.productId
+    ? await db.product.findUnique({
+        where: { id: input.productId },
+        include: { boms: { include: { lines: true } } },
+      })
+    : null;
+  if (input.productId && !product) throw new Error("Product not found");
+  if (!product && !customItem) throw new Error("Provide a product or a custom item");
 
   const vendor =
     (await db.vendor.findUnique({ where: { name: input.vendorName } })) ??
@@ -165,7 +179,8 @@ export async function createJobCard(input: NewJobInput) {
     ? layers.flatMap((l) => l.cells.map((c) => ({ size: c.size, color: c.colour, qty: c.qty })))
     : (input.matrix ?? []).filter((m) => m.qty > 0);
   const cutQty = flatMatrix.reduce((a, m) => a + m.qty, 0);
-  const defaultAvg = product.avgConsumption ?? null;
+  const defaultAvg = product?.avgConsumption ?? null;
+  const fabricId = product?.fabricId ?? null;
 
   // Group into per-colour cut quantities (colorKey canonical).
   const cutByColour = new Map<string, { display: string; qty: number }>();
@@ -197,7 +212,7 @@ export async function createJobCard(input: NewJobInput) {
 
   // Per-colour fabric plan (only when the product has a fabric). Issue = summed layer
   // fabric-mtr when the layers carry maths, else the avg × cut estimate (agreed rule).
-  const fabricPlan = product.fabricId
+  const fabricPlan = fabricId
     ? [...cutByColour.entries()].map(([key, { qty }]) => {
         const ov = overrides.get(key);
         const detail = detailByColour.get(key);
@@ -228,7 +243,7 @@ export async function createJobCard(input: NewJobInput) {
       : null;
 
   // Build the trim sheet from the edited lines (fall back to the product preset).
-  const presetLines = product.boms.flatMap((b) => b.lines);
+  const presetLines = product?.boms.flatMap((b) => b.lines) ?? [];
   const rawBom =
     input.bomLines && input.bomLines.length
       ? input.bomLines
@@ -256,9 +271,11 @@ export async function createJobCard(input: NewJobInput) {
   const trimsPending = bomPlan.some((l) => l.trimItemId != null && l.requiredQty > (trimStock.get(l.trimItemId) ?? 0));
 
   // MRP: only an owner may set/override it; otherwise default from the product master.
-  const mrp = user.role === "ADMIN" && input.mrp != null ? input.mrp : product.mrp ?? null;
+  const mrp = user.role === "ADMIN" && input.mrp != null ? input.mrp : product?.mrp ?? null;
+  // custom MRP (made-to-order) is likewise owner-only.
+  const customMrp = user.role === "ADMIN" ? input.customMrp ?? null : null;
 
-  const siNo = await nextSiNo();
+  const siNo = input.siNo?.trim() || (await nextSiNo());
   const now = new Date();
 
   const job = await db.$transaction(async (tx) => {
@@ -284,7 +301,11 @@ export async function createJobCard(input: NewJobInput) {
         needsEmb: !!input.needsEmb,
         merchandiser: input.merchandiser ?? null,
         mrp,
-        productId: product.id,
+        productId: product?.id ?? null,
+        customItem: product ? null : customItem,
+        customSku: product ? null : input.customSku?.trim() || null,
+        customStyle: product ? null : input.customStyle?.trim() || null,
+        customMrp: product ? null : customMrp,
         vendorId: vendor.id,
         cuttingMasterId,
         // Layers are the source of truth for new cards; legacy grids still write SizeBreakup.
@@ -320,7 +341,7 @@ export async function createJobCard(input: NewJobInput) {
       await tx.jobFabricLine.create({
         data: {
           color: line.key,
-          fabricId: product.fabricId!,
+          fabricId: fabricId!,
           jobCardId: created.id,
           cutQty: line.cutQty,
           estAvg: line.estAvg,
@@ -337,7 +358,7 @@ export async function createJobCard(input: NewJobInput) {
         direction: "OUT",
         qty: line.qtyIssued ?? 0,
         date: now,
-        fabricId: product.fabricId!,
+        fabricId: fabricId!,
         colour: line.key,
         jobCardId: created.id,
         note: "Cutting issue",
@@ -415,7 +436,7 @@ export async function recordFabricActuals(input: FabricActualsInput) {
     include: { product: true, returnNotes: true, fabricLines: true },
   });
   if (!job) throw new Error("Job card not found");
-  const fabricId = job.product.fabricId;
+  const fabricId = job.product?.fabricId ?? null;
 
   // Returns are locked per colour once recorded — re-saving never double-counts.
   const returnedColours = new Set(job.returnNotes.map((r) => colorKey(r.color)));
@@ -490,16 +511,38 @@ export async function recordFabricActuals(input: FabricActualsInput) {
 
 export async function setJobStage(input: {
   jobCardId: number;
-  stage: "CUTTING" | "STITCHING" | "DISPATCH";
+  stage: "FABRIC_AWAITED" | "CUTTING" | "ON_MACHINE" | "FINISHING" | "DISPATCH";
 }) {
   await requireRole("ADMIN", "STAFF");
   const job = await db.jobCard.update({
     where: { id: input.jobCardId },
     data: { stage: input.stage },
   });
+  revalidatePath("/board");
   revalidatePath("/job-cards");
   revalidatePath(`/job-cards/${String(job.id)}`);
   return { stage: job.stage };
+}
+
+// Optional quality/quantity capture (Change 12, Part G). null clears a value.
+export async function setJobQuality(input: {
+  jobCardId: number;
+  rejectQty?: number | null;
+  alterQty?: number | null;
+  extraQty?: number | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.update({
+    where: { id: input.jobCardId },
+    data: {
+      rejectQty: input.rejectQty ?? null,
+      alterQty: input.alterQty ?? null,
+      extraQty: input.extraQty ?? null,
+    },
+  });
+  revalidatePath("/board");
+  revalidatePath(`/job-cards/${String(job.id)}`);
+  return { ok: true };
 }
 
 export type NewProductionOrderInput = {
@@ -623,11 +666,11 @@ export async function addCuttingLayer(input: {
   });
   if (!job) throw new Error("Job card not found");
 
-  const fabricId = job.product.fabricId;
+  const fabricId = job.product?.fabricId ?? null;
   const now = new Date();
   const layerNo = job.layers.reduce((m, l) => Math.max(m, l.layerNo), 0) + 1;
   const layerTotal = cells.reduce((a, c) => a + c.qty, 0);
-  const avg = input.avgConsumption ?? job.estAvg ?? job.product.avgConsumption ?? null;
+  const avg = input.avgConsumption ?? job.estAvg ?? job.product?.avgConsumption ?? null;
 
   const byCol = new Map<string, number>();
   for (const c of cells) byCol.set(c.colour, (byCol.get(c.colour) ?? 0) + c.qty);
@@ -1230,6 +1273,77 @@ export async function updateProduct(input: {
   revalidatePath("/catalog");
   revalidatePath(`/catalog/${id}`);
   return { ok: true };
+}
+
+// Next PRD-#### code (Change 13). Mirrors nextSiNo: scan existing extIds, take max, pad to 4.
+async function nextExtId(): Promise<string> {
+  const products = await db.product.findMany({ select: { extId: true } });
+  let max = 1000; // fresh DB starts at PRD-1001
+  for (const p of products) {
+    const m = p.extId.match(/(\d+)/);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `PRD-${String(max + 1).padStart(4, "0")}`;
+}
+
+// Create a new product (Change 13). Reuses the edit form in "create mode"; owner-only cost fields.
+export async function createProduct(input: {
+  name: string;
+  skuCode?: string | null;
+  styleNo?: string | null;
+  itemDesc?: string | null;
+  headCategory?: string | null;
+  status?: string;
+  samplingStatus?: string | null;
+  productionLot?: string | null;
+  avgConsumption?: number | null;
+  unit?: string;
+  mrp?: number | null;
+  customWsRate?: number | null;
+  fabricRemarks?: string | null;
+  otherRemarks?: string | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const name = input.name.trim();
+  if (!name) throw new Error("Product name is required");
+
+  const sku = (input.skuCode ?? "").trim();
+  const canSeeCost = user.role === "ADMIN";
+
+  // Retry on the unlikely extId unique collision (concurrent creates).
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const extId = await nextExtId();
+    // normSku keeps search/dedupe working; fall back to extId when no skuCode (TBC).
+    const normSku = (sku || extId).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    try {
+      const created = await db.product.create({
+        data: {
+          extId,
+          skuCode: sku,
+          normSku,
+          name,
+          styleNo: input.styleNo?.trim() || null,
+          itemDesc: input.itemDesc?.trim() || null,
+          headCategory: input.headCategory || null,
+          status: (input.status ?? "ACTIVE") as any,
+          unit: (input.unit ?? "MTR") as any,
+          samplingStatus: (input.samplingStatus || null) as any,
+          productionLot: (input.productionLot || null) as any,
+          avgConsumption: input.avgConsumption ?? null,
+          mrp: canSeeCost ? input.mrp ?? null : null,
+          customWsRate: canSeeCost ? input.customWsRate ?? null : null,
+          fabricRemarks: input.fabricRemarks || null,
+          otherRemarks: input.otherRemarks || null,
+        } as any,
+      });
+      revalidatePath("/catalog");
+      return { ok: true as const, id: created.id, extId: created.extId };
+    } catch (e: any) {
+      if (e?.code === "P2002" && attempt < 2) continue; // extId race — regenerate
+      throw e;
+    }
+  }
+  throw new Error("Could not assign a product code — please retry");
 }
 
 export async function addProductColor(input: { productId: number; name: string; hex?: string | null }) {

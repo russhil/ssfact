@@ -12,8 +12,11 @@ import { JobStitching, type StitchAssignmentView } from "@/components/job-stitch
 import { JobDispatchAdd } from "@/components/job-dispatch-add";
 import { AddCuttingLayer } from "@/components/add-cutting-layer";
 import { num, inr, fmtDate, pct } from "@/lib/format";
-import { STAGE_LABEL, stageTone, type Stage } from "@/lib/job-labels";
-import { ArrowLeft } from "lucide-react";
+import { STAGE_LABEL, stageTone, normStage } from "@/lib/job-labels";
+import { jobItem, jobStyle, jobMrp } from "@/lib/job-display";
+import { JobStageSelect } from "@/components/job-stage-select";
+import { JobQualityCard } from "@/components/job-quality-card";
+import { ArrowLeft, Plus } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -42,24 +45,24 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   const balance = j.cutQty - j.dispatchedQty;
   const fill = j.cutQty ? j.dispatchedQty / j.cutQty : 0;
   const overdue = j.status === "ACTIVE" && j.plannedEtd && j.plannedEtd < new Date() && balance > 0;
-  const stage = j.stage as Stage;
-  const unit = j.product.unit;
+  const stage = normStage(j.stage);
+  const unit = j.product?.unit ?? "MTR";
 
   // canonical cut matrix (layers when present, else legacy SizeBreakup)
   const mx = getJobMatrix(j);
   const hasColor = mx.colours.some((c) => c !== "" && c !== "—");
 
   const returned = j.returnNotes.reduce((a, r) => a + r.qty, 0);
-  const itemDesc = j.product.itemDesc ?? j.product.name;
-  const styleNo = j.product.styleNo ?? j.product.skuCode;
+  const itemDesc = jobItem(j);
+  const styleNo = jobStyle(j);
 
   // per-colour fabric
   const returnedByColour = new Map<string, number>();
   for (const r of j.returnNotes)
     returnedByColour.set(colorKey(r.color), (returnedByColour.get(colorKey(r.color)) ?? 0) + r.qty);
   const hasFabricLines = j.fabricLines.length > 0;
-  const fabricGsm = j.product.fabric?.gsm ?? null;
-  const fabricWidth = j.product.fabric?.rollWidth ?? null;
+  const fabricGsm = j.product?.fabric?.gsm ?? null;
+  const fabricWidth = j.product?.fabric?.rollWidth ?? null;
   const hasFabricDetail = j.fabricLines.some((l) => l.reqPcs != null || l.reqMtr != null || l.rolls != null || l.imageUrl != null);
   const actualsLines = hasFabricLines
     ? j.fabricLines.map((l) => ({
@@ -109,11 +112,11 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   const meta = [
     ["Style No", styleNo],
     ["Item", itemDesc],
-    ...(canSeeCost ? ([["MRP", inr(j.mrp ?? j.product.mrp)]] as const) : ([] as const)),
+    ...(canSeeCost ? ([["MRP", inr(j.mrp ?? jobMrp(j))]] as const) : ([] as const)),
     ["Merchandiser", j.merchandiser ?? "—"],
     ["Vendor", j.vendor.name],
     ["Cutting Master", j.cuttingMaster?.name ?? "—"],
-    ["Fabric", j.product.fabric?.name ?? "—"],
+    ["Fabric", j.product?.fabric?.name ?? "—"],
     ["Avg Consumption", j.avgConsumption ? `${j.avgConsumption} ${unit.toLowerCase()}/pc` : "—"],
     ["Order Date", fmtDate(j.orderDate)],
     ["Planned ETD", fmtDate(j.plannedEtd)],
@@ -136,16 +139,30 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           <div className="flex items-center gap-2.5">
             <h1 className="text-[22px] font-bold tracking-tight">{j.siNo}</h1>
             {overdue ? <Badge tone="danger">Overdue</Badge> : j.status === "CLOSED" ? <Badge tone="ok">Closed</Badge> : <Badge tone="primary">Active</Badge>}
-            <Badge tone={stageTone(stage)}>{STAGE_LABEL[stage]}</Badge>
+            {canEdit ? (
+              <JobStageSelect jobCardId={j.id} stage={stage} />
+            ) : (
+              <Badge tone={stageTone(stage)}>{STAGE_LABEL[stage]}</Badge>
+            )}
+            {!j.product && <Badge tone="warn">Made-to-order</Badge>}
           </div>
           <p className="mt-0.5 text-[13px] text-muted">
             {itemDesc} · {styleNo}
-            <Link href={`/catalog/${encodeURIComponent(j.product.skuCode)}`} className="ml-2 text-primary-ink hover:underline">view product →</Link>
+            {j.product && (
+              <Link href={`/catalog/${encodeURIComponent(j.product.skuCode)}`} className="ml-2 text-primary-ink hover:underline">view product →</Link>
+            )}
           </p>
         </div>
-        <Link href={`/challan/${j.id}`} className="rounded-lg border border-border px-3.5 py-2 text-[13px] font-semibold text-primary-ink hover:bg-slate-50">
-          Share challan
-        </Link>
+        <div className="flex items-center gap-2">
+          {canEdit && (
+            <Link href={`/job-cards/new?si=${encodeURIComponent(j.siNo)}`} className="inline-flex items-center gap-1 rounded-lg border border-border px-3.5 py-2 text-[13px] font-semibold text-primary-ink hover:bg-slate-50">
+              <Plus size={14} /> Add split / re-cut
+            </Link>
+          )}
+          <Link href={`/challan/${j.id}`} className="rounded-lg border border-border px-3.5 py-2 text-[13px] font-semibold text-primary-ink hover:bg-slate-50">
+            Share challan
+          </Link>
+        </div>
       </div>
 
       {/* process flags */}
@@ -178,9 +195,10 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
 
       <StatusTimeline
         steps={[
+          { label: "Fabric", date: j.fabricIssueDate, done: stage !== "FABRIC_AWAITED" || j.fabricLines.some((l) => (l.qtyIssued ?? 0) > 0) || !!j.fabricIssueDate },
           { label: "Cut", date: j.cuttingIssuedOn ?? j.orderDate, done: !!j.cuttingIssuedOn || j.cutQty > 0 },
-          { label: "Fabric issued", date: j.fabricIssueDate, done: j.fabricLines.some((l) => (l.qtyIssued ?? 0) > 0) || !!j.fabricIssueDate },
-          { label: "Stitching", date: null, done: stage === "STITCHING" || stage === "DISPATCH" || j.dispatchedQty > 0 },
+          { label: "On machine", date: null, done: stage === "ON_MACHINE" || stage === "FINISHING" || stage === "DISPATCH" || j.dispatchedQty > 0 },
+          { label: "Finishing", date: null, done: stage === "FINISHING" || stage === "DISPATCH" || j.dispatchedQty > 0 },
           { label: "Received", date: j.dispatches[0]?.date ?? null, done: j.dispatchedQty > 0 },
           { label: "Closed", date: j.dispatches[j.dispatches.length - 1]?.date ?? null, done: j.status === "CLOSED" },
         ]}
@@ -359,10 +377,21 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
             ))}
           </div>
         )}
-        {u?.role !== "VENDOR" && j.product.fabricId != null && (
+        {u?.role !== "VENDOR" && j.product?.fabricId != null && (
           <FabricActualsForm jobCardId={j.id} unit={unit} lines={actualsLines} defaultArrangedBy={u?.displayName ?? ""} />
         )}
       </Card>
+
+      {/* quality / quantity capture (Change 12, Part G) — reject · alter · extra */}
+      {(canEdit || j.rejectQty != null || j.alterQty != null || j.extraQty != null) && (
+        <JobQualityCard
+          jobCardId={j.id}
+          canEdit={canEdit}
+          rejectQty={j.rejectQty}
+          alterQty={j.alterQty}
+          extraQty={j.extraQty}
+        />
+      )}
 
       {/* stitching — multi-vendor (Part G) */}
       {(stitch.length > 0 || canEdit) && (

@@ -7,7 +7,7 @@ import { createJobCard } from "@/lib/actions";
 import { uploadImage } from "@/lib/uploads";
 import type { JobProductOption } from "@/lib/inventory";
 import { colorKey } from "@/lib/colour";
-import { STAGES, STAGE_LABEL, splitByRatio, type Stage } from "@/lib/job-labels";
+import { STAGES, STAGE_LABEL, splitByRatio, DEFAULT_SIZE_RATIO, type Stage } from "@/lib/job-labels";
 import { Badge } from "@/components/ui";
 import { num, inr } from "@/lib/format";
 import { Zap, Check, AlertTriangle, ArrowLeft, Plus, X, Layers, Image as ImageIcon } from "lucide-react";
@@ -36,16 +36,24 @@ export function NewJobCardForm({
   masters,
   canSeeCost = false,
   defaultProductId = null,
+  defaultSi = null,
 }: {
   products: JobProductOption[];
   vendors: string[];
   masters: string[];
   canSeeCost?: boolean;
   defaultProductId?: number | null;
+  defaultSi?: string | null;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<JobProductOption | null>(null);
+
+  // made-to-order (Change 12, Part D): a one-off order with no catalogue product
+  const [mto, setMto] = useState(false);
+  const [customItem, setCustomItem] = useState("");
+  const [customSku, setCustomSku] = useState("");
+  const [customStyle, setCustomStyle] = useState("");
   const [open, setOpen] = useState(false);
   const [vendor, setVendor] = useState(
     vendors.find((v) => v === "Pebble") ?? vendors.find((v) => v !== "Unassigned") ?? vendors[0] ?? ""
@@ -275,6 +283,15 @@ export function NewJobCardForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultProductId]);
 
+  // made-to-order has no product to seed sizes from — start from the default size ratio.
+  function enableMto() {
+    setPicked(null);
+    setQuery("");
+    setOpen(false);
+    setMto(true);
+    setSizeRatio((prev) => (prev.length ? prev : [...DEFAULT_SIZE_RATIO]));
+  }
+
   function toggleColor(name: string) {
     setActiveColors((prev) => (prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]));
   }
@@ -338,12 +355,19 @@ export function NewJobCardForm({
     }
   }
 
+  const canSave = (!!picked || (mto && customItem.trim().length > 0)) && cutQty > 0;
+
   async function save() {
-    if (!picked || cutQty <= 0) return;
+    if (!canSave) return;
     setSaving(true);
     try {
       const { slug } = await createJobCard({
-        productId: picked.id,
+        productId: picked?.id,
+        customItem: mto ? customItem.trim() : undefined,
+        customSku: mto ? customSku.trim() || undefined : undefined,
+        customStyle: mto ? customStyle.trim() || undefined : undefined,
+        customMrp: mto && canSeeCost ? numOrNull(mrpInput) : undefined,
+        siNo: defaultSi ?? undefined,
         vendorName: vendor,
         cuttingMaster: master,
         layers: buildLayers(),
@@ -398,11 +422,13 @@ export function NewJobCardForm({
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-[19px] font-bold tracking-tight">New Job Card</h1>
-          <p className="mt-0.5 text-[12px] text-muted">Auto-assigned SI · {new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</p>
+          <p className="mt-0.5 text-[12px] text-muted">
+            {defaultSi ? `Adding split / re-cut under ${defaultSi}` : "Auto-assigned SI"} · {new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+          </p>
         </div>
         <button
           onClick={save}
-          disabled={!picked || cutQty <= 0 || saving}
+          disabled={!canSave || saving}
           className="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:opacity-40"
         >
           {saving ? "Saving…" : "Save Job Card"}
@@ -414,44 +440,77 @@ export function NewJobCardForm({
         <div className="rounded-card border border-border bg-surface p-5">
           <h3 className="mb-4 text-[11px] font-bold uppercase tracking-wide text-muted">Order details</h3>
 
-          {/* product autocomplete */}
-          <div className="relative mb-3.5">
-            <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">
-              Product <span className="text-primary">— start typing SKU, style or item</span>
-            </label>
-            <input
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPicked(null);
-                setOpen(true);
-              }}
-              onFocus={() => setOpen(true)}
-              placeholder="e.g. TP-TRUMP"
-              className="w-full rounded-lg border border-primary px-3 py-2.5 text-[13px] font-semibold outline-none ring-2 ring-indigo-100"
-            />
-            {open && matches.length > 0 && (
-              <div className="absolute left-0 right-0 top-[68px] z-10 overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
-                {matches.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => pick(m)}
-                    className="flex w-full items-center justify-between px-3 py-2.5 text-left text-[12px] hover:bg-primary-soft"
-                  >
-                    <span>
-                      <span className="font-bold">{m.styleNo}</span>
-                      <span className="ml-2 text-faint">{m.itemDesc}</span>
-                    </span>
-                    {canSeeCost && <span className="font-bold text-emerald-600">{inr(m.mrp)}</span>}
-                  </button>
-                ))}
+          {/* product autocomplete (hidden in made-to-order mode) */}
+          {!mto && (
+            <div className="relative mb-3.5">
+              <div className="mb-1.5 flex items-center justify-between">
+                <label className="block text-[11px] font-semibold text-slate-600">
+                  Product <span className="text-primary">— start typing SKU, style or item</span>
+                </label>
+                <button type="button" onClick={enableMto} className="text-[11px] font-semibold text-primary-ink hover:underline">
+                  No catalogue product? Log made-to-order →
+                </button>
               </div>
-            )}
-          </div>
+              <input
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setPicked(null);
+                  setOpen(true);
+                }}
+                onFocus={() => setOpen(true)}
+                placeholder="e.g. TP-TRUMP"
+                className="w-full rounded-lg border border-primary px-3 py-2.5 text-[13px] font-semibold outline-none ring-2 ring-indigo-100"
+              />
+              {open && matches.length > 0 && (
+                <div className="absolute left-0 right-0 top-[68px] z-10 overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
+                  {matches.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => pick(m)}
+                      className="flex w-full items-center justify-between px-3 py-2.5 text-left text-[12px] hover:bg-primary-soft"
+                    >
+                      <span>
+                        <span className="font-bold">{m.styleNo}</span>
+                        <span className="ml-2 text-faint">{m.itemDesc}</span>
+                      </span>
+                      {canSeeCost && <span className="font-bold text-emerald-600">{inr(m.mrp)}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* made-to-order free-text item (Change 12, Part D) */}
+          {mto && (
+            <div className="mb-3.5 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-amber-700">Made-to-order item</span>
+                <button type="button" onClick={() => { setMto(false); setCustomItem(""); setCustomSku(""); setCustomStyle(""); }} className="text-[11px] font-semibold text-primary-ink hover:underline">
+                  ← Pick a catalogue product
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <label className="col-span-2 flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold text-slate-600">Item <span className="text-danger">*</span></span>
+                  <input value={customItem} onChange={(e) => setCustomItem(e.target.value)} placeholder="e.g. JHARKHAND TRACKSUIT" className="rounded-lg border border-border px-3 py-2 text-[13px] font-semibold outline-none focus:border-primary" />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold text-slate-600">SKU / code</span>
+                  <input value={customSku} onChange={(e) => setCustomSku(e.target.value)} placeholder="ORDER / TBC" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold text-slate-600">Style no</span>
+                  <input value={customStyle} onChange={(e) => setCustomStyle(e.target.value)} placeholder="#1202" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
+                </label>
+              </div>
+            </div>
+          )}
 
           {/* autofilled fields */}
           <div className="grid grid-cols-2 gap-2.5">
-            <Field label="Item Description" value={picked?.itemDesc ?? ""} auto={!!picked} />
+            <Field label="Item Description" value={picked?.itemDesc ?? (mto ? customItem : "")} auto={!!picked} />
             <Field label="Fabric" value={picked?.fabricName ?? ""} auto={!!picked} />
             <Field
               label="Avg Consumption"

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getProducts, getCatalogSummary } from "@/lib/catalog";
 import { getCurrentUser } from "@/lib/auth";
 import { CatalogTable } from "@/components/catalog-table";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function CatalogPage() {
   const [rows, summary, u] = await Promise.all([getProducts(), getCatalogSummary(), getCurrentUser()]);
   const canSeeCost = u?.role === "ADMIN"; // office/production view hides cost
+  const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
 
   const kpis: [string, string | number, string?][] = [
     ["Total SKUs", num(summary.total)],
@@ -22,6 +24,16 @@ export default async function CatalogPage() {
       <PageHeader
         title="Catalog — Product Master"
         subtitle="The full commercial range, from the product master. Pricing, lifecycle status, and live production at a glance."
+        actions={
+          canEdit ? (
+            <Link
+              href="/catalog/new"
+              className="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-indigo-600"
+            >
+              + New Product
+            </Link>
+          ) : undefined
+        }
       />
 
       <div className="mb-4 grid grid-cols-4 gap-3.5">

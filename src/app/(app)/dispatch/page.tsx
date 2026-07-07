@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { DispatchForm } from "@/components/dispatch-form";
 import { Card, PageHeader } from "@/components/ui";
 import { num, fmtDate } from "@/lib/format";
+import { jobItem } from "@/lib/job-display";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,7 @@ export default async function DispatchPage() {
                   <td className="px-5 py-2.5">
                     <Link href={`/job-cards/${e.jobCard.id}`} className="font-bold text-primary-ink hover:underline">{e.jobCard.siNo}</Link>
                   </td>
-                  <td className="px-5 py-2.5 text-slate-500">{e.jobCard.product.itemDesc ?? e.jobCard.product.name}</td>
+                  <td className="px-5 py-2.5 text-slate-500">{jobItem(e.jobCard)}</td>
                   <td className="px-5 py-2.5 text-right font-bold text-emerald-600 tnum">+{num(e.qty)}</td>
                 </tr>
               ))}

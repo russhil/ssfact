@@ -81,7 +81,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
         {canEdit && (
           <ProductMasterForm
             product={{
-              id: p.id, name: p.name, headCategory: p.headCategory, status: p.status,
+              id: p.id, name: p.name, skuCode: p.skuCode, styleNo: p.styleNo, headCategory: p.headCategory, status: p.status,
               samplingStatus: p.samplingStatus, productionLot: p.productionLot, fabricRemarks: p.fabricRemarks, otherRemarks: p.otherRemarks,
               avgConsumption: p.avgConsumption, mrp: p.mrp, customWsRate: p.customWsRate, colors: p.colors,
             }}

@@ -56,10 +56,10 @@ export async function getVendorFabricVariance(): Promise<VendorVariance[]> {
     const actual = logged.reduce((a, l) => a + (l.qtyUsed ?? 0), 0);
     const assumed = logged.reduce((a, l) => a + l.cutQty * (l.estAvg ?? j.estAvg ?? 0), 0);
     const extra = actual - assumed;
-    const rate = j.product.fabric?.ratePerUnit ?? 0;
+    const rate = j.product?.fabric?.ratePerUnit ?? 0;
     const g =
       byVendor.get(j.vendor.name) ??
-      byVendor.set(j.vendor.name, { vendor: j.vendor.name, cards: 0, assumed: 0, actual: 0, extra: 0, cost: 0, unit: j.product.unit }).get(j.vendor.name)!;
+      byVendor.set(j.vendor.name, { vendor: j.vendor.name, cards: 0, assumed: 0, actual: 0, extra: 0, cost: 0, unit: j.product?.unit ?? "MTR" }).get(j.vendor.name)!;
     g.cards += 1;
     g.assumed += assumed;
     g.actual += actual;

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { jobItem } from "@/lib/job-display";
 
 export type JobLike = {
   status: string;
@@ -43,7 +44,7 @@ export async function getDashboard() {
     .map((j) => ({
       siNo: j.siNo,
       slug: String(j.id),
-      item: j.product.itemDesc ?? j.product.name,
+      item: jobItem(j),
       daysLate: Math.round((now.getTime() - j.plannedEtd!.getTime()) / 86_400_000),
     }))
     .sort((a, b) => b.daysLate - a.daysLate)

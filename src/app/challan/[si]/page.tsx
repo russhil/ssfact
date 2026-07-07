@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getJob, getJobMatrix } from "@/lib/jobs";
 import { getCurrentUser } from "@/lib/auth";
 import { num, fmtDate } from "@/lib/format";
+import { jobItem, jobStyle } from "@/lib/job-display";
 import { PrintButton } from "@/components/print-button";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,7 @@ export default async function ChallanPage({ params }: { params: Promise<{ si: st
       <div className="flex items-start justify-between border-b-2 border-ink pb-3">
         <div>
           <h1 className="text-[20px] font-extrabold tracking-tight">SPORTSUN — Production Challan</h1>
-          <p className="mt-0.5 text-[12px] text-muted">{j.product.itemDesc ?? j.product.name} · {j.product.styleNo ?? j.product.skuCode}</p>
+          <p className="mt-0.5 text-[12px] text-muted">{jobItem(j)} · {jobStyle(j)}</p>
         </div>
         <div className="text-right">
           <div className="text-[18px] font-bold">{j.siNo}</div>
@@ -44,7 +45,7 @@ export default async function ChallanPage({ params }: { params: Promise<{ si: st
         {[
           ["Vendor", j.vendor.name],
           ["Cutting Master", j.cuttingMaster?.name ?? "—"],
-          ["Fabric", j.product.fabric?.name ?? "—"],
+          ["Fabric", j.product?.fabric?.name ?? "—"],
           ["Cut Qty", `${num(j.cutQty)} pcs`],
         ].map(([k, v]) => (
           <div key={k}>

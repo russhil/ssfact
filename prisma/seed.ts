@@ -170,6 +170,12 @@ async function main() {
     const v = await db.vendor.create({ data: { name, kind: (src?.kind ?? "EXTERNAL") as any } });
     vendorMap.set(name, v.id);
   }
+  // In-house stitching lines (Change 12, Part H) — pickable as vendors with kind INHOUSE.
+  for (const name of ["Mantu", "Sneha", "Viney", "Raju", "Ram Lakhan"]) {
+    if (vendorMap.has(name)) continue;
+    const v = await db.vendor.create({ data: { name, kind: "INHOUSE" as any } });
+    vendorMap.set(name, v.id);
+  }
 
   // Cutting masters
   const cmMap = new Map<string, number>();
@@ -285,7 +291,15 @@ async function main() {
     const cuttingMasterId = j.cuttingMaster ? cmMap.get(j.cuttingMaster) ?? null : null;
     const issueQty = j.fabricConsumed ?? (j.cutQty && j.avgConsumption ? j.cutQty * j.avgConsumption : null);
     const fid = await fabricId(j.fabric);
-    const stage = j.status === "CLOSED" ? "DISPATCH" : (j.dispatchedQty ?? 0) > 0 ? "STITCHING" : "CUTTING";
+    // Richer lifecycle (Change 12, Part B): fabric-awaited → cutting → on-machine → dispatch.
+    const stage =
+      j.status === "CLOSED"
+        ? "DISPATCH"
+        : (j.dispatchedQty ?? 0) > 0
+          ? "ON_MACHINE"
+          : (j.cutQty ?? 0) > 0
+            ? "CUTTING"
+            : "FABRIC_AWAITED";
     const issueDate = d(j.fabricIssueDate) ?? d(j.cuttingIssuedOn) ?? d(j.orderDate) ?? new Date();
 
     // Real per-colour fabric issued (workbook FABRIC DETAIL block), where present.
@@ -348,6 +362,29 @@ async function main() {
       await db.fabricColor.update({ where: { id: fcId }, data: { currentStock: { decrement: fc.reqMtr! } } });
     }
     seededJobs.push({ id: created.id, productId, cutQty: j.cutQty ?? 0, status: j.status });
+    made++;
+  }
+
+  // Made-to-order demo rows (Change 12, Part D) — one-off orders with no catalogue product.
+  const anyVendor = (...names: string[]) =>
+    names.map((n) => vendorMap.get(n)).find((x): x is number => x != null) ?? vendorMap.get("Unassigned")!;
+  const dayOffset = (n: number) => { const x = new Date(); x.setDate(x.getDate() + n); return x; };
+  const mtoRows = [
+    { siNo: "SI-MTO-1", customItem: "JHARKHAND TRACKSUIT", customSku: "ORDER", customStyle: "#JH-01", customMrp: 1450, cutQty: 500, dispatchedQty: 253, stage: "ON_MACHINE", plannedEtd: dayOffset(-4), vendorId: anyVendor("Mantu", "Pebble"), remark: "247 pcs balance on machine" },
+    { siNo: "SI-MTO-2", customItem: "DELHI POLICE TRACKSUIT", customSku: "TBC", customStyle: "#DP-14", customMrp: 1800, cutQty: 300, dispatchedQty: 0, stage: "FABRIC_AWAITED", plannedEtd: dayOffset(6), vendorId: anyVendor("Sneha", "Fashion 11"), remark: "fabric awaited from party" },
+    { siNo: "SI-MTO-3", customItem: "SAI T-SHIRT", customSku: "NEW STYLE", customStyle: "#SAI-3", customMrp: 420, cutQty: 800, dispatchedQty: 800, stage: "DISPATCH", plannedEtd: dayOffset(-1), vendorId: anyVendor("Viney", "Ashok Master"), remark: "39 PCS EXTRA", extraQty: 39, status: "CLOSED" },
+  ];
+  for (const m of mtoRows) {
+    await db.jobCard.create({
+      data: {
+        siNo: m.siNo, orderDate: dayOffset(-20), cutQty: m.cutQty, dispatchedQty: m.dispatchedQty,
+        status: (m.status ?? "ACTIVE") as any, stage: m.stage as any, remark: m.remark,
+        plannedEtd: m.plannedEtd, fabricIssueDate: dayOffset(-18), cuttingIssuedOn: dayOffset(-19),
+        customItem: m.customItem, customSku: m.customSku, customStyle: m.customStyle, customMrp: m.customMrp,
+        mrp: m.customMrp, extraQty: (m as any).extraQty ?? null,
+        productId: null, vendorId: m.vendorId,
+      } as any,
+    });
     made++;
   }
 
