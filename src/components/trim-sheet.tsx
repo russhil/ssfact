@@ -66,7 +66,7 @@ export function TrimSheet({
           <thead>
             <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
               <th className="px-4 py-2.5 font-semibold">Material</th>
-              <th className="px-3 py-2.5 font-semibold">Dim</th>
+              <th className="px-3 py-2.5 font-semibold">Applies to</th>
               <th className="px-3 py-2.5 font-semibold">Colour</th>
               <th className="px-3 py-2.5 text-right font-semibold">Required</th>
               <th className="px-3 py-2.5 text-right font-semibold">Issued</th>

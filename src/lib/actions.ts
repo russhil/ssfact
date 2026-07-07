@@ -64,11 +64,20 @@ async function resolveCuttingMaster(tx: Tx, name: string): Promise<number> {
   return cm.id;
 }
 
+/** Resolve a vendor id by name (Change 14 per-layer vendor); null when blank/unknown. */
+async function resolveVendorId(tx: Tx, name: string | null | undefined): Promise<number | null> {
+  const n = name?.trim();
+  if (!n) return null;
+  const v = await tx.vendor.findUnique({ where: { name: n } });
+  return v?.id ?? null;
+}
+
 // One cutting layer (lay) at create time (Change 10, Part B/C/D).
 export type NewJobLayerInput = {
   label?: string | null;
   cutDate?: string | null;
   cuttingMaster?: string | null;
+  vendorName?: string | null; // Change 14: this layer's stitching vendor (defaults to the card vendor)
   avgConsumption?: number | null;
   rolls?: number | null;
   fabricMtr?: number | null;
@@ -315,11 +324,12 @@ export async function createJobCard(input: NewJobInput) {
       } as any,
     });
 
-    // Cutting layers + their colour×size cells (each layer may carry its own date/master).
+    // Cutting layers + their colour×size cells (each layer may carry its own date/master/vendor).
     for (const l of layers) {
       const layerMasterId = l.cuttingMaster
         ? await resolveCuttingMaster(tx, l.cuttingMaster)
         : cuttingMasterId;
+      const layerVendorId = (await resolveVendorId(tx, l.vendorName)) ?? vendor.id;
       await tx.cuttingLayer.create({
         data: {
           jobCardId: created.id,
@@ -327,6 +337,7 @@ export async function createJobCard(input: NewJobInput) {
           label: l.label ?? null,
           cutDate: l.cutDate ? new Date(l.cutDate) : now,
           cuttingMasterId: layerMasterId,
+          vendorId: layerVendorId,
           avgConsumption: l.avgConsumption ?? null,
           rolls: l.rolls ?? null,
           fabricMtr: l.fabricMtr ?? null,
@@ -594,22 +605,51 @@ export async function createProductionOrder(input: NewProductionOrderInput) {
   return { duplicate: false as const, orderNo: order.orderNo };
 }
 
+// Change 14: layers + prior dispatch for a job, for the standalone dispatch form's grid.
+export async function getJobDispatchData(jobCardId: number) {
+  await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.findUnique({
+    where: { id: jobCardId },
+    include: {
+      layers: { orderBy: { layerNo: "asc" }, include: { cells: true, vendor: true } },
+      dispatches: { include: { layers: { select: { id: true } } } },
+    },
+  });
+  if (!job) throw new Error("Job card not found");
+  return {
+    layers: job.layers.map((l) => ({
+      id: l.id, layerNo: l.layerNo, label: l.label, vendor: l.vendor?.name ?? null,
+      cells: l.cells.map((c) => ({ colour: c.colour, size: c.size, qty: c.qty })),
+    })),
+    prior: job.dispatches.map((e) => ({ id: e.id, qty: e.qty, layerIds: e.layers.map((x) => x.id) })),
+  };
+}
+
 export async function addDispatch(input: {
   jobCardId: number;
-  qty: number;
+  qty?: number; // legacy single-total path; ignored when `lines` are given
   date?: string;
   challan?: string;
   note?: string;
   arrangedBy?: string | null;
   reason?: "ORDER" | "SALE" | "OTHER";
+  // Change 14 Part B: size×colour line breakup + the layers dispatched against (same vendor).
+  lines?: { colour?: string | null; size: string; qty: number }[];
+  layerIds?: number[];
 }) {
   await requireRole("ADMIN", "STAFF");
   const job = await db.jobCard.findUnique({ where: { id: input.jobCardId } });
   if (!job) throw new Error("Job card not found");
 
+  // Effective lines: explicit size×colour cells, else synthesize one colour-less line
+  // from the legacy `qty` so old callers keep working.
+  const lines = (input.lines ?? []).filter((l) => l.qty !== 0);
+  const qty = lines.length ? lines.reduce((a, l) => a + l.qty, 0) : input.qty ?? 0;
+  if (!lines.length && qty === 0) throw new Error("Nothing to dispatch");
+
   // Running balance may go negative/over (Part H) — do NOT clamp to cutQty.
-  const newDispatched = job.dispatchedQty + input.qty;
-  const closed = newDispatched >= job.cutQty;
+  const newDispatched = job.dispatchedQty + qty;
+  const closed = newDispatched >= job.cutQty && job.cutQty > 0;
 
   await db.jobCard.update({
     where: { id: job.id },
@@ -620,11 +660,17 @@ export async function addDispatch(input: {
         create: [
           {
             date: input.date ? new Date(input.date) : new Date(),
-            qty: input.qty,
+            qty,
             challan: input.challan ?? null,
             note: input.note ?? null,
             arrangedBy: input.arrangedBy ?? null,
             reason: input.reason ?? "ORDER",
+            ...(lines.length
+              ? { lines: { create: lines.map((l) => ({ colour: l.colour ?? null, size: l.size, qty: l.qty })) } }
+              : {}),
+            ...(input.layerIds?.length
+              ? { layers: { connect: input.layerIds.map((id) => ({ id })) } }
+              : {}),
           } as any,
         ],
       },
@@ -633,6 +679,7 @@ export async function addDispatch(input: {
 
   revalidatePath("/");
   revalidatePath("/dispatch");
+  revalidatePath("/board");
   revalidatePath("/job-cards");
   revalidatePath(`/job-cards/${job.id}`);
   return { siNo: job.siNo, dispatched: newDispatched, closed };
@@ -648,6 +695,7 @@ export async function addCuttingLayer(input: {
   label?: string | null;
   cutDate?: string | null;
   cuttingMaster?: string | null;
+  vendorName?: string | null; // Change 14: this layer's stitching vendor
   avgConsumption?: number | null;
   rolls?: number | null;
   fabricMtr?: number | null;
@@ -679,6 +727,7 @@ export async function addCuttingLayer(input: {
     const layerMasterId = input.cuttingMaster
       ? await resolveCuttingMaster(tx, input.cuttingMaster)
       : job.cuttingMasterId;
+    const layerVendorId = (await resolveVendorId(tx, input.vendorName)) ?? job.vendorId;
     await tx.cuttingLayer.create({
       data: {
         jobCardId: job.id,
@@ -686,6 +735,7 @@ export async function addCuttingLayer(input: {
         label: input.label ?? null,
         cutDate: input.cutDate ? new Date(input.cutDate) : now,
         cuttingMasterId: layerMasterId,
+        vendorId: layerVendorId,
         avgConsumption: input.avgConsumption ?? null,
         rolls: input.rolls ?? null,
         fabricMtr: input.fabricMtr ?? null,

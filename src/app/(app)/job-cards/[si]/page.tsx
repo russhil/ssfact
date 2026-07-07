@@ -9,7 +9,7 @@ import { FabricActualsForm } from "@/components/fabric-actuals-form";
 import { TrimSheet } from "@/components/trim-sheet";
 import { StatusTimeline } from "@/components/status-timeline";
 import { JobStitching, type StitchAssignmentView } from "@/components/job-stitching";
-import { JobDispatchAdd } from "@/components/job-dispatch-add";
+import { LayerDispatch, type DispatchLayer } from "@/components/layer-dispatch";
 import { AddCuttingLayer } from "@/components/add-cutting-layer";
 import { num, inr, fmtDate, pct } from "@/lib/format";
 import { STAGE_LABEL, stageTone, normStage } from "@/lib/job-labels";
@@ -108,6 +108,16 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   // total fabric/roll roll-up across layers (Part C)
   const totalLayerMtr = j.layers.reduce((a, l) => a + (l.fabricMtr ?? 0), 0);
   const totalLayerRolls = j.layers.reduce((a, l) => a + (l.rolls ?? 0), 0);
+
+  // Change 14: layers + prior dispatch for the multi-layer dispatch widget
+  const dispatchLayers: DispatchLayer[] = j.layers.map((l) => ({
+    id: l.id,
+    layerNo: l.layerNo,
+    label: l.label,
+    vendor: l.vendor?.name ?? null,
+    cells: l.cells.map((c) => ({ colour: c.colour, size: c.size, qty: c.qty })),
+  }));
+  const priorDispatch = j.dispatches.map((e) => ({ id: e.id, qty: e.qty, layerIds: e.layers.map((x) => x.id) }));
 
   const meta = [
     ["Style No", styleNo],
@@ -226,24 +236,35 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           {j.dispatches.length === 0 ? (
             <p className="py-4 text-center text-[12px] text-muted">No dispatch yet.</p>
           ) : (
-            <div className="space-y-0">
-              {j.dispatches.map((e) => (
-                <div key={e.id} className="flex items-center justify-between border-b border-slate-50 py-2 text-[12px] last:border-0">
-                  <span className="flex items-center gap-2 text-slate-500 tnum">
-                    {fmtDate(e.date)}
-                    <Badge tone={e.reason === "SALE" ? "warn" : e.reason === "OTHER" ? "default" : "primary"}>{e.reason}</Badge>
-                    {e.challan && <span className="text-faint">challan {e.challan}</span>}
-                  </span>
-                  <span className="font-bold tnum">+{num(e.qty)}</span>
-                </div>
-              ))}
+            <div className="space-y-1.5">
+              {j.dispatches.map((e) => {
+                const layerLabels = e.layers.map((x) => x.label || `L${x.layerNo}`);
+                const cells = e.lines.map((ln) => `${ln.colour ? ln.colour + " " : ""}${ln.size}:${num(ln.qty)}`);
+                return (
+                  <div key={e.id} className="border-b border-slate-50 py-2 text-[12px] last:border-0">
+                    <div className="flex items-center justify-between">
+                      <span className="flex flex-wrap items-center gap-2 text-slate-500 tnum">
+                        {fmtDate(e.date)}
+                        <Badge tone={e.reason === "SALE" ? "warn" : e.reason === "OTHER" ? "default" : "primary"}>{e.reason}</Badge>
+                        {layerLabels.length > 0 && <span className="text-faint">{layerLabels.join(" + ")}</span>}
+                        {e.challan && <span className="text-faint">challan {e.challan}</span>}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span className="font-bold tnum">+{num(e.qty)}</span>
+                        <Link href={`/dispatch-doc/${e.id}`} className="text-[11px] font-semibold text-primary-ink hover:underline no-print">doc →</Link>
+                      </span>
+                    </div>
+                    {cells.length > 0 && <div className="mt-0.5 text-[11px] text-faint">{cells.join(" · ")}</div>}
+                  </div>
+                );
+              })}
               <div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-[12px]">
                 <span className="font-semibold">Balance (cut − dispatched)</span>
                 <span className={`font-extrabold tnum ${balance < 0 ? "text-rose-600" : balance === 0 ? "text-emerald-600" : ""}`}>{num(balance)}</span>
               </div>
             </div>
           )}
-          {canEdit && <JobDispatchAdd jobCardId={j.id} defaultArrangedBy={u?.displayName ?? ""} />}
+          {canEdit && <LayerDispatch jobCardId={j.id} layers={dispatchLayers} prior={priorDispatch} defaultArrangedBy={u?.displayName ?? ""} />}
         </Card>
       </div>
 
@@ -269,7 +290,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               return (
                 <div key={l.id} className="rounded-xl border border-border p-3">
                   <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-[12px]">
-                    <span className="font-bold text-primary-ink">{l.label || `Layer ${l.layerNo}`} <span className="font-medium text-faint">· {num(ltotal)} pcs</span></span>
+                    <span className="flex items-center gap-1.5 font-bold text-primary-ink">{l.label || `Layer ${l.layerNo}`} <span className="font-medium text-faint">· {num(ltotal)} pcs</span>{l.vendor && <Badge tone="primary">{l.vendor.name}</Badge>}</span>
                     <span className="text-faint">{l.cutDate ? fmtDate(l.cutDate) : ""}{l.cuttingMaster ? ` · ${l.cuttingMaster.name}` : ""}</span>
                   </div>
                   <div className="overflow-x-auto">

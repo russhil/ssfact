@@ -45,7 +45,7 @@ const nav: NavItem[] = [
   { href: "/pending-trims", label: "Pending Trims", icon: AlertTriangle, roles: ["ADMIN", "STAFF", "TRIMS"] },
   { href: "/suppliers", label: "Suppliers", icon: Users, roles: ["ADMIN", "STAFF"] },
   { href: "/vendors", label: "Vendors", icon: Factory, roles: ["ADMIN", "STAFF"] },
-  { href: "/dispatch", label: "Receipts", icon: Truck, roles: ["ADMIN", "STAFF"] },
+  { href: "/dispatch", label: "Dispatch", icon: Truck, roles: ["ADMIN", "STAFF"] },
   { href: "/masters", label: "Masters", icon: SlidersHorizontal, roles: ["ADMIN", "STAFF"] },
   { href: "/reports", label: "Reports", icon: BarChart3, roles: ["ADMIN"] },
 ];

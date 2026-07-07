@@ -9,6 +9,7 @@ import type { JobProductOption } from "@/lib/inventory";
 import { colorKey } from "@/lib/colour";
 import { STAGES, STAGE_LABEL, splitByRatio, DEFAULT_SIZE_RATIO, type Stage } from "@/lib/job-labels";
 import { Badge } from "@/components/ui";
+import { useMemoKeyboardList } from "@/components/use-keyboard-list";
 import { num, inr } from "@/lib/format";
 import { Zap, Check, AlertTriangle, ArrowLeft, Plus, X, Layers, Image as ImageIcon } from "lucide-react";
 
@@ -25,10 +26,10 @@ type CutMode = "ratio" | "manual";
 type ColorMode = "ratio" | "manual";
 type BomDim = "COLOR" | "SIZE" | "FLAT";
 type BomRow = { trimItemId: number | null; material: string; color: string; dimension: BomDim; perPieceQty: number };
-type LayerMaths = { avg: string; rolls: string; mtr: string; balance: string; date: string; master: string; label: string };
+type LayerMaths = { avg: string; rolls: string; mtr: string; balance: string; date: string; master: string; vendor: string; label: string };
 type ExtraLayer = { id: number; cells: Record<string, number>; maths: LayerMaths; fillColour: string; fillQty: string };
 
-const emptyMaths = (): LayerMaths => ({ avg: "", rolls: "", mtr: "", balance: "", date: "", master: "", label: "" });
+const emptyMaths = (): LayerMaths => ({ avg: "", rolls: "", mtr: "", balance: "", date: "", master: "", vendor: "", label: "" });
 
 export function NewJobCardForm({
   products,
@@ -87,6 +88,8 @@ export function NewJobCardForm({
   const [l1, setL1] = useState<LayerMaths>(emptyMaths());
   const [extraLayers, setExtraLayers] = useState<ExtraLayer[]>([]);
 
+  // Change 14 Part C: average is ONE value per job card (not per colour).
+  const [cardAvg, setCardAvg] = useState("");
   // per-colour fabric overrides + fabric-detail plan (keyed by colourKey)
   const [colorAvg, setColorAvg] = useState<Record<string, number>>({});
   const [colorGsm, setColorGsm] = useState<Record<string, number>>({});
@@ -197,9 +200,9 @@ export function NewJobCardForm({
       e.qty += r.qty;
       grouped.set(key, e);
     }
-    const defAvg = picked.avgConsumption ?? null;
+    const defAvg = numOrNull(cardAvg) ?? picked.avgConsumption ?? null; // one avg per card (Change 14 Part C)
     return [...grouped.entries()].map(([key, { display, qty }]) => {
-      const avg = colorAvg[key] ?? defAvg ?? null;
+      const avg = defAvg;
       const required = avg != null ? Math.round(qty * avg * 100) / 100 : null;
       const available = display === COLORLESS ? picked.fabricAvailable : picked.fabricByColor[key] ?? 0;
       const enough = required != null && available != null ? available >= required : null;
@@ -209,7 +212,7 @@ export function NewJobCardForm({
         width: colorWidth[key] ?? picked.fabricRollWidth ?? null,
       };
     });
-  }, [picked, combinedCells, colorAvg, colorGsm, colorWidth]);
+  }, [picked, combinedCells, cardAvg, colorGsm, colorWidth]);
 
   const totalRequired = fabricRows.reduce((a, r) => a + (r.required ?? 0), 0);
   const anyShort = fabricRows.some((r) => r.enough === false);
@@ -226,6 +229,13 @@ export function NewJobCardForm({
       )
       .slice(0, 6);
   }, [query, products]);
+
+  // keyboard nav for the product search dropdown (Change 14 Part F)
+  const { activeIndex: prodActive, onKeyDown: prodKeyDown } = useMemoKeyboardList(
+    open ? matches.length : 0,
+    (i) => matches[i] && pick(matches[i]),
+    () => setOpen(false)
+  );
 
   // per-colour cut quantities (for COLOUR-dimension trim explosion)
   const cutByColour = useMemo(() => {
@@ -262,6 +272,7 @@ export function NewJobCardForm({
     setManualSizeQty({});
     setManualCell({});
     setColorAvg({});
+    setCardAvg("");
     setColorGsm({});
     setColorWidth({});
     setColorReqPcs({});
@@ -328,6 +339,7 @@ export function NewJobCardForm({
       label: m.label.trim() || fallbackLabel,
       cutDate: m.date || null,
       cuttingMaster: m.master || null,
+      vendorName: m.vendor || null,
       avgConsumption: numOrNull(m.avg),
       rolls: intOrNull(m.rolls),
       fabricMtr: numOrNull(m.mtr),
@@ -375,7 +387,7 @@ export function NewJobCardForm({
           .filter((r) => r.display !== COLORLESS)
           .map((r) => ({
             color: r.display,
-            estAvg: colorAvg[r.key] ?? null,
+            estAvg: r.avg ?? null,
             gsm: colorGsm[r.key] ?? null,
             rollWidth: colorWidth[r.key] ?? null,
           })),
@@ -459,16 +471,17 @@ export function NewJobCardForm({
                   setOpen(true);
                 }}
                 onFocus={() => setOpen(true)}
+                onKeyDown={prodKeyDown}
                 placeholder="e.g. TP-TRUMP"
                 className="w-full rounded-lg border border-primary px-3 py-2.5 text-[13px] font-semibold outline-none ring-2 ring-indigo-100"
               />
               {open && matches.length > 0 && (
                 <div className="absolute left-0 right-0 top-[68px] z-10 overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
-                  {matches.map((m) => (
+                  {matches.map((m, i) => (
                     <button
                       key={m.id}
                       onClick={() => pick(m)}
-                      className="flex w-full items-center justify-between px-3 py-2.5 text-left text-[12px] hover:bg-primary-soft"
+                      className={`flex w-full items-center justify-between px-3 py-2.5 text-left text-[12px] hover:bg-primary-soft ${i === prodActive ? "bg-primary-soft" : ""}`}
                     >
                       <span>
                         <span className="font-bold">{m.styleNo}</span>
@@ -620,8 +633,8 @@ export function NewJobCardForm({
                       onChange={(e) => setCutQtyInput(Math.max(0, +e.target.value))}
                       className="w-28 rounded-lg border border-border px-3 py-2 text-[13px] font-semibold outline-none focus:border-primary"
                     />
-                    {sizeRatio.length <= 2 && sizeRatio.length > 0 && (
-                      <span className="text-[10px] text-faint">edit per-size ratio below</span>
+                    {sizeRatio.length > 0 && (
+                      <span className="text-[10px] text-faint">edit per-size ratio below (e.g. 1 : 1.5 : 2 : 2 : 1)</span>
                     )}
                   </div>
                 )}
@@ -639,18 +652,20 @@ export function NewJobCardForm({
                           onChange={(e) => setManualSizeQty((p) => ({ ...p, [s]: Math.max(0, +e.target.value) }))}
                           className="mt-1 w-full rounded-md border border-border bg-white py-1.5 text-center text-[12px] font-bold tnum outline-none focus:border-primary"
                         />
-                      ) : sizeRatio.length <= 2 ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={sizeRatio[i]?.[1] ?? 0}
-                          onChange={(e) =>
-                            setSizeRatio((prev) => prev.map((row, idx) => (idx === i ? [row[0], Math.max(0, +e.target.value)] : row)))
-                          }
-                          className="mt-1 w-full rounded-md border border-border bg-white py-1.5 text-center text-[12px] font-bold tnum outline-none focus:border-primary"
-                        />
                       ) : (
-                        <div className="mt-1 rounded-md border border-border bg-white py-1.5 text-[12px] font-bold tnum">{num(sizeQty[s] ?? 0)}</div>
+                        // Change 14 Part D: ratio weight editable for ANY number of sizes; pcs shown below.
+                        <>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={sizeRatio[i]?.[1] ?? 0}
+                            onChange={(e) =>
+                              setSizeRatio((prev) => prev.map((row, idx) => (idx === i ? [row[0], Math.max(0, +e.target.value)] : row)))
+                            }
+                            className="mt-1 w-full rounded-md border border-border bg-white py-1.5 text-center text-[12px] font-bold tnum outline-none focus:border-primary"
+                          />
+                          <div className="mt-0.5 text-[10px] text-faint tnum">{num(sizeQty[s] ?? 0)} pc</div>
+                        </>
                       )}
                     </div>
                   ))}
@@ -735,7 +750,7 @@ export function NewJobCardForm({
                 )}
 
                 {/* layer 1 fabric maths + date/master */}
-                <LayerMathsRow maths={l1} masters={masters} onChange={(patch) => setL1((m) => ({ ...m, ...patch }))} />
+                <LayerMathsRow maths={l1} masters={masters} vendors={vendors} onChange={(patch) => setL1((m) => ({ ...m, ...patch }))} />
               </div>
 
               {/* ── extra layers ── */}
@@ -792,7 +807,7 @@ export function NewJobCardForm({
                     </table>
                   </div>
 
-                  <LayerMathsRow maths={L.maths} masters={masters} onChange={(patch) => patchLayerMaths(L.id, patch)} />
+                  <LayerMathsRow maths={L.maths} masters={masters} vendors={vendors} onChange={(patch) => patchLayerMaths(L.id, patch)} />
                 </div>
               ))}
 
@@ -821,7 +836,7 @@ export function NewJobCardForm({
                       <thead>
                         <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
                           <th className="px-2 py-2 font-semibold">Trim (from master)</th>
-                          <th className="px-2 py-2 font-semibold">Dim</th>
+                          <th className="px-2 py-2 font-semibold">Applies to</th>
                           <th className="px-2 py-2 font-semibold">Colour</th>
                           <th className="px-2 py-2 text-right font-semibold">Per pc</th>
                           <th className="px-2 py-2 text-right font-semibold">Required</th>
@@ -899,7 +914,15 @@ export function NewJobCardForm({
 
         {/* live calc panel */}
         <div className="rounded-card border border-slate-800 bg-gradient-to-b from-[#0f1226] to-[#1b1f3b] p-5 text-indigo-50">
-          <h3 className="mb-4 text-[11px] font-bold uppercase tracking-wide text-indigo-300">Live summary · {num(cutQty)} pcs</h3>
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-[11px] font-bold uppercase tracking-wide text-indigo-300">Live summary · {num(cutQty)} pcs</h3>
+            {picked && (
+              <label className="flex items-center gap-1.5 text-[10px] text-indigo-200/80">
+                avg {picked.unit.toLowerCase()}/pc
+                <input type="number" step="0.001" value={cardAvg} placeholder={picked.avgConsumption != null ? String(picked.avgConsumption) : "—"} onChange={(e) => setCardAvg(e.target.value)} className="w-16 rounded-md border border-white/10 bg-white/5 px-1.5 py-1 text-center text-[11px] tnum text-white outline-none focus:border-indigo-300" />
+              </label>
+            )}
+          </div>
 
           {!picked ? (
             <div className="flex h-56 flex-col items-center justify-center text-center text-[12px] text-indigo-300/70">
@@ -936,8 +959,7 @@ export function NewJobCardForm({
                         <span className="text-[12px] font-bold text-white">{r.display}</span>
                         <span className="text-[11px] text-indigo-200/80">{num(r.qty)} pc</span>
                       </div>
-                      <div className="mt-2 grid grid-cols-3 gap-1.5">
-                        <MiniInput label={`avg ${picked.unit.toLowerCase()}/pc`} value={colorAvg[r.key]} placeholder={picked.avgConsumption ?? undefined} onChange={(v) => setColorAvg((p) => upd(p, r.key, v))} />
+                      <div className="mt-2 grid grid-cols-2 gap-1.5">
                         <MiniInput label="gsm" value={colorGsm[r.key]} placeholder={picked.fabricGsm ?? undefined} onChange={(v) => setColorGsm((p) => upd(p, r.key, v))} />
                         <MiniInput label="width" value={colorWidth[r.key]} placeholder={picked.fabricRollWidth ?? undefined} onChange={(v) => setColorWidth((p) => upd(p, r.key, v))} />
                       </div>
@@ -1005,19 +1027,20 @@ export function NewJobCardForm({
   );
 }
 
-function LayerMathsRow({ maths, masters, onChange }: { maths: LayerMaths; masters: string[]; onChange: (patch: Partial<LayerMaths>) => void }) {
+function LayerMathsRow({ maths, masters, vendors, onChange }: { maths: LayerMaths; masters: string[]; vendors: string[]; onChange: (patch: Partial<LayerMaths>) => void }) {
   const mtr = numOrNull(maths.mtr);
   const note = mtr != null ? `${maths.avg ? `avg ${maths.avg} · ` : ""}${maths.rolls ? `${maths.rolls} roll · ` : ""}${num(mtr)} mtr${maths.balance ? ` · bal ${maths.balance}` : ""}` : null;
   const inp = "w-full rounded-md border border-border bg-white px-1.5 py-1 text-[11px] tnum outline-none focus:border-primary";
   return (
     <div className="mt-3 border-t border-border/60 pt-2.5">
-      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-6">
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-7">
         <MathField label="avg m/pc"><input type="number" step="0.001" value={maths.avg} placeholder="—" onChange={(e) => onChange({ avg: e.target.value })} className={inp} /></MathField>
         <MathField label="rolls"><input type="number" value={maths.rolls} placeholder="—" onChange={(e) => onChange({ rolls: e.target.value })} className={inp} /></MathField>
         <MathField label="fabric mtr"><input type="number" step="0.01" value={maths.mtr} placeholder="—" onChange={(e) => onChange({ mtr: e.target.value })} className={inp} /></MathField>
         <MathField label="balance"><input type="number" step="0.01" value={maths.balance} placeholder="—" onChange={(e) => onChange({ balance: e.target.value })} className={inp} /></MathField>
         <MathField label="cut date"><input type="date" value={maths.date} onChange={(e) => onChange({ date: e.target.value })} className={inp} /></MathField>
         <MathField label="master"><select value={maths.master} onChange={(e) => onChange({ master: e.target.value })} className={inp}><option value="">default</option>{masters.map((m) => <option key={m}>{m}</option>)}</select></MathField>
+        <MathField label="vendor"><select value={maths.vendor} onChange={(e) => onChange({ vendor: e.target.value })} className={inp}><option value="">card vendor</option>{vendors.map((v) => <option key={v}>{v}</option>)}</select></MathField>
       </div>
       {note && <p className="mt-1.5 text-[10px] text-muted">{note}</p>}
     </div>

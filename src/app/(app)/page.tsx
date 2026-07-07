@@ -50,7 +50,7 @@ export default async function DashboardPage() {
       <div className="mt-3.5 grid grid-cols-[1.4fr_1fr] gap-3.5">
         <Card className="p-5">
           <h3 className="mb-4 text-[13px] font-bold">
-            Vendor Receipt Progress <span className="font-medium text-faint">· active jobs</span>
+            Vendor Dispatch Progress <span className="font-medium text-faint">· active jobs</span>
           </h3>
           <div className="space-y-3">
             {vendors.map((v) => {

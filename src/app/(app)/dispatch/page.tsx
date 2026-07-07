@@ -35,12 +35,12 @@ export default async function DispatchPage() {
 
   return (
     <div className="p-6">
-      <PageHeader title="Receipts" subtitle="Log goods received from vendors against open job cards — balances and the dashboard update instantly. (Market dispatch to dealers is a separate stream in E-manage.)" />
+      <PageHeader title="Dispatch" subtitle="Log finished garments dispatched from vendors back to the warehouse — size×colour, against the cutting layers. Balances and the dashboard update instantly." />
       <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1fr_1.3fr]">
         <DispatchForm jobs={openJobs} defaultArrangedBy={me?.displayName ?? ""} />
 
         <Card className="overflow-hidden p-0">
-          <div className="border-b border-border px-5 py-3 text-[13px] font-bold">Recent Receipts</div>
+          <div className="border-b border-border px-5 py-3 text-[13px] font-bold">Recent Dispatches</div>
           <table className="w-full text-[12px]">
             <thead>
               <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">

@@ -148,6 +148,7 @@ model Vendor {
   jobCards          JobCard[]
   stitchAssignments StitchAssignment[]
   materialChallans  MaterialChallan[]
+  cuttingLayers     CuttingLayer[] // Change 14: a layer is issued to a vendor
 }
 
 model CuttingMaster {
@@ -298,15 +299,21 @@ model CuttingLayer {
   cuttingMaster   CuttingMaster? @relation(fields: [cuttingMasterId], references: [id])
   cuttingMasterId Int? // this layer may be cut by its own master
 
+  // Change 14 Part A: the stitching vendor this layer was issued to (metres + bundles).
+  vendor   Vendor? @relation(fields: [vendorId], references: [id])
+  vendorId Int?
+
   // per-layer fabric maths (Part C)
   avgConsumption Float? // m per piece, e.g. 0.781
   rolls          Int? // roll count used, e.g. 11
   fabricMtr      Float? // total fabric for this layer, e.g. 1100
   fabricBalance  Float? // leftover after this layer, may be negative
 
-  cells CuttingLayerCell[]
+  cells      CuttingLayerCell[]
+  dispatches DispatchEvent[]    @relation("DispatchLayers") // Change 14: dispatched against these layers
 
   @@index([jobCardId])
+  @@index([vendorId])
 }
 
 model CuttingLayerCell {
@@ -381,15 +388,31 @@ model JobFabricLine {
 model DispatchEvent {
   id         Int            @id @default(autoincrement())
   date       DateTime
-  qty        Float
+  qty        Float // event total = Σ lines.qty (kept in sync for roll-ups)
   challan    String?
   note       String?
-  arrangedBy String? // who logged the receipt (defaults to logged-in user)
+  arrangedBy String? // who logged the dispatch (defaults to logged-in user)
   reason     DispatchReason @default(ORDER) // ORDER / SALE / OTHER (Change 10, Part H)
   jobCard    JobCard        @relation(fields: [jobCardId], references: [id])
   jobCardId  Int
 
+  // Change 14 Part B: size×colour line breakup + the layers this dispatch was booked against.
+  lines  DispatchLine[]
+  layers CuttingLayer[] @relation("DispatchLayers")
+
   @@index([jobCardId])
+}
+
+// Change 14 Part B: one dispatched size×colour cell (colour null for SALE / defective).
+model DispatchLine {
+  id      Int           @id @default(autoincrement())
+  event   DispatchEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId Int
+  colour  String? // null for SALE rows (colour-less)
+  size    String
+  qty     Float
+
+  @@index([eventId])
 }
 
 model SizeBreakup {

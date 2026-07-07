@@ -48,6 +48,3 @@ CREATE INDEX "JobCard_vendorId_idx" ON "JobCard"("vendorId");
 CREATE INDEX "JobCard_productId_idx" ON "JobCard"("productId");
 PRAGMA foreign_keys=ON;
 PRAGMA defer_foreign_keys=OFF;
-
--- Change 12, Part B: migrate legacy stage value to the new lifecycle.
-UPDATE "JobCard" SET "stage" = 'ON_MACHINE' WHERE "stage" = 'STITCHING';
