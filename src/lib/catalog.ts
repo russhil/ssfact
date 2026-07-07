@@ -92,8 +92,19 @@ export type BomLineView = {
   material: string;
   color: string | null;
   qty: number | null;
+  perPieceQty: number | null;
+  dimension: string;
   avg: string | null;
+  trimItemId: number | null;
   trim: { id: number; name: string; current: number; status: TrimStock["status"] } | null;
+};
+
+// Change 15: a single job card's own frozen BOM (JobBomLine) for the per-card view.
+export type JobBomView = {
+  siNo: string;
+  slug: string;
+  cutQty: number;
+  lines: { id: number; material: string; color: string | null; dimension: string; requiredQty: number | null; issuedQty: number | null; trimName: string | null }[];
 };
 
 export type ProductDetail = {
@@ -116,10 +127,12 @@ export type ProductDetail = {
     jobs: { siNo: string; slug: string; cutQty: number; received: number; status: string }[];
   } | null;
   boms: { id: number; code: string; styleName: string; matched: number; total: number; lines: BomLineView[] }[];
+  jobBoms: JobBomView[]; // Change 15: per-job-card BOM consumption
   orders: { orderNo: string; targetQty: number; avgMonthlySale: number | null; status: string; urgency: string | null; orderDate: Date | null }[];
   // Change 07 production/sampling attributes + gallery
   samplingStatus: string | null;
   productionLot: string | null;
+  fabricId: number | null;
   fabricName: string | null;
   fabricRemarks: string | null;
   otherRemarks: string | null;
@@ -135,7 +148,7 @@ export async function getProductDetail(skuOrExtId: string): Promise<ProductDetai
   const product = await db.product.findFirst({
     where: { OR: [{ skuCode: skuOrExtId }, { extId: skuOrExtId }] },
     include: {
-      jobCards: { orderBy: { id: "asc" } },
+      jobCards: { orderBy: { id: "asc" }, include: { jobLines: { include: { trimItem: true }, orderBy: { id: "asc" } } } },
       boms: { include: { lines: { include: { trimItem: true }, orderBy: { id: "asc" } } } },
       productionOrders: { orderBy: { orderNo: "asc" } },
       fabric: { include: { fabricOrders: true } },
@@ -175,13 +188,30 @@ export async function getProductDetail(skuOrExtId: string): Promise<ProductDetai
         material: l.material,
         color: l.color,
         qty: l.qty,
+        perPieceQty: l.perPieceQty,
+        dimension: (l.dimension ?? "FLAT") as string,
         avg: l.avg,
+        trimItemId: l.trimItemId,
         trim: l.trimItem
           ? { id: l.trimItem.id, name: l.trimItem.name, current: t?.current ?? l.trimItem.currentStock, status: t?.status ?? "ok" }
           : null,
       };
     }),
   }));
+
+  // Change 15: per-job-card BOM (each card's frozen JobBomLine consumption)
+  const jobBoms: JobBomView[] = jobs
+    .filter((j) => j.jobLines.length > 0)
+    .map((j) => ({
+      siNo: j.siNo,
+      slug: String(j.id),
+      cutQty: j.cutQty,
+      lines: j.jobLines.map((l) => ({
+        id: l.id, material: l.material, color: l.color, dimension: (l.dimension ?? "FLAT") as string,
+        requiredQty: l.requiredQty ?? l.totalQty ?? null, issuedQty: l.issuedQty ?? null,
+        trimName: l.trimItem?.name ?? null,
+      })),
+    }));
 
   return {
     id: product.id,
@@ -196,6 +226,7 @@ export async function getProductDetail(skuOrExtId: string): Promise<ProductDetai
     status: product.status,
     production,
     boms,
+    jobBoms,
     orders: product.productionOrders.map((o) => ({
       orderNo: o.orderNo,
       targetQty: o.targetQty,
@@ -206,6 +237,7 @@ export async function getProductDetail(skuOrExtId: string): Promise<ProductDetai
     })),
     samplingStatus: product.samplingStatus,
     productionLot: product.productionLot,
+    fabricId: product.fabricId,
     fabricName: product.fabric?.name ?? null,
     fabricRemarks: product.fabricRemarks,
     otherRemarks: product.otherRemarks,

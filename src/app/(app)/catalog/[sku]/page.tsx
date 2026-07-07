@@ -2,12 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Factory, Plus } from "lucide-react";
 import { getProductDetail, STATUS_LABEL, statusTone } from "@/lib/catalog";
-import { listLookups } from "@/lib/masters";
+import { listLookups, getFabricPickList } from "@/lib/masters";
+import { getTrimStock } from "@/lib/trims";
 import { PO_STATUS_LABEL, poStatusTone } from "@/lib/production";
 import { getCurrentUser } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
 import { ImageUploader } from "@/components/image-uploader";
 import { ProductMasterForm } from "@/components/product-master-form";
+import { ProductBomEditor } from "@/components/product-bom-editor";
 import { num, inr, fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +25,9 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
   const u = await getCurrentUser();
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
   const canSeeCost = u?.role === "ADMIN"; // cost hidden from office/production view
-  const headCategories = canEdit ? await listLookups("HEAD_CATEGORY") : [];
+  const [headCategories, fabrics, trims] = canEdit
+    ? await Promise.all([listLookups("HEAD_CATEGORY"), getFabricPickList(), getTrimStock()])
+    : [[], [], []];
 
   return (
     <div className="p-6">
@@ -45,8 +49,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
 
       <div className="grid grid-cols-2 gap-3.5 md:grid-cols-4">
         {([
-          ...(canSeeCost ? [["MRP", inr(p.mrp)], ["Wholesale", inr(p.wholesale)]] : [["Category", p.headCategory ?? "—"], ["Fabric", p.fabricName ?? "—"]]),
-          ["Sampling", lbl(p.samplingStatus)],
+          ...(canSeeCost ? [["MRP", inr(p.mrp)], ["Wholesale", inr(p.wholesale)], ["Fabric", p.fabricName ?? "—"]] : [["Category", p.headCategory ?? "—"], ["Fabric", p.fabricName ?? "—"], ["Avg", p.avgConsumption != null ? `${p.avgConsumption} ${p.unit.toLowerCase()}/pc` : "—"]]),
           ["Production lot", lbl(p.productionLot)],
         ] as [string, string][]).map(([l, v]) => (
           <Card key={l} className="p-4">
@@ -82,11 +85,12 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
           <ProductMasterForm
             product={{
               id: p.id, name: p.name, skuCode: p.skuCode, styleNo: p.styleNo, headCategory: p.headCategory, status: p.status,
-              samplingStatus: p.samplingStatus, productionLot: p.productionLot, fabricRemarks: p.fabricRemarks, otherRemarks: p.otherRemarks,
+              productionLot: p.productionLot, fabricId: p.fabricId, fabricRemarks: p.fabricRemarks, otherRemarks: p.otherRemarks,
               avgConsumption: p.avgConsumption, mrp: p.mrp, customWsRate: p.customWsRate, colors: p.colors,
             }}
             canSeeCost={canSeeCost}
             headCategories={headCategories}
+            fabrics={fabrics}
           />
         )}
       </div>
@@ -116,7 +120,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
             <div className="mt-3 flex flex-wrap gap-1.5">
               {p.production.jobs.map((j) => (
                 <Link
-                  key={j.siNo}
+                  key={j.slug}
                   href={`/job-cards/${j.slug}`}
                   className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-primary hover:text-primary-ink"
                 >
@@ -128,7 +132,20 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
         </Card>
       )}
 
-      {/* Bill of materials with live trim-store stock */}
+      {/* Change 15: author the product's master BOM */}
+      {canEdit && (
+        <ProductBomEditor
+          productId={p.id}
+          extId={p.extId}
+          lines={p.boms.flatMap((b) => b.lines).map((l) => ({
+            id: l.id, material: l.material, color: l.color, dimension: l.dimension, perPieceQty: l.perPieceQty,
+            trimItemId: l.trimItemId, trim: l.trim ? { name: l.trim.name, current: l.trim.current } : null,
+          }))}
+          trims={trims.map((t) => ({ id: t.id, name: t.name, current: t.current }))}
+        />
+      )}
+
+      {/* Bill of materials with live trim-store stock (read-only reference) */}
       {p.boms.map((b) => (
         <Card key={b.id} className="mt-3.5 overflow-hidden p-0">
           <div className="flex items-center justify-between border-b border-border px-5 py-3">
@@ -174,6 +191,45 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
           </table>
         </Card>
       ))}
+
+      {/* Change 15 Part D: BOM job-card-wise (each card's actual trim consumption, separate) */}
+      {p.jobBoms.length > 0 && (
+        <Card className="mt-3.5 p-5">
+          <h3 className="mb-3 text-[13px] font-bold">BOM by Job Card <span className="font-medium text-faint">· actual consumption per card</span></h3>
+          <div className="space-y-3">
+            {p.jobBoms.map((jb) => (
+              <div key={jb.slug} className="rounded-xl border border-border p-3">
+                <div className="mb-1.5 flex items-center justify-between text-[12px]">
+                  <Link href={`/job-cards/${jb.slug}`} className="font-bold text-primary-ink hover:underline">{jb.siNo}</Link>
+                  <span className="text-faint">{num(jb.cutQty)} pcs cut</span>
+                </div>
+                <table className="w-full text-[12px]">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-[10px] uppercase tracking-wide text-faint">
+                      <th className="px-2 py-1 font-semibold">Trim</th>
+                      <th className="px-2 py-1 font-semibold">Applies to</th>
+                      <th className="px-2 py-1 font-semibold">Colour</th>
+                      <th className="px-2 py-1 text-right font-semibold">Required</th>
+                      <th className="px-2 py-1 text-right font-semibold">Issued</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {jb.lines.map((l) => (
+                      <tr key={l.id} className="border-b border-slate-50 last:border-0">
+                        <td className="px-2 py-1 font-medium text-slate-700">{l.trimName ?? l.material}</td>
+                        <td className="px-2 py-1 capitalize text-slate-500">{(l.dimension ?? "FLAT").toLowerCase()}</td>
+                        <td className="px-2 py-1 text-slate-500">{l.color ?? "—"}</td>
+                        <td className="px-2 py-1 text-right tnum">{l.requiredQty != null ? num(l.requiredQty) : "—"}</td>
+                        <td className="px-2 py-1 text-right tnum text-slate-500">{l.issuedQty != null ? num(l.issuedQty) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Production orders */}
       {p.orders.length > 0 && (

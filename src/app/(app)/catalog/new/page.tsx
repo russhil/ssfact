@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { listLookups } from "@/lib/masters";
+import { listLookups, getFabricPickList } from "@/lib/masters";
 import { getCurrentUser } from "@/lib/auth";
 import { ProductMasterForm } from "@/components/product-master-form";
 import { PageHeader } from "@/components/ui";
@@ -13,7 +13,7 @@ export default async function NewProductPage() {
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
   if (!canEdit) notFound();
   const canSeeCost = u?.role === "ADMIN";
-  const headCategories = await listLookups("HEAD_CATEGORY");
+  const [headCategories, fabrics] = await Promise.all([listLookups("HEAD_CATEGORY"), getFabricPickList()]);
 
   return (
     <div className="p-6">
@@ -24,7 +24,7 @@ export default async function NewProductPage() {
         title="New Product"
         subtitle="Add a style to the product master. Save first, then add colours, images and BOM on its page."
       />
-      <ProductMasterForm mode="create" canSeeCost={canSeeCost} headCategories={headCategories} />
+      <ProductMasterForm mode="create" canSeeCost={canSeeCost} headCategories={headCategories} fabrics={fabrics} />
     </div>
   );
 }

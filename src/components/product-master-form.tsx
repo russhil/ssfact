@@ -5,15 +5,16 @@ import { useRouter } from "next/navigation";
 import { createProduct, updateProduct, addProductColor, removeProductColor } from "@/lib/actions";
 import { Card, Badge } from "@/components/ui";
 import { LookupSelect } from "@/components/masters/lookup-select";
+import type { FabricPick } from "@/lib/masters";
+import { num } from "@/lib/format";
 import { Plus, X, Check } from "lucide-react";
 
 const STATUS = ["ACTIVE", "NEW_ARTICLE", "FUTURE_PLAN", "DISCONTINUED", "IN_PROCESS"];
-const SAMPLING = ["", "PLANNING", "DESIGN_FABRIC_PENDING", "SAMPLE_ORDERED", "READY"];
 const LOTS = ["", "OLD_CUT_SIZE", "NEW_LOT"];
 
 type P = {
   id: number; name: string; skuCode?: string | null; styleNo?: string | null; headCategory: string | null; status: string;
-  samplingStatus: string | null; productionLot: string | null; fabricRemarks: string | null; otherRemarks: string | null;
+  productionLot: string | null; fabricRemarks: string | null; otherRemarks: string | null; fabricId?: number | null;
   avgConsumption: number | null; mrp: number | null; customWsRate: number | null;
   colors: { id: number; name: string; hex: string | null }[];
 };
@@ -22,11 +23,13 @@ export function ProductMasterForm({
   product,
   canSeeCost,
   headCategories = [],
+  fabrics = [],
   mode = "edit",
 }: {
   product?: P;
   canSeeCost: boolean;
   headCategories?: { id: number; code: string; label: string; hex: string | null; parentId: number | null; sortOrder: number; active: boolean }[];
+  fabrics?: FabricPick[];
   mode?: "create" | "edit";
 }) {
   const router = useRouter();
@@ -34,11 +37,12 @@ export function ProductMasterForm({
   const [f, setF] = useState({
     name: product?.name ?? "", skuCode: product?.skuCode ?? "", styleNo: product?.styleNo ?? "",
     headCategory: product?.headCategory ?? "", status: product?.status ?? "ACTIVE",
-    samplingStatus: product?.samplingStatus ?? "", productionLot: product?.productionLot ?? "",
+    productionLot: product?.productionLot ?? "", fabricId: product?.fabricId != null ? String(product.fabricId) : "",
     fabricRemarks: product?.fabricRemarks ?? "", otherRemarks: product?.otherRemarks ?? "",
     avgConsumption: product?.avgConsumption != null ? String(product.avgConsumption) : "",
     mrp: product?.mrp != null ? String(product.mrp) : "", customWsRate: product?.customWsRate != null ? String(product.customWsRate) : "",
   });
+  const linkedFabric = fabrics.find((x) => String(x.id) === f.fabricId) ?? null;
   const [newColor, setNewColor] = useState("");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -52,7 +56,7 @@ export function ProductMasterForm({
         const { extId } = await createProduct({
           name: f.name, skuCode: f.skuCode || null, styleNo: f.styleNo || null,
           headCategory: f.headCategory || null, status: f.status,
-          samplingStatus: f.samplingStatus || null, productionLot: f.productionLot || null,
+          productionLot: f.productionLot || null, fabricId: f.fabricId ? +f.fabricId : null,
           fabricRemarks: f.fabricRemarks || null, otherRemarks: f.otherRemarks || null,
           avgConsumption: f.avgConsumption ? +f.avgConsumption : null,
           ...(canSeeCost ? { mrp: f.mrp ? +f.mrp : null, customWsRate: f.customWsRate ? +f.customWsRate : null } : {}),
@@ -62,7 +66,7 @@ export function ProductMasterForm({
       }
       await updateProduct({
         id: product!.id, name: f.name, headCategory: f.headCategory || null, status: f.status,
-        samplingStatus: f.samplingStatus || null, productionLot: f.productionLot || null,
+        productionLot: f.productionLot || null, fabricId: f.fabricId ? +f.fabricId : null,
         fabricRemarks: f.fabricRemarks || null, otherRemarks: f.otherRemarks || null,
         avgConsumption: f.avgConsumption ? +f.avgConsumption : null,
         ...(canSeeCost ? { mrp: f.mrp ? +f.mrp : null, customWsRate: f.customWsRate ? +f.customWsRate : null } : {}),
@@ -96,14 +100,28 @@ export function ProductMasterForm({
           <LookupSelect kind="HEAD_CATEGORY" options={headCategories} value={f.headCategory} onChange={(v) => set("headCategory", v)} placeholder="Category…" className={inp} />
         </Field>
         <Field label="Status"><Sel v={f.status} on={(v) => set("status", v)} opts={STATUS} /></Field>
-        <Field label="Sampling status"><Sel v={f.samplingStatus} on={(v) => set("samplingStatus", v)} opts={SAMPLING} /></Field>
         <Field label="Production lot"><Sel v={f.productionLot} on={(v) => set("productionLot", v)} opts={LOTS} /></Field>
+        <Field label="Fabric (from master)">
+          <select value={f.fabricId} onChange={(e) => set("fabricId", e.target.value)} className={inp}>
+            <option value="">— none —</option>
+            {fabrics.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </select>
+        </Field>
         <Field label="Avg consumption"><input type="number" step="0.001" value={f.avgConsumption} onChange={(e) => set("avgConsumption", e.target.value)} className={inp} /></Field>
         {canSeeCost && <Field label="MRP"><input type="number" value={f.mrp} onChange={(e) => set("mrp", e.target.value)} className={inp} /></Field>}
         {canSeeCost && <Field label="WS rate"><input type="number" value={f.customWsRate} onChange={(e) => set("customWsRate", e.target.value)} className={inp} /></Field>}
         <Field label="Fabric remarks"><input value={f.fabricRemarks} onChange={(e) => set("fabricRemarks", e.target.value)} className={inp} /></Field>
         <Field label="Other remarks"><input value={f.otherRemarks} onChange={(e) => set("otherRemarks", e.target.value)} className={inp} /></Field>
       </div>
+
+      {linkedFabric && (
+        <div className="mt-2 flex flex-wrap gap-4 rounded-lg border border-border bg-slate-50 px-3 py-2 text-[11px] text-muted">
+          <span>Linked fabric: <b className="text-ink">{linkedFabric.name}</b></span>
+          <span>GSM {linkedFabric.gsm ?? "—"}</span>
+          <span>Width {linkedFabric.rollWidth ?? "—"}</span>
+          <span>Live stock <b className="text-ink tnum">{num(linkedFabric.stock)}</b> {linkedFabric.unit.toLowerCase()}</span>
+        </div>
+      )}
 
       {isCreate ? (
         <p className="mt-3 rounded-lg border border-dashed border-border bg-slate-50 px-3 py-2 text-[12px] text-muted">

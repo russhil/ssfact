@@ -1301,6 +1301,7 @@ export async function reorderImages(input: { ids: number[] }) {
 export async function updateProduct(input: {
   id: number; name?: string; headCategory?: string | null; status?: string;
   samplingStatus?: string | null; productionLot?: string | null; fabricRemarks?: string | null; otherRemarks?: string | null;
+  fabricId?: number | null; // Change 15: link to the Fabric master
   mrp?: number | null; customWsRate?: number | null; avgConsumption?: number | null;
 }) {
   await requireRole("ADMIN", "STAFF");
@@ -1313,6 +1314,7 @@ export async function updateProduct(input: {
       ...(rest.status !== undefined ? { status: rest.status as any } : {}),
       ...(rest.samplingStatus !== undefined ? { samplingStatus: (rest.samplingStatus || null) as any } : {}),
       ...(rest.productionLot !== undefined ? { productionLot: (rest.productionLot || null) as any } : {}),
+      ...(rest.fabricId !== undefined ? { fabricId: rest.fabricId } : {}),
       ...(rest.fabricRemarks !== undefined ? { fabricRemarks: rest.fabricRemarks } : {}),
       ...(rest.otherRemarks !== undefined ? { otherRemarks: rest.otherRemarks } : {}),
       ...(rest.mrp !== undefined ? { mrp: rest.mrp } : {}),
@@ -1348,6 +1350,7 @@ export async function createProduct(input: {
   productionLot?: string | null;
   avgConsumption?: number | null;
   unit?: string;
+  fabricId?: number | null; // Change 15: link to the Fabric master
   mrp?: number | null;
   customWsRate?: number | null;
   fabricRemarks?: string | null;
@@ -1377,6 +1380,7 @@ export async function createProduct(input: {
           headCategory: input.headCategory || null,
           status: (input.status ?? "ACTIVE") as any,
           unit: (input.unit ?? "MTR") as any,
+          fabricId: input.fabricId ?? null,
           samplingStatus: (input.samplingStatus || null) as any,
           productionLot: (input.productionLot || null) as any,
           avgConsumption: input.avgConsumption ?? null,

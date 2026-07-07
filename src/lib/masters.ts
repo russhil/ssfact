@@ -90,8 +90,17 @@ export async function getFabricOrder(id: number) {
 }
 
 export async function getFabricPickList() {
-  return db.fabric.findMany({ select: { id: true, name: true, unit: true }, orderBy: { name: "asc" } });
+  const rows = await db.fabric.findMany({
+    select: { id: true, name: true, unit: true, gsm: true, rollWidth: true, openingStock: true, colors: { select: { currentStock: true } } },
+    orderBy: { name: "asc" },
+  });
+  return rows.map((f) => ({
+    id: f.id, name: f.name, unit: f.unit, gsm: f.gsm, rollWidth: f.rollWidth,
+    // live stock: sum of per-colour stock when tracked, else opening stock
+    stock: f.colors.length ? f.colors.reduce((a, c) => a + c.currentStock, 0) : f.openingStock,
+  }));
 }
+export type FabricPick = Awaited<ReturnType<typeof getFabricPickList>>[number];
 
 export async function getVendorList() {
   const rows = await db.vendor.findMany({ include: { _count: { select: { jobCards: true } } }, orderBy: { name: "asc" } });
