@@ -42,6 +42,7 @@ export async function getDashboard() {
   const overdue = overdueJobs
     .map((j) => ({
       siNo: j.siNo,
+      slug: String(j.id),
       item: j.product.itemDesc ?? j.product.name,
       daysLate: Math.round((now.getTime() - j.plannedEtd!.getTime()) / 86_400_000),
     }))

@@ -5,7 +5,6 @@ import { getCurrentUser } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
 import { FabricMasterForm } from "@/components/fabric-master-form";
 import { num, pct, fmtDate } from "@/lib/format";
-import { siSlug } from "@/lib/jobs";
 import { ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -153,7 +152,7 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
                 <td className="px-5 py-2.5 font-medium text-slate-500">{m.color ?? "—"}</td>
                 <td className="px-5 py-2.5">
                   {m.jobCard ? (
-                    <Link href={`/job-cards/${siSlug(m.jobCard.siNo)}`} className="font-semibold text-primary-ink hover:underline">
+                    <Link href={`/job-cards/${m.jobCard.id}`} className="font-semibold text-primary-ink hover:underline">
                       {m.jobCard.siNo}
                     </Link>
                   ) : (

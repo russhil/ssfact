@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Factory } from "lucide-react";
+import { ArrowLeft, Factory, Plus } from "lucide-react";
 import { getProductDetail, STATUS_LABEL, statusTone } from "@/lib/catalog";
 import { listLookups } from "@/lib/masters";
 import { PO_STATUS_LABEL, poStatusTone } from "@/lib/production";
@@ -36,6 +36,11 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
         <span className="text-[12px] font-semibold text-faint">{p.skuCode}</span>
         <Badge tone={statusTone(p.status)}>{STATUS_LABEL[p.status] ?? p.status}</Badge>
         {p.styleNo && <span className="text-[12px] text-faint">Style #{p.styleNo}</span>}
+        {canEdit && (
+          <Link href={`/job-cards/new?productId=${p.id}`} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-indigo-600">
+            <Plus size={14} /> New Job Card
+          </Link>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3.5 md:grid-cols-4">

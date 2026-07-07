@@ -1,13 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getJob } from "@/lib/jobs";
+import { getJob, getJobMatrix } from "@/lib/jobs";
 import { getCurrentUser } from "@/lib/auth";
 import { num, fmtDate } from "@/lib/format";
 import { PrintButton } from "@/components/print-button";
 
 export const dynamic = "force-dynamic";
-
-const SIZE_ORDER = ["S", "M", "L", "XL", "2XL", "3XL"];
 
 export default async function ChallanPage({ params }: { params: Promise<{ si: string }> }) {
   const { si } = await params;
@@ -16,11 +14,10 @@ export default async function ChallanPage({ params }: { params: Promise<{ si: st
   const j = await getJob(si, scope);
   if (!j) notFound();
 
-  const sizes = [...new Set(j.sizeBreakup.map((s) => s.size))].sort(
-    (a, b) => SIZE_ORDER.indexOf(a) - SIZE_ORDER.indexOf(b)
-  );
-  const colors = [...new Set(j.sizeBreakup.map((s) => s.color))].sort();
-  const cell = (size: string, color: string) => j.sizeBreakup.find((s) => s.size === size && s.color === color)?.qty ?? 0;
+  const mx = getJobMatrix(j);
+  const sizes = mx.sizes;
+  const colors = mx.colours;
+  const cell = (size: string, color: string) => mx.cell(color, size);
   const issued = j.jobLines.filter((l) => (l.issuedQty ?? 0) > 0 || (l.requiredQty ?? 0) > 0);
 
   return (

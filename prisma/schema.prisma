@@ -44,6 +44,24 @@ enum MovementType {
   RECEIPT
 }
 
+// Why a dispatch/production row left stock (Change 10, Part H).
+enum DispatchReason {
+  ORDER
+  SALE
+  OTHER
+}
+
+// Materials challan direction (Change 11).
+enum ChallanDirection {
+  INWARD // from a Supplier -> our master stock (adds)
+  OUTWARD // to a Vendor -> from our master stock (subtracts)
+}
+
+enum ChallanStatus {
+  DRAFT // editable
+  LOCKED // numbered & posted to inventory; no further line edits
+}
+
 enum Role {
   ADMIN
   STAFF
@@ -118,18 +136,21 @@ enum ProductionLot {
 }
 
 model Vendor {
-  id       Int        @id @default(autoincrement())
-  name     String     @unique
-  kind     VendorKind @default(EXTERNAL)
-  active   Boolean    @default(true)
-  jobCards JobCard[]
+  id                Int                @id @default(autoincrement())
+  name              String             @unique
+  kind              VendorKind         @default(EXTERNAL)
+  active            Boolean            @default(true)
+  jobCards          JobCard[]
+  stitchAssignments StitchAssignment[]
+  materialChallans  MaterialChallan[]
 }
 
 model CuttingMaster {
-  id       Int       @id @default(autoincrement())
-  name     String    @unique
-  active   Boolean   @default(true)
-  jobCards JobCard[]
+  id            Int            @id @default(autoincrement())
+  name          String         @unique
+  active        Boolean        @default(true)
+  jobCards      JobCard[]
+  cuttingLayers CuttingLayer[]
 }
 
 model Fabric {
@@ -151,6 +172,7 @@ model Fabric {
   jobFabricLines JobFabricLine[]
   fabricOrders   FabricOrder[]
   images         ImageAsset[]
+  challanLines   MaterialChallanLine[]
 }
 
 // Stock is held per colour under each fabric (factory holds finished, dyed fabric
@@ -220,6 +242,13 @@ model JobCard {
   remark          String?
   trimsPending    Boolean   @default(false) // set when BOM needs exceed trim stock at save (Pending Trims)
 
+  // header additions (Change 10, Part E) — process flags marked X on the paper form
+  needsPrint   Boolean @default(false)
+  needsLaser   Boolean @default(false)
+  needsEmb     Boolean @default(false)
+  merchandiser String? // person handling the cutting, e.g. "Jyotika"
+  mrp          Float? // owner-visible only (canSeeCost)
+
   product         Product        @relation(fields: [productId], references: [id])
   productId       Int
   vendor          Vendor         @relation(fields: [vendorId], references: [id])
@@ -227,15 +256,79 @@ model JobCard {
   cuttingMaster   CuttingMaster? @relation(fields: [cuttingMasterId], references: [id])
   cuttingMasterId Int?
 
-  dispatches  DispatchEvent[]
-  sizeBreakup SizeBreakup[]
-  jobLines    JobBomLine[]
-  fabricLines JobFabricLine[]
-  returnNotes ReturnNote[]
-  movements   StockMovement[]
+  dispatches        DispatchEvent[]
+  sizeBreakup       SizeBreakup[]
+  jobLines          JobBomLine[]
+  fabricLines       JobFabricLine[]
+  returnNotes       ReturnNote[]
+  movements         StockMovement[]
+  layers            CuttingLayer[]
+  stitchAssignments StitchAssignment[]
 
   @@index([vendorId])
   @@index([productId])
+}
+
+// A single lay (Change 10, Part B). A production run is cut in several layers, each
+// its own colour×size table + its own fabric maths + optional date/master.
+model CuttingLayer {
+  id              Int            @id @default(autoincrement())
+  jobCard         JobCard        @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  jobCardId       Int
+  layerNo         Int // 1,2,3… order within the card
+  label           String? // optional, e.g. "LAYER-1 #512"
+  cutDate         DateTime? // this layer may be cut on its own date
+  cuttingMaster   CuttingMaster? @relation(fields: [cuttingMasterId], references: [id])
+  cuttingMasterId Int? // this layer may be cut by its own master
+
+  // per-layer fabric maths (Part C)
+  avgConsumption Float? // m per piece, e.g. 0.781
+  rolls          Int? // roll count used, e.g. 11
+  fabricMtr      Float? // total fabric for this layer, e.g. 1100
+  fabricBalance  Float? // leftover after this layer, may be negative
+
+  cells CuttingLayerCell[]
+
+  @@index([jobCardId])
+}
+
+model CuttingLayerCell {
+  id      Int          @id @default(autoincrement())
+  layer   CuttingLayer @relation(fields: [layerId], references: [id], onDelete: Cascade)
+  layerId Int
+  colour  String // canonical colour string (colorKey, matches Change 08)
+  size    String // S, M, L, XL, 2XL, 3XL …
+  qty     Float
+
+  @@index([layerId])
+}
+
+// One card's stitching can fan out to several vendors (Change 10, Part G), each with
+// its own lot, received log, and derived balance; a vendor may be routed a colour.
+model StitchAssignment {
+  id        Int             @id @default(autoincrement())
+  jobCard   JobCard         @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  jobCardId Int
+  vendor    Vendor          @relation(fields: [vendorId], references: [id])
+  vendorId  Int
+  colour    String? // optional: this vendor stitches only this colour (e.g. "only BLACK")
+  lotQty    Float? // pieces assigned to this vendor (their "LOT")
+  note      String? // e.g. "stitch & finishing in Ramanreti"
+  receipts  StitchReceipt[]
+
+  @@index([jobCardId])
+  @@index([vendorId])
+}
+
+model StitchReceipt {
+  id           Int              @id @default(autoincrement())
+  assignment   StitchAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  assignmentId Int
+  date         DateTime
+  qty          Float
+  note         String?
+
+  @@index([assignmentId])
 }
 
 // Per-colour fabric line on a job card: one style is cut in 1–10 colours together,
@@ -256,6 +349,11 @@ model JobFabricLine {
   qtyUsed   Float?
   arrangedBy String? // who issued the fabric (defaults to logged-in user)
   challan    String?
+  // fabric-detail plan per colour (Change 10, Part F)
+  reqPcs    Float? // planned pieces for this colour
+  reqMtr    Float? // planned fabric metres for this colour
+  rolls     Int? // planned/used roll count for this colour
+  imageUrl  String? // per-colour fabric swatch/photo (reuse Change 06 upload)
   jobCard   JobCard @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
   jobCardId Int
 
@@ -264,13 +362,14 @@ model JobFabricLine {
 }
 
 model DispatchEvent {
-  id         Int      @id @default(autoincrement())
+  id         Int            @id @default(autoincrement())
   date       DateTime
   qty        Float
   challan    String?
   note       String?
   arrangedBy String? // who logged the receipt (defaults to logged-in user)
-  jobCard    JobCard  @relation(fields: [jobCardId], references: [id])
+  reason     DispatchReason @default(ORDER) // ORDER / SALE / OTHER (Change 10, Part H)
+  jobCard    JobCard        @relation(fields: [jobCardId], references: [id])
   jobCardId  Int
 
   @@index([jobCardId])
@@ -464,6 +563,7 @@ model TrimItem {
   bomLines     BomLine[]
   jobLines     JobBomLine[]
   images       ImageAsset[]
+  challanLines MaterialChallanLine[]
 
   @@index([normName])
   @@index([family])
@@ -481,9 +581,10 @@ model Supplier {
   address      String? // for the PO document
   email        String? // for the PO email (mailto)
   remarks      String?
-  active       Boolean       @default(true)
-  trims        TrimItem[]
-  fabricOrders FabricOrder[]
+  active           Boolean           @default(true)
+  trims            TrimItem[]
+  fabricOrders     FabricOrder[]
+  materialChallans MaterialChallan[]
 
   @@index([type])
 }
@@ -619,4 +720,53 @@ model ProductionOrder {
   remarks        String?
 
   @@index([productId])
+}
+
+// Standalone materials challan (Change 11) — inward (from supplier) / outward (to vendor)
+// for fabric + trims + accessories, independent of any job card. Posts to the ONE master
+// inventory ledger on lock.
+model MaterialChallan {
+  id        Int              @id @default(autoincrement())
+  direction ChallanDirection
+  status    ChallanStatus    @default(DRAFT)
+  challanNo String?          @unique // e.g. "CH-OUT-2026-001" / "CH-IN-2026-001" (set on lock)
+  date      DateTime         @default(now())
+
+  // counterparty: exactly one side is set based on direction
+  supplier   Supplier? @relation(fields: [supplierId], references: [id]) // INWARD
+  supplierId Int?
+  vendor     Vendor?   @relation(fields: [vendorId], references: [id]) // OUTWARD
+  vendorId   Int?
+
+  note      String?
+  lockedAt  DateTime?
+  voidedAt  DateTime?
+  lines     MaterialChallanLine[]
+  createdAt DateTime              @default(now())
+
+  @@index([direction])
+  @@index([vendorId])
+  @@index([supplierId])
+}
+
+model MaterialChallanLine {
+  id        Int             @id @default(autoincrement())
+  challan   MaterialChallan @relation(fields: [challanId], references: [id], onDelete: Cascade)
+  challanId Int
+
+  // a line is EITHER a fabric line (with colour) OR a trim/accessory line
+  fabric     Fabric?   @relation(fields: [fabricId], references: [id])
+  fabricId   Int?
+  colour     String? // for fabric lines (colorKey, matches Change 08)
+  trimItem   TrimItem? @relation(fields: [trimItemId], references: [id])
+  trimItemId Int?
+
+  qty  Float
+  unit String? // MTR / KG / PCS / SET
+  rate Float? // optional ₹/unit
+  note String?
+
+  @@index([challanId])
+  @@index([fabricId])
+  @@index([trimItemId])
 }

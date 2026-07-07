@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { getJobs } from "@/lib/jobs";
+import { db } from "@/lib/db";
+import { getVendorChallans } from "@/lib/masters";
 import { Card, Badge } from "@/components/ui";
 import { num, pct, fmtDate } from "@/lib/format";
 import { ArrowLeft } from "lucide-react";
@@ -12,6 +14,8 @@ export default async function VendorDetail({ params }: { params: Promise<{ name:
   const jobs = (await getJobs()).filter((j) => j.vendor === vendor);
   const cut = jobs.reduce((a, j) => a + j.cutQty, 0);
   const disp = jobs.reduce((a, j) => a + j.dispatchedQty, 0);
+  const vRow = await db.vendor.findUnique({ where: { name: vendor }, select: { id: true } });
+  const challans = vRow ? await getVendorChallans(vRow.id) : [];
 
   return (
     <div className="p-6">
@@ -53,6 +57,24 @@ export default async function VendorDetail({ params }: { params: Promise<{ name:
           </tbody>
         </table>
       </Card>
+
+      {challans.length > 0 && (
+        <Card className="mt-3.5 p-5">
+          <h3 className="mb-3 text-[13px] font-bold">Materials Challans <span className="font-medium text-faint">· {challans.length}</span></h3>
+          <div className="space-y-0">
+            {challans.map((c) => (
+              <Link key={c.id} href={`/challan-doc/${c.id}`} className="flex items-center justify-between border-b border-slate-50 py-2 text-[12px] last:border-0 hover:opacity-80">
+                <span className="flex items-center gap-2">
+                  <span className="font-semibold text-primary-ink">{c.challanNo ?? `Draft #${c.id}`}</span>
+                  <Badge tone={c.status === "LOCKED" ? "ok" : c.status === "VOID" ? "danger" : "default"}>{c.status}</Badge>
+                  <span className="text-faint tnum">{fmtDate(c.date)}</span>
+                </span>
+                <span className="font-semibold tnum">{num(c.totalQty)} · {c.lineCount} lines</span>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

@@ -77,8 +77,8 @@ export default async function DashboardPage() {
             {overdue.length === 0 && <p className="py-6 text-center text-[12px] text-muted">Nothing overdue 🎉</p>}
             {overdue.map((o) => (
               <Link
-                key={o.siNo}
-                href={`/job-cards/${encodeURIComponent(o.siNo.replace(/\s/g, ""))}`}
+                key={o.slug}
+                href={`/job-cards/${o.slug}`}
                 className="flex items-center justify-between border-b border-slate-50 py-2.5 text-[12px] last:border-0 hover:opacity-80"
               >
                 <span>

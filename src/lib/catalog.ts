@@ -1,6 +1,5 @@
 import { db } from "@/lib/db";
 import { getTrimStock, type TrimStock } from "@/lib/trims";
-import { siSlug } from "@/lib/jobs";
 import { wholesale } from "@/lib/catalog-labels";
 
 export { wholesale, STATUS_LABEL, statusTone } from "@/lib/catalog-labels";
@@ -159,7 +158,7 @@ export async function getProductDetail(skuOrExtId: string): Promise<ProductDetai
           cut: jobs.reduce((a, j) => a + j.cutQty, 0),
           received: jobs.reduce((a, j) => a + j.dispatchedQty, 0),
           openJobs: jobs.filter((j) => j.status === "ACTIVE").length,
-          jobs: jobs.map((j) => ({ siNo: j.siNo, slug: siSlug(j.siNo), cutQty: j.cutQty, received: j.dispatchedQty, status: j.status })),
+          jobs: jobs.map((j) => ({ siNo: j.siNo, slug: String(j.id), cutQty: j.cutQty, received: j.dispatchedQty, status: j.status })),
         }
       : null;
 

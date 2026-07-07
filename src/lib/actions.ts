@@ -1,22 +1,103 @@
 "use server";
 
 import { db } from "@/lib/db";
-import { siSlug } from "@/lib/jobs";
+import { Prisma } from "@/generated/prisma/client";
 import { requireRole } from "@/lib/auth";
 import { colorKey } from "@/lib/colour";
 import { revalidatePath } from "next/cache";
 
 type BomDim = "COLOR" | "SIZE" | "FLAT";
+type Tx = Prisma.TransactionClient;
+
+/**
+ * The single master-inventory ledger writer (Change 11, Part B). Both the job-card
+ * fabric/trim issue path and the standalone materials challan post through this so the
+ * master stock has one source of truth. IN → RECEIPT + increment, OUT → ISSUE + decrement.
+ */
+export async function postMaterialMovement(
+  tx: Tx,
+  m: {
+    direction: "IN" | "OUT";
+    qty: number;
+    date?: Date;
+    note?: string | null;
+    jobCardId?: number | null;
+    // fabric line
+    fabricId?: number | null;
+    colour?: string | null;
+    // trim/accessory line
+    trimItemId?: number | null;
+    vendor?: string | null;
+    invoice?: string | null;
+    rate?: number | null;
+  }
+): Promise<void> {
+  if (!m.qty || m.qty <= 0) return;
+  const type = m.direction === "IN" ? "RECEIPT" : "ISSUE";
+  const date = m.date ?? new Date();
+  const delta = m.direction === "IN" ? { increment: m.qty } : { decrement: m.qty };
+
+  if (m.fabricId) {
+    const colour = colorKey(m.colour);
+    await tx.stockMovement.create({
+      data: { type, qty: m.qty, date, fabricId: m.fabricId, jobCardId: m.jobCardId ?? null, color: colour, note: m.note ?? null } as any,
+    });
+    const fc = await tx.fabricColor.upsert({
+      where: { fabricId_color: { fabricId: m.fabricId, color: colour } },
+      create: { fabricId: m.fabricId, color: colour, openingStock: 0, currentStock: 0 },
+      update: {},
+    });
+    await tx.fabricColor.update({ where: { id: fc.id }, data: { currentStock: delta } });
+  } else if (m.trimItemId) {
+    await tx.trimMovement.create({
+      data: { type, qty: m.qty, date, trimItemId: m.trimItemId, vendor: m.vendor ?? null, invoice: m.invoice ?? null, rate: m.rate ?? null } as any,
+    });
+    await tx.trimItem.update({ where: { id: m.trimItemId }, data: { currentStock: delta } });
+  }
+}
+
+/** Find-or-create a cutting master by name inside a transaction. */
+async function resolveCuttingMaster(tx: Tx, name: string): Promise<number> {
+  const cm =
+    (await tx.cuttingMaster.findUnique({ where: { name: name.trim() } })) ??
+    (await tx.cuttingMaster.create({ data: { name: name.trim() } }));
+  return cm.id;
+}
+
+// One cutting layer (lay) at create time (Change 10, Part B/C/D).
+export type NewJobLayerInput = {
+  label?: string | null;
+  cutDate?: string | null;
+  cuttingMaster?: string | null;
+  avgConsumption?: number | null;
+  rolls?: number | null;
+  fabricMtr?: number | null;
+  fabricBalance?: number | null;
+  cells: { colour: string; size: string; qty: number }[];
+};
 
 export type NewJobInput = {
   productId: number;
   vendorName: string;
   cuttingMaster?: string;
-  matrix: { size: string; color: string; qty: number }[];
+  // legacy single-grid entry (kept for back-compat); new cards send `layers` instead
+  matrix?: { size: string; color: string; qty: number }[];
+  // multi-layer cutting (Change 10) — the order total sums across all layers
+  layers?: NewJobLayerInput[];
   // per-colour fabric overrides (assumed avg / GSM / roll width); blank ⇒ inherit defaults
   fabricLines?: { color: string; estAvg?: number | null; gsm?: number | null; rollWidth?: number | null }[];
+  // fabric-detail plan per colour (Change 10, Part F)
+  fabricDetail?: { colour: string; reqPcs?: number | null; reqMtr?: number | null; rolls?: number | null; imageUrl?: string | null }[];
+  // multi-vendor stitching (Change 10, Part G)
+  stitch?: { vendorName: string; colour?: string | null; lotQty?: number | null; note?: string | null }[];
   // edited trim sheet (Change 02); omit to fall back to the product's preset BOM
   bomLines?: { trimItemId: number | null; material: string; color?: string | null; dimension: BomDim; perPieceQty: number }[];
+  // header additions (Change 10, Part E)
+  needsPrint?: boolean;
+  needsLaser?: boolean;
+  needsEmb?: boolean;
+  merchandiser?: string | null;
+  mrp?: number | null;
   remark?: string;
   stage?: "CUTTING" | "STITCHING" | "DISPATCH";
   plannedEtd?: string;
@@ -48,7 +129,7 @@ async function nextSiNo(): Promise<string> {
 }
 
 export async function createJobCard(input: NewJobInput) {
-  await requireRole("ADMIN", "STAFF");
+  const user = await requireRole("ADMIN", "STAFF");
   const product = await db.product.findUnique({
     where: { id: input.productId },
     include: { boms: { include: { lines: true } } },
@@ -67,29 +148,65 @@ export async function createJobCard(input: NewJobInput) {
     cuttingMasterId = cm.id;
   }
 
-  const matrix = input.matrix.filter((m) => m.qty > 0);
-  const cutQty = matrix.reduce((a, m) => a + m.qty, 0);
+  // Normalise cutting layers (Change 10): keep only cells with qty > 0.
+  const layers = (input.layers ?? [])
+    .map((l, i) => ({
+      ...l,
+      layerNo: i + 1,
+      cells: l.cells
+        .filter((c) => c.qty > 0)
+        .map((c) => ({ colour: colorKey(c.colour), size: c.size, qty: c.qty })),
+    }))
+    .filter((l) => l.cells.length > 0);
+  const hasLayers = layers.length > 0;
+
+  // The effective flat matrix: layers when present, else the legacy single grid.
+  const flatMatrix = hasLayers
+    ? layers.flatMap((l) => l.cells.map((c) => ({ size: c.size, color: c.colour, qty: c.qty })))
+    : (input.matrix ?? []).filter((m) => m.qty > 0);
+  const cutQty = flatMatrix.reduce((a, m) => a + m.qty, 0);
   const defaultAvg = product.avgConsumption ?? null;
 
-  // Group the size×colour matrix into per-colour cut quantities.
+  // Group into per-colour cut quantities (colorKey canonical).
   const cutByColour = new Map<string, { display: string; qty: number }>();
-  for (const m of matrix) {
+  for (const m of flatMatrix) {
     const key = colorKey(m.color);
     const e = cutByColour.get(key) ?? { display: m.color || key, qty: 0 };
     e.qty += m.qty;
     cutByColour.set(key, e);
   }
-  // Per-colour overrides from the form, keyed by colour.
-  const overrides = new Map(
-    (input.fabricLines ?? []).map((l) => [colorKey(l.color), l])
-  );
 
-  // Build the per-colour fabric plan (only when the product has a fabric).
+  // Per-colour fabric metres contributed by the layer maths (Part C). A layer's
+  // fabricMtr is a lay total; split it across the layer's colours by cut proportion.
+  const mtrByColour = new Map<string, number>();
+  const colourHasMtr = new Set<string>();
+  for (const l of layers) {
+    const layerTotal = l.cells.reduce((a, c) => a + c.qty, 0);
+    if (l.fabricMtr == null || layerTotal <= 0) continue;
+    const byCol = new Map<string, number>();
+    for (const c of l.cells) byCol.set(c.colour, (byCol.get(c.colour) ?? 0) + c.qty);
+    for (const [col, q] of byCol) {
+      mtrByColour.set(col, (mtrByColour.get(col) ?? 0) + l.fabricMtr * (q / layerTotal));
+      colourHasMtr.add(col);
+    }
+  }
+
+  // Per-colour fabric overrides + fabric-detail plan, keyed by colour.
+  const overrides = new Map((input.fabricLines ?? []).map((l) => [colorKey(l.color), l]));
+  const detailByColour = new Map((input.fabricDetail ?? []).map((d) => [colorKey(d.colour), d]));
+
+  // Per-colour fabric plan (only when the product has a fabric). Issue = summed layer
+  // fabric-mtr when the layers carry maths, else the avg × cut estimate (agreed rule).
   const fabricPlan = product.fabricId
     ? [...cutByColour.entries()].map(([key, { qty }]) => {
         const ov = overrides.get(key);
+        const detail = detailByColour.get(key);
         const lineAvg = ov?.estAvg ?? defaultAvg;
-        const qtyIssued = lineAvg != null ? Math.round(qty * lineAvg * 100) / 100 : null;
+        const qtyIssued = colourHasMtr.has(key)
+          ? Math.round((mtrByColour.get(key) ?? 0) * 100) / 100
+          : lineAvg != null
+            ? Math.round(qty * lineAvg * 100) / 100
+            : null;
         return {
           key,
           cutQty: qty,
@@ -97,6 +214,10 @@ export async function createJobCard(input: NewJobInput) {
           gsm: ov?.gsm ?? null,
           rollWidth: ov?.rollWidth ?? null,
           qtyIssued,
+          reqPcs: detail?.reqPcs ?? null,
+          reqMtr: detail?.reqMtr ?? null,
+          rolls: detail?.rolls ?? null,
+          imageUrl: detail?.imageUrl ?? null,
         };
       })
     : [];
@@ -134,6 +255,9 @@ export async function createJobCard(input: NewJobInput) {
   const trimStock = new Map(trims.map((t) => [t.id, t.currentStock]));
   const trimsPending = bomPlan.some((l) => l.trimItemId != null && l.requiredQty > (trimStock.get(l.trimItemId) ?? 0));
 
+  // MRP: only an owner may set/override it; otherwise default from the product master.
+  const mrp = user.role === "ADMIN" && input.mrp != null ? input.mrp : product.mrp ?? null;
+
   const siNo = await nextSiNo();
   const now = new Date();
 
@@ -155,15 +279,43 @@ export async function createJobCard(input: NewJobInput) {
         stage: input.stage ?? "CUTTING",
         remark: input.remark ?? null,
         trimsPending,
+        needsPrint: !!input.needsPrint,
+        needsLaser: !!input.needsLaser,
+        needsEmb: !!input.needsEmb,
+        merchandiser: input.merchandiser ?? null,
+        mrp,
         productId: product.id,
         vendorId: vendor.id,
         cuttingMasterId,
-        sizeBreakup: { create: matrix.map((m) => ({ size: m.size, color: m.color, qty: m.qty })) },
+        // Layers are the source of truth for new cards; legacy grids still write SizeBreakup.
+        ...(hasLayers
+          ? {}
+          : { sizeBreakup: { create: flatMatrix.map((m) => ({ size: m.size, color: m.color, qty: m.qty })) } }),
       } as any,
     });
 
-    // Per-colour fabric: snapshot a JobFabricLine, issue from that colour's stock,
-    // and decrement the FabricColor balance (get-or-create the colour at 0 if new).
+    // Cutting layers + their colour×size cells (each layer may carry its own date/master).
+    for (const l of layers) {
+      const layerMasterId = l.cuttingMaster
+        ? await resolveCuttingMaster(tx, l.cuttingMaster)
+        : cuttingMasterId;
+      await tx.cuttingLayer.create({
+        data: {
+          jobCardId: created.id,
+          layerNo: l.layerNo,
+          label: l.label ?? null,
+          cutDate: l.cutDate ? new Date(l.cutDate) : now,
+          cuttingMasterId: layerMasterId,
+          avgConsumption: l.avgConsumption ?? null,
+          rolls: l.rolls ?? null,
+          fabricMtr: l.fabricMtr ?? null,
+          fabricBalance: l.fabricBalance ?? null,
+          cells: { create: l.cells.map((c) => ({ colour: c.colour, size: c.size, qty: c.qty })) },
+        } as any,
+      });
+    }
+
+    // Per-colour fabric: snapshot a JobFabricLine, then issue through the shared ledger.
     for (const line of fabricPlan) {
       await tx.jobFabricLine.create({
         data: {
@@ -175,28 +327,24 @@ export async function createJobCard(input: NewJobInput) {
           gsm: line.gsm,
           rollWidth: line.rollWidth,
           qtyIssued: line.qtyIssued,
+          reqPcs: line.reqPcs,
+          reqMtr: line.reqMtr,
+          rolls: line.rolls,
+          imageUrl: line.imageUrl,
         } as any,
       });
-      if (line.qtyIssued && line.qtyIssued > 0) {
-        await tx.stockMovement.create({
-          data: {
-            type: "ISSUE", qty: line.qtyIssued, date: now,
-            fabricId: product.fabricId!, jobCardId: created.id, color: line.key,
-          } as any,
-        });
-        const fc = await tx.fabricColor.upsert({
-          where: { fabricId_color: { fabricId: product.fabricId!, color: line.key } },
-          create: { fabricId: product.fabricId!, color: line.key, openingStock: 0, currentStock: 0 },
-          update: {},
-        });
-        await tx.fabricColor.update({
-          where: { id: fc.id },
-          data: { currentStock: { decrement: line.qtyIssued } },
-        });
-      }
+      await postMaterialMovement(tx, {
+        direction: "OUT",
+        qty: line.qtyIssued ?? 0,
+        date: now,
+        fabricId: product.fabricId!,
+        colour: line.key,
+        jobCardId: created.id,
+        note: "Cutting issue",
+      });
     }
 
-    // Frozen BOM snapshot (from the EDITED trim sheet) + live trim depletion.
+    // Frozen BOM snapshot (from the EDITED trim sheet) + live trim depletion via the ledger.
     for (const line of bomPlan) {
       await tx.jobBomLine.create({
         data: {
@@ -211,15 +359,28 @@ export async function createJobCard(input: NewJobInput) {
           jobCardId: created.id,
         } as any,
       });
-      if (line.trimItemId && line.requiredQty > 0) {
-        await tx.trimMovement.create({
-          data: { type: "ISSUE", qty: line.requiredQty, date: now, trimItemId: line.trimItemId },
-        });
-        await tx.trimItem.update({
-          where: { id: line.trimItemId },
-          data: { currentStock: { decrement: line.requiredQty } },
-        });
-      }
+      await postMaterialMovement(tx, {
+        direction: "OUT",
+        qty: line.requiredQty,
+        date: now,
+        trimItemId: line.trimItemId ?? undefined,
+      });
+    }
+
+    // Multi-vendor stitching assignments (Part G) — optional at create.
+    for (const s of input.stitch ?? []) {
+      if (!s.vendorName?.trim()) continue;
+      const sv = await tx.vendor.findUnique({ where: { name: s.vendorName.trim() } });
+      if (!sv) continue;
+      await tx.stitchAssignment.create({
+        data: {
+          jobCardId: created.id,
+          vendorId: sv.id,
+          colour: s.colour ? colorKey(s.colour) : null,
+          lotQty: s.lotQty ?? null,
+          note: s.note ?? null,
+        },
+      });
     }
 
     return created;
@@ -229,7 +390,7 @@ export async function createJobCard(input: NewJobInput) {
   revalidatePath("/job-cards");
   revalidatePath("/inventory");
   revalidatePath("/trims");
-  return { slug: siSlug(job.siNo), siNo: job.siNo };
+  return { slug: String(job.id), siNo: job.siNo };
 }
 
 export type FabricActualsInput = {
@@ -322,7 +483,7 @@ export async function recordFabricActuals(input: FabricActualsInput) {
     },
   });
 
-  revalidatePath(`/job-cards/${siSlug(job.siNo)}`);
+  revalidatePath(`/job-cards/${String(job.id)}`);
   revalidatePath("/inventory");
   return { returnQty: totalReturned };
 }
@@ -337,7 +498,7 @@ export async function setJobStage(input: {
     data: { stage: input.stage },
   });
   revalidatePath("/job-cards");
-  revalidatePath(`/job-cards/${siSlug(job.siNo)}`);
+  revalidatePath(`/job-cards/${String(job.id)}`);
   return { stage: job.stage };
 }
 
@@ -397,12 +558,14 @@ export async function addDispatch(input: {
   challan?: string;
   note?: string;
   arrangedBy?: string | null;
+  reason?: "ORDER" | "SALE" | "OTHER";
 }) {
   await requireRole("ADMIN", "STAFF");
   const job = await db.jobCard.findUnique({ where: { id: input.jobCardId } });
   if (!job) throw new Error("Job card not found");
 
-  const newDispatched = Math.min(job.cutQty, job.dispatchedQty + input.qty);
+  // Running balance may go negative/over (Part H) — do NOT clamp to cutQty.
+  const newDispatched = job.dispatchedQty + input.qty;
   const closed = newDispatched >= job.cutQty;
 
   await db.jobCard.update({
@@ -418,6 +581,7 @@ export async function addDispatch(input: {
             challan: input.challan ?? null,
             note: input.note ?? null,
             arrangedBy: input.arrangedBy ?? null,
+            reason: input.reason ?? "ORDER",
           } as any,
         ],
       },
@@ -427,7 +591,157 @@ export async function addDispatch(input: {
   revalidatePath("/");
   revalidatePath("/dispatch");
   revalidatePath("/job-cards");
+  revalidatePath(`/job-cards/${job.id}`);
   return { siNo: job.siNo, dispatched: newDispatched, closed };
+}
+
+/**
+ * Append a cutting layer to an existing card (Change 10) — e.g. a later lay on its own
+ * date/master. Bumps the card's cut qty and issues that layer's fabric via the shared
+ * ledger (fabric-mtr split by colour, else avg × qty). Trim re-explosion is out of scope.
+ */
+export async function addCuttingLayer(input: {
+  jobCardId: number;
+  label?: string | null;
+  cutDate?: string | null;
+  cuttingMaster?: string | null;
+  avgConsumption?: number | null;
+  rolls?: number | null;
+  fabricMtr?: number | null;
+  fabricBalance?: number | null;
+  cells: { colour: string; size: string; qty: number }[];
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const cells = input.cells
+    .filter((c) => c.qty > 0)
+    .map((c) => ({ colour: colorKey(c.colour), size: c.size, qty: c.qty }));
+  if (!cells.length) throw new Error("Layer needs at least one cell");
+
+  const job = await db.jobCard.findUnique({
+    where: { id: input.jobCardId },
+    include: { product: true, layers: { select: { layerNo: true } }, fabricLines: true },
+  });
+  if (!job) throw new Error("Job card not found");
+
+  const fabricId = job.product.fabricId;
+  const now = new Date();
+  const layerNo = job.layers.reduce((m, l) => Math.max(m, l.layerNo), 0) + 1;
+  const layerTotal = cells.reduce((a, c) => a + c.qty, 0);
+  const avg = input.avgConsumption ?? job.estAvg ?? job.product.avgConsumption ?? null;
+
+  const byCol = new Map<string, number>();
+  for (const c of cells) byCol.set(c.colour, (byCol.get(c.colour) ?? 0) + c.qty);
+
+  await db.$transaction(async (tx) => {
+    const layerMasterId = input.cuttingMaster
+      ? await resolveCuttingMaster(tx, input.cuttingMaster)
+      : job.cuttingMasterId;
+    await tx.cuttingLayer.create({
+      data: {
+        jobCardId: job.id,
+        layerNo,
+        label: input.label ?? null,
+        cutDate: input.cutDate ? new Date(input.cutDate) : now,
+        cuttingMasterId: layerMasterId,
+        avgConsumption: input.avgConsumption ?? null,
+        rolls: input.rolls ?? null,
+        fabricMtr: input.fabricMtr ?? null,
+        fabricBalance: input.fabricBalance ?? null,
+        cells: { create: cells },
+      } as any,
+    });
+
+    if (fabricId) {
+      for (const [col, q] of byCol) {
+        const issued =
+          input.fabricMtr != null && layerTotal > 0
+            ? Math.round(input.fabricMtr * (q / layerTotal) * 100) / 100
+            : avg != null
+              ? Math.round(q * avg * 100) / 100
+              : 0;
+        const existing = job.fabricLines.find((f) => colorKey(f.color) === col);
+        if (existing) {
+          await tx.jobFabricLine.update({
+            where: { id: existing.id },
+            data: {
+              cutQty: (existing.cutQty ?? 0) + q,
+              qtyIssued: (existing.qtyIssued ?? 0) + issued,
+            } as any,
+          });
+        } else {
+          await tx.jobFabricLine.create({
+            data: { color: col, fabricId, jobCardId: job.id, cutQty: q, estAvg: avg, qtyIssued: issued } as any,
+          });
+        }
+        await postMaterialMovement(tx, {
+          direction: "OUT",
+          qty: issued,
+          date: now,
+          fabricId,
+          colour: col,
+          jobCardId: job.id,
+          note: `Layer ${layerNo} issue`,
+        });
+      }
+    }
+
+    await tx.jobCard.update({ where: { id: job.id }, data: { cutQty: { increment: layerTotal } } as any });
+  });
+
+  revalidatePath(`/job-cards/${job.id}`);
+  revalidatePath("/inventory");
+  return { ok: true, layerNo };
+}
+
+export async function addStitchAssignment(input: {
+  jobCardId: number;
+  vendorId: number;
+  colour?: string | null;
+  lotQty?: number | null;
+  note?: string | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  await db.stitchAssignment.create({
+    data: {
+      jobCardId: input.jobCardId,
+      vendorId: input.vendorId,
+      colour: input.colour ? colorKey(input.colour) : null,
+      lotQty: input.lotQty ?? null,
+      note: input.note ?? null,
+    },
+  });
+  revalidatePath(`/job-cards/${input.jobCardId}`);
+  return { ok: true };
+}
+
+export async function addStitchReceipt(input: {
+  assignmentId: number;
+  qty: number;
+  date?: string;
+  note?: string | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  if (input.qty <= 0) throw new Error("Qty must be positive");
+  const a = await db.stitchAssignment.findUnique({ where: { id: input.assignmentId }, select: { jobCardId: true } });
+  if (!a) throw new Error("Assignment not found");
+  await db.stitchReceipt.create({
+    data: {
+      assignmentId: input.assignmentId,
+      qty: input.qty,
+      date: input.date ? new Date(input.date) : new Date(),
+      note: input.note ?? null,
+    },
+  });
+  revalidatePath(`/job-cards/${a.jobCardId}`);
+  return { ok: true };
+}
+
+export async function removeStitchAssignment(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const a = await db.stitchAssignment.findUnique({ where: { id: input.id }, select: { jobCardId: true } });
+  await db.stitchAssignment.delete({ where: { id: input.id } });
+  if (a) revalidatePath(`/job-cards/${a.jobCardId}`);
+  return { ok: true };
 }
 
 // ── Fabric master CRUD (admin/staff) — presets, suppliers, per-colour stock ──
@@ -536,8 +850,7 @@ export async function recordTrimIssue(input: {
     return l.trimItemId != null && bal > 0 && (l.requiredQty ?? 0) > (stock.get(l.trimItemId) ?? 0);
   });
   await db.jobCard.update({ where: { id: line.jobCardId }, data: { trimsPending: pending } as any });
-  const job = await db.jobCard.findUnique({ where: { id: line.jobCardId }, select: { siNo: true } });
-  if (job) revalidatePath(`/job-cards/${siSlug(job.siNo)}`);
+  revalidatePath(`/job-cards/${line.jobCardId}`);
   revalidatePath("/pending-trims");
   return { ok: true };
 }
@@ -984,5 +1297,161 @@ export async function reorderLookup(input: { ids: number[] }) {
   await requireRole("ADMIN", "STAFF");
   await db.$transaction(input.ids.map((id, i) => db.lookup.update({ where: { id }, data: { sortOrder: i } })));
   revalidatePath("/masters");
+  return { ok: true };
+}
+
+// ── Change 11 — Materials Challans (inward/outward, shared inventory ledger) ──
+
+export async function createChallan(input: {
+  direction: "INWARD" | "OUTWARD";
+  supplierId?: number | null;
+  vendorId?: number | null;
+  date?: string;
+  note?: string | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  if (input.direction === "INWARD" && !input.supplierId) throw new Error("Inward challan needs a supplier");
+  if (input.direction === "OUTWARD" && !input.vendorId) throw new Error("Outward challan needs a vendor");
+  const c = await db.materialChallan.create({
+    data: {
+      direction: input.direction as any,
+      supplierId: input.direction === "INWARD" ? input.supplierId ?? null : null,
+      vendorId: input.direction === "OUTWARD" ? input.vendorId ?? null : null,
+      date: input.date ? new Date(input.date) : new Date(),
+      note: input.note ?? null,
+    },
+  });
+  revalidatePath("/challans");
+  return { id: c.id };
+}
+
+async function assertDraft(challanId: number) {
+  const c = await db.materialChallan.findUnique({ where: { id: challanId }, select: { status: true } });
+  if (!c) throw new Error("Challan not found");
+  if (c.status !== "DRAFT") throw new Error("Challan is locked — no further line edits");
+}
+
+export async function addChallanLine(
+  challanId: number,
+  input: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null }
+) {
+  await requireRole("ADMIN", "STAFF");
+  await assertDraft(challanId);
+  if (!input.fabricId && !input.trimItemId) throw new Error("Line must set a fabric or a trim/accessory");
+  if (input.fabricId && input.trimItemId) throw new Error("Line cannot be both fabric and trim");
+  if (!input.qty || input.qty <= 0) throw new Error("Qty must be positive");
+  await db.materialChallanLine.create({
+    data: {
+      challanId,
+      fabricId: input.fabricId ?? null,
+      colour: input.fabricId && input.colour ? colorKey(input.colour) : null,
+      trimItemId: input.trimItemId ?? null,
+      qty: input.qty,
+      unit: input.unit ?? null,
+      rate: input.rate ?? null,
+      note: input.note ?? null,
+    },
+  });
+  revalidatePath(`/challans/${challanId}`);
+  revalidatePath("/challans");
+  return { ok: true };
+}
+
+export async function updateChallanLine(
+  id: number,
+  input: { qty?: number; unit?: string | null; rate?: number | null; note?: string | null; colour?: string | null }
+) {
+  await requireRole("ADMIN", "STAFF");
+  const line = await db.materialChallanLine.findUnique({ where: { id }, select: { challanId: true, fabricId: true } });
+  if (!line) throw new Error("Line not found");
+  await assertDraft(line.challanId);
+  if (input.qty != null && input.qty <= 0) throw new Error("Qty must be positive");
+  await db.materialChallanLine.update({
+    where: { id },
+    data: {
+      ...(input.qty != null ? { qty: input.qty } : {}),
+      ...(input.unit !== undefined ? { unit: input.unit } : {}),
+      ...(input.rate !== undefined ? { rate: input.rate } : {}),
+      ...(input.note !== undefined ? { note: input.note } : {}),
+      ...(input.colour !== undefined ? { colour: line.fabricId && input.colour ? colorKey(input.colour) : null } : {}),
+    },
+  });
+  revalidatePath(`/challans/${line.challanId}`);
+  return { ok: true };
+}
+
+export async function removeChallanLine(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const line = await db.materialChallanLine.findUnique({ where: { id: input.id }, select: { challanId: true } });
+  if (!line) return { ok: true };
+  await assertDraft(line.challanId);
+  await db.materialChallanLine.delete({ where: { id: input.id } });
+  revalidatePath(`/challans/${line.challanId}`);
+  return { ok: true };
+}
+
+/** Lock a challan: assign CH-IN/CH-OUT-YYYY-NNN and post every line to the shared ledger. Idempotent. */
+export async function lockChallan(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const c = await db.materialChallan.findUnique({ where: { id: input.id }, include: { lines: true } });
+  if (!c) throw new Error("Challan not found");
+  if (c.status === "LOCKED") return { challanNo: c.challanNo }; // idempotent
+  if (c.lines.length === 0) throw new Error("Add at least one line before locking");
+
+  const year = new Date().getFullYear();
+  const prefix = c.direction === "INWARD" ? `CH-IN-${year}-` : `CH-OUT-${year}-`;
+  const existing = await db.materialChallan.findMany({ where: { challanNo: { startsWith: prefix } }, select: { challanNo: true } });
+  const maxN = existing.reduce((m, e) => Math.max(m, parseInt(e.challanNo!.slice(prefix.length), 10) || 0), 0);
+  const challanNo = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+  const dir = c.direction === "INWARD" ? "IN" : "OUT";
+  const now = new Date();
+
+  await db.$transaction(async (tx) => {
+    await tx.materialChallan.update({ where: { id: c.id }, data: { status: "LOCKED", challanNo, lockedAt: now } });
+    for (const l of c.lines) {
+      await postMaterialMovement(tx, {
+        direction: dir,
+        qty: l.qty,
+        date: now,
+        note: `Challan ${challanNo}`,
+        fabricId: l.fabricId ?? null,
+        colour: l.colour ?? null,
+        trimItemId: l.trimItemId ?? null,
+      });
+    }
+  });
+  revalidatePath("/challans");
+  revalidatePath(`/challans/${c.id}`);
+  revalidatePath("/inventory");
+  revalidatePath("/trims");
+  return { challanNo };
+}
+
+/** Void a LOCKED challan: reverse every posted movement. */
+export async function voidChallan(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const c = await db.materialChallan.findUnique({ where: { id: input.id }, include: { lines: true } });
+  if (!c) throw new Error("Challan not found");
+  if (c.status !== "LOCKED" || c.voidedAt) return { ok: true, already: true as const };
+  const reverse = c.direction === "INWARD" ? "OUT" : "IN"; // reverse of the original post
+  const now = new Date();
+  await db.$transaction(async (tx) => {
+    for (const l of c.lines) {
+      await postMaterialMovement(tx, {
+        direction: reverse,
+        qty: l.qty,
+        date: now,
+        note: `Void ${c.challanNo}`,
+        fabricId: l.fabricId ?? null,
+        colour: l.colour ?? null,
+        trimItemId: l.trimItemId ?? null,
+      });
+    }
+    await tx.materialChallan.update({ where: { id: c.id }, data: { voidedAt: now } });
+  });
+  revalidatePath("/challans");
+  revalidatePath(`/challans/${c.id}`);
+  revalidatePath("/inventory");
+  revalidatePath("/trims");
   return { ok: true };
 }

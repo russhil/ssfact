@@ -1,20 +1,27 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getJob, siSlug } from "@/lib/jobs";
+import { getJob, getJobMatrix } from "@/lib/jobs";
+import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { colorKey } from "@/lib/colour";
 import { Card, Badge } from "@/components/ui";
 import { FabricActualsForm } from "@/components/fabric-actuals-form";
 import { TrimSheet } from "@/components/trim-sheet";
 import { StatusTimeline } from "@/components/status-timeline";
+import { JobStitching, type StitchAssignmentView } from "@/components/job-stitching";
+import { JobDispatchAdd } from "@/components/job-dispatch-add";
+import { AddCuttingLayer } from "@/components/add-cutting-layer";
 import { num, inr, fmtDate, pct } from "@/lib/format";
 import { STAGE_LABEL, stageTone, type Stage } from "@/lib/job-labels";
 import { ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-const SIZE_ORDER = ["S", "M", "L", "XL", "2XL", "3XL"];
-const orderSizes = (a: string, b: string) => SIZE_ORDER.indexOf(a) - SIZE_ORDER.indexOf(b);
+const SIZE_ORDER = ["S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"];
+const orderSizes = (a: string, b: string) => {
+  const ia = SIZE_ORDER.indexOf(a), ib = SIZE_ORDER.indexOf(b);
+  return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
+};
 
 export default async function JobDetail({ params }: { params: Promise<{ si: string }> }) {
   const { si } = await params;
@@ -23,31 +30,37 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   const j = await getJob(si, scope);
   if (!j) notFound();
 
+  const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
+  const canSeeCost = u?.role === "ADMIN";
+  const [vendorList, masterList] = canEdit
+    ? await Promise.all([
+        db.vendor.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+        db.cuttingMaster.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { name: true } }),
+      ])
+    : [[], []];
+
   const balance = j.cutQty - j.dispatchedQty;
   const fill = j.cutQty ? j.dispatchedQty / j.cutQty : 0;
   const overdue = j.status === "ACTIVE" && j.plannedEtd && j.plannedEtd < new Date() && balance > 0;
-  const sizeTotal = j.sizeBreakup.reduce((a, s) => a + s.qty, 0);
   const stage = j.stage as Stage;
   const unit = j.product.unit;
 
-  // size×color matrix
-  const hasColor = j.sizeBreakup.some((s) => s.color !== "");
-  const sizes = [...new Set(j.sizeBreakup.map((s) => s.size))].sort(orderSizes);
-  const colorRows = [...new Set(j.sizeBreakup.map((s) => s.color))].sort();
-  const cellQty = (size: string, color: string) =>
-    j.sizeBreakup.find((s) => s.size === size && s.color === color)?.qty ?? 0;
+  // canonical cut matrix (layers when present, else legacy SizeBreakup)
+  const mx = getJobMatrix(j);
+  const hasColor = mx.colours.some((c) => c !== "" && c !== "—");
 
   const returned = j.returnNotes.reduce((a, r) => a + r.qty, 0);
   const itemDesc = j.product.itemDesc ?? j.product.name;
   const styleNo = j.product.styleNo ?? j.product.skuCode;
 
-  // per-colour fabric (real data on most cards; legacy cards fall back to a single row)
+  // per-colour fabric
   const returnedByColour = new Map<string, number>();
   for (const r of j.returnNotes)
     returnedByColour.set(colorKey(r.color), (returnedByColour.get(colorKey(r.color)) ?? 0) + r.qty);
   const hasFabricLines = j.fabricLines.length > 0;
   const fabricGsm = j.product.fabric?.gsm ?? null;
   const fabricWidth = j.product.fabric?.rollWidth ?? null;
+  const hasFabricDetail = j.fabricLines.some((l) => l.reqPcs != null || l.reqMtr != null || l.rolls != null || l.imageUrl != null);
   const actualsLines = hasFabricLines
     ? j.fabricLines.map((l) => ({
         color: l.color,
@@ -74,17 +87,42 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         },
       ];
 
+  // stitching assignments → per-vendor balance (Part G)
+  const stitch: StitchAssignmentView[] = j.stitchAssignments.map((a) => {
+    const received = a.receipts.reduce((x, r) => x + r.qty, 0);
+    return {
+      id: a.id,
+      vendorName: a.vendor.name,
+      colour: a.colour,
+      lotQty: a.lotQty,
+      note: a.note,
+      received,
+      balance: a.lotQty != null ? a.lotQty - received : null,
+      receipts: a.receipts.map((r) => ({ id: r.id, date: r.date.toISOString(), qty: r.qty, note: r.note })),
+    };
+  });
+
+  // total fabric/roll roll-up across layers (Part C)
+  const totalLayerMtr = j.layers.reduce((a, l) => a + (l.fabricMtr ?? 0), 0);
+  const totalLayerRolls = j.layers.reduce((a, l) => a + (l.rolls ?? 0), 0);
+
   const meta = [
     ["Style No", styleNo],
     ["Item", itemDesc],
-    ["MRP", inr(j.product.mrp)],
+    ...(canSeeCost ? ([["MRP", inr(j.mrp ?? j.product.mrp)]] as const) : ([] as const)),
+    ["Merchandiser", j.merchandiser ?? "—"],
     ["Vendor", j.vendor.name],
     ["Cutting Master", j.cuttingMaster?.name ?? "—"],
     ["Fabric", j.product.fabric?.name ?? "—"],
     ["Avg Consumption", j.avgConsumption ? `${j.avgConsumption} ${unit.toLowerCase()}/pc` : "—"],
     ["Order Date", fmtDate(j.orderDate)],
-    ["Cutting Issued", fmtDate(j.cuttingIssuedOn)],
     ["Planned ETD", fmtDate(j.plannedEtd)],
+  ] as const;
+
+  const flags = [
+    ["PRINT", j.needsPrint],
+    ["LASER", j.needsLaser],
+    ["EMB", j.needsEmb],
   ] as const;
 
   return (
@@ -100,11 +138,23 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
             {overdue ? <Badge tone="danger">Overdue</Badge> : j.status === "CLOSED" ? <Badge tone="ok">Closed</Badge> : <Badge tone="primary">Active</Badge>}
             <Badge tone={stageTone(stage)}>{STAGE_LABEL[stage]}</Badge>
           </div>
-          <p className="mt-0.5 text-[13px] text-muted">{itemDesc} · {styleNo}</p>
+          <p className="mt-0.5 text-[13px] text-muted">
+            {itemDesc} · {styleNo}
+            <Link href={`/catalog/${encodeURIComponent(j.product.skuCode)}`} className="ml-2 text-primary-ink hover:underline">view product →</Link>
+          </p>
         </div>
-        <Link href={`/challan/${siSlug(j.siNo)}`} className="rounded-lg border border-border px-3.5 py-2 text-[13px] font-semibold text-primary-ink hover:bg-slate-50">
+        <Link href={`/challan/${j.id}`} className="rounded-lg border border-border px-3.5 py-2 text-[13px] font-semibold text-primary-ink hover:bg-slate-50">
           Share challan
         </Link>
+      </div>
+
+      {/* process flags */}
+      <div className="mb-3.5 flex flex-wrap items-center gap-1.5">
+        {flags.map(([label, on]) => (
+          <span key={label} className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${on ? "border-primary bg-primary text-white" : "border-border bg-white text-slate-400 line-through decoration-slate-300"}`}>
+            {label}
+          </span>
+        ))}
       </div>
 
       {/* top stats */}
@@ -117,27 +167,11 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         ].map(([l, v]) => (
           <Card key={l} className="p-4">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{l}</div>
-            <div className="mt-1.5 text-[22px] font-extrabold tnum">{v}</div>
+            <div className={`mt-1.5 text-[22px] font-extrabold tnum ${l === "Balance" && balance < 0 ? "text-rose-600" : ""}`}>{v}</div>
           </Card>
         ))}
       </div>
 
-      {/* What's next — optional, plain-language nudges derived from what's logged */}
-      <div className="mt-3.5 flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-faint">What&apos;s next</span>
-        {j.product.fabricId != null && j.fabricLines.some((l) => l.qtyUsed == null) && (
-          <a href="#fabric" className="rounded-full border border-border px-3 py-1 text-[12px] font-medium hover:bg-slate-50">Enter actual average</a>
-        )}
-        {(j.trimsPending || j.jobLines.some((l) => (l.requiredQty ?? l.totalQty ?? 0) - (l.issuedQty ?? 0) > 0)) && (
-          <a href="#trims" className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[12px] font-medium text-amber-700 hover:bg-amber-100">Issue trims</a>
-        )}
-        {balance > 0 && (
-          <Link href="/dispatch" className="rounded-full border border-border px-3 py-1 text-[12px] font-medium hover:bg-slate-50">Log received</Link>
-        )}
-        {balance <= 0 && (j.product.fabricId == null || j.fabricLines.every((l) => l.qtyUsed != null)) && (
-          <span className="text-[12px] font-medium text-emerald-600">All caught up ✓</span>
-        )}
-      </div>
       {j.remark && (
         <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">📝 {j.remark}</div>
       )}
@@ -166,32 +200,95 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           </dl>
         </Card>
 
-        {/* dispatch log */}
+        {/* dispatch log with reason + running balance */}
         <Card className="p-5">
           <h3 className="mb-3 text-[13px] font-bold">
-            Receipt Log <span className="font-medium text-faint">· {j.dispatches.length} events</span>
+            Dispatch Log <span className="font-medium text-faint">· {j.dispatches.length} events</span>
           </h3>
           {j.dispatches.length === 0 ? (
-            <p className="py-6 text-center text-[12px] text-muted">No receipts yet.</p>
+            <p className="py-4 text-center text-[12px] text-muted">No dispatch yet.</p>
           ) : (
             <div className="space-y-0">
               {j.dispatches.map((e) => (
                 <div key={e.id} className="flex items-center justify-between border-b border-slate-50 py-2 text-[12px] last:border-0">
-                  <span className="text-slate-500 tnum">
+                  <span className="flex items-center gap-2 text-slate-500 tnum">
                     {fmtDate(e.date)}
-                    {e.challan && <span className="ml-2 text-faint">challan {e.challan}</span>}
+                    <Badge tone={e.reason === "SALE" ? "warn" : e.reason === "OTHER" ? "default" : "primary"}>{e.reason}</Badge>
+                    {e.challan && <span className="text-faint">challan {e.challan}</span>}
                   </span>
                   <span className="font-bold tnum">+{num(e.qty)}</span>
                 </div>
               ))}
               <div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-[12px]">
-                <span className="font-semibold">Total received</span>
-                <span className="font-extrabold tnum">{num(j.dispatchedQty)}</span>
+                <span className="font-semibold">Balance (cut − dispatched)</span>
+                <span className={`font-extrabold tnum ${balance < 0 ? "text-rose-600" : balance === 0 ? "text-emerald-600" : ""}`}>{num(balance)}</span>
               </div>
             </div>
           )}
+          {canEdit && <JobDispatchAdd jobCardId={j.id} defaultArrangedBy={u?.displayName ?? ""} />}
         </Card>
       </div>
+
+      {/* cutting layers */}
+      {j.layers.length > 0 && (
+        <Card className="mt-3.5 p-5">
+          <h3 className="mb-3 text-[13px] font-bold">
+            Cutting Layers <span className="font-medium text-faint">· {j.layers.length} lay{j.layers.length > 1 ? "s" : ""}
+              {totalLayerMtr > 0 && ` · ${num(totalLayerMtr)} ${unit.toLowerCase()}`}{totalLayerRolls > 0 && ` · ${num(totalLayerRolls)} rolls`}</span>
+          </h3>
+          <div className="space-y-3">
+            {j.layers.map((l) => {
+              const lsizes = [...new Set(l.cells.map((c) => c.size))].sort(orderSizes);
+              const lcolours = [...new Set(l.cells.map((c) => c.colour))].sort();
+              const lcell = (s: string, c: string) => l.cells.find((x) => x.size === s && x.colour === c)?.qty ?? 0;
+              const ltotal = l.cells.reduce((a, c) => a + c.qty, 0);
+              const note = [
+                l.avgConsumption != null ? `avg ${num(l.avgConsumption, 3)}` : null,
+                l.rolls != null ? `${num(l.rolls)} roll` : null,
+                l.fabricMtr != null ? `${num(l.fabricMtr)} mtr` : null,
+                l.fabricBalance != null ? `bal ${num(l.fabricBalance)}` : null,
+              ].filter(Boolean).join(" · ");
+              return (
+                <div key={l.id} className="rounded-xl border border-border p-3">
+                  <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-[12px]">
+                    <span className="font-bold text-primary-ink">{l.label || `Layer ${l.layerNo}`} <span className="font-medium text-faint">· {num(ltotal)} pcs</span></span>
+                    <span className="text-faint">{l.cutDate ? fmtDate(l.cutDate) : ""}{l.cuttingMaster ? ` · ${l.cuttingMaster.name}` : ""}</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-center text-[12px]">
+                      <thead>
+                        <tr className="text-[10px] font-bold text-faint">
+                          <th className="px-2 py-1 text-left">Colour \ Size</th>
+                          {lsizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
+                          <th className="px-2 py-1 text-primary-ink">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lcolours.map((c) => (
+                          <tr key={c || "—"} className="border-t border-slate-50">
+                            <td className="px-2 py-1 text-left font-semibold text-slate-600">{c || "—"}</td>
+                            {lsizes.map((s) => <td key={s} className="px-2 py-1 tnum">{lcell(s, c) || ""}</td>)}
+                            <td className="px-2 py-1 font-bold text-primary-ink tnum">{num(lsizes.reduce((a, s) => a + lcell(s, c), 0))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {note && <p className="mt-1.5 text-[11px] text-muted">{note}</p>}
+                </div>
+              );
+            })}
+          </div>
+          {canEdit && (
+            <AddCuttingLayer
+              jobCardId={j.id}
+              sizes={mx.sizes.length ? mx.sizes : SIZE_ORDER.slice(0, 6)}
+              colours={mx.colours.filter((c) => c !== "" && c !== "—")}
+              masters={masterList.map((m) => m.name)}
+            />
+          )}
+        </Card>
+      )}
 
       {/* estimate vs actual fabric — per colour */}
       <div id="fabric" />
@@ -206,6 +303,9 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               <thead>
                 <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
                   <th className="px-2 py-2 font-semibold">Colour</th>
+                  {hasFabricDetail && <th className="px-2 py-2 text-right font-semibold">Req pcs</th>}
+                  {hasFabricDetail && <th className="px-2 py-2 text-right font-semibold">Req mtr</th>}
+                  {hasFabricDetail && <th className="px-2 py-2 text-right font-semibold">Rolls</th>}
                   <th className="px-2 py-2 text-right font-semibold">Assumed avg</th>
                   <th className="px-2 py-2 text-right font-semibold">Actual avg</th>
                   <th className="px-2 py-2 text-right font-semibold">GSM</th>
@@ -220,7 +320,15 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                   const ret = returnedByColour.get(colorKey(l.color)) ?? 0;
                   return (
                     <tr key={l.id} className="border-b border-slate-50 last:border-0">
-                      <td className="px-2 py-1.5 font-semibold text-slate-600">{l.color || "—"}</td>
+                      <td className="px-2 py-1.5 font-semibold text-slate-600">
+                        <span className="inline-flex items-center gap-1.5">
+                          {l.imageUrl && <img src={l.imageUrl} alt="" className="h-6 w-6 rounded object-cover" />}
+                          {l.color || "—"}
+                        </span>
+                      </td>
+                      {hasFabricDetail && <td className="px-2 py-1.5 text-right tnum text-slate-500">{l.reqPcs != null ? num(l.reqPcs) : "—"}</td>}
+                      {hasFabricDetail && <td className="px-2 py-1.5 text-right tnum text-slate-500">{l.reqMtr != null ? num(l.reqMtr) : "—"}</td>}
+                      {hasFabricDetail && <td className="px-2 py-1.5 text-right tnum text-slate-500">{l.rolls != null ? num(l.rolls) : "—"}</td>}
                       <td className="px-2 py-1.5 text-right tnum">{l.estAvg != null ? num(l.estAvg, 3) : "—"}</td>
                       <td className="px-2 py-1.5 text-right tnum">{l.actualAvg != null ? num(l.actualAvg, 3) : "—"}</td>
                       <td className="px-2 py-1.5 text-right tnum text-slate-500">{l.gsm ?? fabricGsm ?? "—"}</td>
@@ -256,54 +364,55 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         )}
       </Card>
 
-      {/* size×color matrix */}
-      {j.sizeBreakup.length > 0 && (
+      {/* stitching — multi-vendor (Part G) */}
+      {(stitch.length > 0 || canEdit) && (
         <Card className="mt-3.5 p-5">
-          <h3 className="mb-3 text-[13px] font-bold">Size {hasColor ? "× Colour" : ""} Breakup</h3>
+          <h3 className="mb-3 text-[13px] font-bold">Stitching Vendors <span className="font-medium text-faint">· lot · received · balance</span></h3>
+          <JobStitching jobCardId={j.id} canEdit={canEdit} vendors={vendorList} assignments={stitch} />
+        </Card>
+      )}
+
+      {/* size×color grand roll-up (across layers) */}
+      {mx.total > 0 && (
+        <Card className="mt-3.5 p-5">
+          <h3 className="mb-3 text-[13px] font-bold">Size {hasColor ? "× Colour" : ""} Breakup <span className="font-medium text-faint">· grand total</span></h3>
           {hasColor ? (
             <div className="overflow-x-auto">
               <table className="w-full text-center text-[12px]">
                 <thead>
                   <tr className="text-[10px] font-bold uppercase tracking-wide text-faint">
                     <th className="px-2 py-1.5 text-left">Colour</th>
-                    {sizes.map((s) => <th key={s} className="px-2 py-1.5">{s}</th>)}
+                    {mx.sizes.map((s) => <th key={s} className="px-2 py-1.5">{s}</th>)}
                     <th className="px-2 py-1.5 text-primary-ink">Total</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {colorRows.map((c) => {
-                    const rowTotal = sizes.reduce((a, s) => a + cellQty(s, c), 0);
-                    return (
-                      <tr key={c} className="border-t border-slate-50">
-                        <td className="px-2 py-1.5 text-left font-semibold text-slate-600">{c === "" ? "—" : c}</td>
-                        {sizes.map((s) => (
-                          <td key={s} className="px-2 py-1.5 tnum">{cellQty(s, c) || ""}</td>
-                        ))}
-                        <td className="px-2 py-1.5 font-bold text-primary-ink tnum">{num(rowTotal)}</td>
-                      </tr>
-                    );
-                  })}
+                  {mx.colours.map((c) => (
+                    <tr key={c} className="border-t border-slate-50">
+                      <td className="px-2 py-1.5 text-left font-semibold text-slate-600">{c === "" ? "—" : c}</td>
+                      {mx.sizes.map((s) => <td key={s} className="px-2 py-1.5 tnum">{mx.cell(c, s) || ""}</td>)}
+                      <td className="px-2 py-1.5 font-bold text-primary-ink tnum">{num(mx.byColour.find((b) => b.colour === c)?.qty ?? 0)}</td>
+                    </tr>
+                  ))}
                   <tr className="border-t border-border">
                     <td className="px-2 py-1.5 text-left text-[10px] font-bold text-primary-ink">Total</td>
-                    {sizes.map((s) => (
-                      <td key={s} className="px-2 py-1.5 font-bold tnum">{num(colorRows.reduce((a, c) => a + cellQty(s, c), 0))}</td>
-                    ))}
-                    <td className="px-2 py-1.5 font-extrabold text-primary-ink tnum">{num(sizeTotal)}</td>
+                    {mx.sizes.map((s) => <td key={s} className="px-2 py-1.5 font-bold tnum">{num(mx.bySize.find((b) => b.size === s)?.qty ?? 0)}</td>)}
+                    <td className="px-2 py-1.5 font-extrabold text-primary-ink tnum">{num(mx.total)}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
           ) : (
-            <div className="grid gap-2 text-center" style={{ gridTemplateColumns: `repeat(${j.sizeBreakup.length + 1}, minmax(0, 1fr))` }}>
-              {j.sizeBreakup.map((s) => (
-                <div key={s.id}>
-                  <div className="text-[11px] font-bold text-faint">{s.size}</div>
-                  <div className="mt-1 rounded-lg border border-border bg-slate-50 py-2.5 text-[14px] font-bold tnum">{num(s.qty)}</div>
+            <div className="grid gap-2 text-center" style={{ gridTemplateColumns: `repeat(${mx.sizes.length + 1}, minmax(0, 1fr))` }}>
+              {mx.sizes.map((s) => (
+                <div key={s}>
+                  <div className="text-[11px] font-bold text-faint">{s}</div>
+                  <div className="mt-1 rounded-lg border border-border bg-slate-50 py-2.5 text-[14px] font-bold tnum">{num(mx.bySize.find((b) => b.size === s)?.qty ?? 0)}</div>
                 </div>
               ))}
               <div>
                 <div className="text-[11px] font-bold text-primary-ink">Total</div>
-                <div className="mt-1 rounded-lg bg-primary-soft py-2.5 text-[14px] font-bold text-primary-ink tnum">{num(sizeTotal)}</div>
+                <div className="mt-1 rounded-lg bg-primary-soft py-2.5 text-[14px] font-bold text-primary-ink tnum">{num(mx.total)}</div>
               </div>
             </div>
           )}
@@ -314,7 +423,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
       <div id="trims" />
       {j.jobLines.length > 0 && (
         <TrimSheet
-          canEdit={u?.role === "ADMIN" || u?.role === "STAFF"}
+          canEdit={canEdit}
           defaultArrangedBy={u?.displayName ?? ""}
           lines={j.jobLines.map((l) => ({
             id: l.id,

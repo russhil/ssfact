@@ -19,10 +19,18 @@ const filters: { key: Filter; label: string }[] = [
 export function JobsTable({ rows }: { rows: JobRow[] }) {
   const [q, setQ] = useState("");
   const [f, setF] = useState<Filter>("all");
+  const [productId, setProductId] = useState<number | "all">("all");
+
+  const productOptions = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const r of rows) if (!m.has(r.productId)) m.set(r.productId, r.product);
+    return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [rows]);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
+      if (productId !== "all" && r.productId !== productId) return false;
       if (f === "active" && r.status !== "ACTIVE") return false;
       if (f === "closed" && r.status !== "CLOSED") return false;
       if (f === "overdue" && !r.overdue) return false;
@@ -34,7 +42,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
         r.vendor.toLowerCase().includes(needle)
       );
     });
-  }, [rows, q, f]);
+  }, [rows, q, f, productId]);
 
   const counts = useMemo(
     () => ({
@@ -62,14 +70,26 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
             </button>
           ))}
         </div>
-        <div className="relative w-64">
-          <Search size={14} className="absolute left-3 top-2.5 text-faint" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search SI, style, vendor…"
-            className="w-full rounded-lg border border-border bg-surface py-2 pl-8 pr-3 text-[12px] outline-none focus:border-primary focus:ring-2 focus:ring-indigo-100"
-          />
+        <div className="flex items-center gap-2">
+          <select
+            value={productId}
+            onChange={(e) => setProductId(e.target.value === "all" ? "all" : Number(e.target.value))}
+            className="rounded-lg border border-border bg-surface py-2 pl-3 pr-7 text-[12px] outline-none focus:border-primary"
+          >
+            <option value="all">All products</option>
+            {productOptions.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <div className="relative w-64">
+            <Search size={14} className="absolute left-3 top-2.5 text-faint" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search SI, style, vendor…"
+              className="w-full rounded-lg border border-border bg-surface py-2 pl-8 pr-3 text-[12px] outline-none focus:border-primary focus:ring-2 focus:ring-indigo-100"
+            />
+          </div>
         </div>
       </div>
 

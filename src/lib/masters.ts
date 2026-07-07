@@ -102,3 +102,87 @@ export async function getCuttingMasterList() {
   const rows = await db.cuttingMaster.findMany({ include: { _count: { select: { jobCards: true } } }, orderBy: { name: "asc" } });
   return rows.map((c) => ({ id: c.id, name: c.name, active: (c as { active?: boolean }).active ?? true, jobs: c._count.jobCards }));
 }
+
+// ── Change 11 — Materials Challans (reads) ──
+
+function challanLineView(l: {
+  id: number; qty: number; unit: string | null; rate: number | null; colour: string | null; note: string | null;
+  fabric: { name: string } | null; trimItem: { name: string; unit: string | null } | null;
+}) {
+  const isFabric = !!l.fabric;
+  return {
+    id: l.id,
+    kind: isFabric ? ("fabric" as const) : ("trim" as const),
+    name: l.fabric?.name ?? l.trimItem?.name ?? "—",
+    colour: l.colour,
+    qty: l.qty,
+    unit: l.unit ?? l.trimItem?.unit ?? (isFabric ? "MTR" : "PCS"),
+    rate: l.rate,
+    note: l.note,
+  };
+}
+
+export async function listChallans(filter?: { direction?: "INWARD" | "OUTWARD"; vendorId?: number; supplierId?: number }) {
+  const rows = await db.materialChallan.findMany({
+    where: {
+      ...(filter?.direction ? { direction: filter.direction as any } : {}),
+      ...(filter?.vendorId ? { vendorId: filter.vendorId } : {}),
+      ...(filter?.supplierId ? { supplierId: filter.supplierId } : {}),
+    },
+    include: { supplier: true, vendor: true, lines: true },
+    orderBy: [{ createdAt: "desc" }],
+  });
+  return rows.map((c) => ({
+    id: c.id,
+    direction: c.direction as string,
+    status: (c.voidedAt ? "VOID" : c.status) as string,
+    challanNo: c.challanNo,
+    date: c.date,
+    counterparty: c.supplier?.name ?? c.vendor?.name ?? "—",
+    note: c.note,
+    lineCount: c.lines.length,
+    totalQty: c.lines.reduce((a, l) => a + l.qty, 0),
+    totalValue: c.lines.some((l) => l.rate != null) ? c.lines.reduce((a, l) => a + l.qty * (l.rate ?? 0), 0) : null,
+  }));
+}
+
+export async function getChallan(id: number) {
+  const c = await db.materialChallan.findUnique({
+    where: { id },
+    include: { supplier: true, vendor: true, lines: { include: { fabric: true, trimItem: true }, orderBy: { id: "asc" } } },
+  });
+  if (!c) return null;
+  const lines = c.lines.map(challanLineView);
+  const totalValue = lines.some((l) => l.rate != null) ? lines.reduce((a, l) => a + l.qty * (l.rate ?? 0), 0) : null;
+  const cp = c.supplier ?? c.vendor;
+  return {
+    id: c.id,
+    direction: c.direction as "INWARD" | "OUTWARD",
+    status: (c.voidedAt ? "VOID" : c.status) as string,
+    voided: !!c.voidedAt,
+    challanNo: c.challanNo,
+    date: c.date,
+    note: c.note,
+    supplierId: c.supplierId,
+    vendorId: c.vendorId,
+    counterparty: cp
+      ? {
+          name: cp.name,
+          phone: (cp as { phone?: string | null }).phone ?? null,
+          address: (cp as { address?: string | null }).address ?? null,
+          email: (cp as { email?: string | null }).email ?? null,
+        }
+      : null,
+    lines,
+    totalQty: lines.reduce((a, l) => a + l.qty, 0),
+    totalValue,
+  };
+}
+
+export async function getVendorChallans(vendorId: number) {
+  return listChallans({ vendorId });
+}
+
+export async function getSupplierChallans(supplierId: number) {
+  return listChallans({ supplierId });
+}

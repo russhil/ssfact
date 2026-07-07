@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { getJobs, siSlug } from "@/lib/jobs";
+import { getJobs } from "@/lib/jobs";
 import { getCurrentUser } from "@/lib/auth";
 import { DispatchForm } from "@/components/dispatch-form";
 import { Card, PageHeader } from "@/components/ui";
@@ -54,7 +54,7 @@ export default async function DispatchPage() {
                 <tr key={e.id} className="border-b border-slate-50 last:border-0">
                   <td className="px-5 py-2.5 text-slate-500 tnum">{fmtDate(e.date)}</td>
                   <td className="px-5 py-2.5">
-                    <Link href={`/job-cards/${siSlug(e.jobCard.siNo)}`} className="font-bold text-primary-ink hover:underline">{e.jobCard.siNo}</Link>
+                    <Link href={`/job-cards/${e.jobCard.id}`} className="font-bold text-primary-ink hover:underline">{e.jobCard.siNo}</Link>
                   </td>
                   <td className="px-5 py-2.5 text-slate-500">{e.jobCard.product.itemDesc ?? e.jobCard.product.name}</td>
                   <td className="px-5 py-2.5 text-right font-bold text-emerald-600 tnum">+{num(e.qty)}</td>

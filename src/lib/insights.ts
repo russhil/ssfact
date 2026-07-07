@@ -1,5 +1,4 @@
 import { db } from "@/lib/db";
-import { siSlug } from "@/lib/jobs";
 
 // ── Pending Trims: cards whose trim needs exceed store stock, grouped by trim ──
 export type PendingTrim = {
@@ -28,7 +27,7 @@ export async function getPendingTrims(): Promise<PendingTrim[]> {
         byTrim.get(l.trimItemId) ??
         byTrim.set(l.trimItemId, { trimId: l.trimItemId, trimName: l.trimItem.name, required: 0, inStore: stock, shortfall: 0, cards: [] }).get(l.trimItemId)!;
       g.required += need;
-      g.cards.push({ siNo: j.siNo, slug: siSlug(j.siNo), need });
+      g.cards.push({ siNo: j.siNo, slug: String(j.id), need });
     }
   }
   const out = [...byTrim.values()].map((g) => ({ ...g, shortfall: Math.max(0, g.required - g.inStore) }));
