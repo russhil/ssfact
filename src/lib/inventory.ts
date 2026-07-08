@@ -152,6 +152,9 @@ function parseRatio(json: string | null | undefined): [string, number][] | null 
 export async function getJobProductOptions(): Promise<JobProductOption[]> {
   const [products, fabricStock, trimStock, allTrims] = await Promise.all([
     db.product.findMany({
+      // Change 16 Part E: exclude any non-stockable "Sale" pseudo-product — "Sale" is a
+      // dispatch reason, never a product you cut a job card for. (normSku is upper alnum.)
+      where: { NOT: { normSku: { in: ["SALE", "SALES"] } } },
       include: {
         fabric: { include: { colors: true } },
         colors: { orderBy: { sortOrder: "asc" } },

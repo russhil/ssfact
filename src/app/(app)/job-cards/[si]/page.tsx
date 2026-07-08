@@ -8,7 +8,6 @@ import { Card, Badge } from "@/components/ui";
 import { FabricActualsForm } from "@/components/fabric-actuals-form";
 import { TrimSheet } from "@/components/trim-sheet";
 import { StatusTimeline } from "@/components/status-timeline";
-import { JobStitching, type StitchAssignmentView } from "@/components/job-stitching";
 import { LayerDispatch, type DispatchLayer } from "@/components/layer-dispatch";
 import { AddCuttingLayer } from "@/components/add-cutting-layer";
 import { num, inr, fmtDate, pct } from "@/lib/format";
@@ -35,12 +34,9 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
 
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
   const canSeeCost = u?.role === "ADMIN";
-  const [vendorList, masterList] = canEdit
-    ? await Promise.all([
-        db.vendor.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
-        db.cuttingMaster.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { name: true } }),
-      ])
-    : [[], []];
+  const masterList = canEdit
+    ? await db.cuttingMaster.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { name: true } })
+    : [];
 
   const balance = j.cutQty - j.dispatchedQty;
   const fill = j.cutQty ? j.dispatchedQty / j.cutQty : 0;
@@ -90,18 +86,17 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         },
       ];
 
-  // stitching assignments → per-vendor balance (Part G)
-  const stitch: StitchAssignmentView[] = j.stitchAssignments.map((a) => {
+  // Change 16 Part F: legacy card-level stitch assignments, READ-ONLY (retired panel).
+  // Vendor now lives on the layer + received = dispatch. Render only if history exists.
+  const legacyStitch = j.stitchAssignments.map((a) => {
     const received = a.receipts.reduce((x, r) => x + r.qty, 0);
     return {
       id: a.id,
       vendorName: a.vendor.name,
       colour: a.colour,
       lotQty: a.lotQty,
-      note: a.note,
       received,
       balance: a.lotQty != null ? a.lotQty - received : null,
-      receipts: a.receipts.map((r) => ({ id: r.id, date: r.date.toISOString(), qty: r.qty, note: r.note })),
     };
   });
 
@@ -414,11 +409,33 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         />
       )}
 
-      {/* stitching — multi-vendor (Part G) */}
-      {(stitch.length > 0 || canEdit) && (
+      {/* Change 16 Part F: legacy stitch assignments — READ-ONLY history only. Vendor now
+          lives on the cutting layer and received qty comes from dispatch (see above). */}
+      {legacyStitch.length > 0 && (
         <Card className="mt-3.5 p-5">
-          <h3 className="mb-3 text-[13px] font-bold">Stitching Vendors <span className="font-medium text-faint">· lot · received · balance</span></h3>
-          <JobStitching jobCardId={j.id} canEdit={canEdit} vendors={vendorList} assignments={stitch} />
+          <h3 className="mb-3 text-[13px] font-bold">Stitching <span className="font-medium text-faint">· legacy assignments (read-only)</span></h3>
+          <table className="w-full text-[12px]">
+            <thead>
+              <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
+                <th className="px-2 py-2 font-semibold">Vendor</th>
+                <th className="px-2 py-2 font-semibold">Colour</th>
+                <th className="px-2 py-2 text-right font-semibold">Lot</th>
+                <th className="px-2 py-2 text-right font-semibold">Received</th>
+                <th className="px-2 py-2 text-right font-semibold">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {legacyStitch.map((s) => (
+                <tr key={s.id} className="border-b border-slate-50 last:border-0">
+                  <td className="px-2 py-1.5 font-semibold text-slate-700">{s.vendorName}</td>
+                  <td className="px-2 py-1.5 text-slate-500">{s.colour || "—"}</td>
+                  <td className="px-2 py-1.5 text-right tnum">{s.lotQty != null ? num(s.lotQty) : "—"}</td>
+                  <td className="px-2 py-1.5 text-right tnum">{num(s.received)}</td>
+                  <td className="px-2 py-1.5 text-right tnum">{s.balance != null ? num(s.balance) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </Card>
       )}
 

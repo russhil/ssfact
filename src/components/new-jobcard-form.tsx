@@ -90,6 +90,8 @@ export function NewJobCardForm({
 
   // Change 14 Part C: average is ONE value per job card (not per colour).
   const [cardAvg, setCardAvg] = useState("");
+  // Change 16 Part A: live summary defaults to per-layer (Separate); Combined = all-layers roll-up.
+  const [summaryView, setSummaryView] = useState<"separate" | "combined">("separate");
   // per-colour fabric overrides + fabric-detail plan (keyed by colourKey)
   const [colorAvg, setColorAvg] = useState<Record<string, number>>({});
   const [colorGsm, setColorGsm] = useState<Record<string, number>>({});
@@ -216,6 +218,41 @@ export function NewJobCardForm({
 
   const totalRequired = fabricRows.reduce((a, r) => a + (r.required ?? 0), 0);
   const anyShort = fabricRows.some((r) => r.enough === false);
+
+  // Change 16 Part A/B: per-layer fabric summary (used & left per colour, per layer).
+  // Display-only — trim/save still use the grand combinedCells (no double-count).
+  const layerSummaries = useMemo(() => {
+    if (!picked) return [] as { label: string; rows: { display: string; qty: number; used: number | null; left: number | null }[] }[];
+    const grandAvg = numOrNull(cardAvg) ?? picked.avgConsumption ?? null;
+    const build = (label: string, cells: { color: string; qty: number }[], avg: number | null) => {
+      const grouped = new Map<string, { display: string; qty: number }>();
+      for (const c of cells) {
+        if (c.qty <= 0) continue;
+        const disp = c.color || COLORLESS;
+        const key = disp === COLORLESS ? "" : colorKey(disp);
+        const e = grouped.get(key) ?? { display: disp, qty: 0 };
+        e.qty += c.qty;
+        grouped.set(key, e);
+      }
+      const rows = [...grouped.entries()].map(([key, { display, qty }]) => {
+        const used = avg != null ? Math.round(qty * avg * 100) / 100 : null;
+        const stock = display === COLORLESS ? picked.fabricAvailable : picked.fabricByColor[key] ?? 0;
+        const left = used != null && stock != null ? Math.round((stock - used) * 100) / 100 : null;
+        return { display, qty, used, left };
+      });
+      return { label, rows };
+    };
+    const out: { label: string; rows: { display: string; qty: number; used: number | null; left: number | null }[] }[] = [];
+    const l1cells = matrix.filter((r) => r.qty > 0).map((r) => ({ color: r.color, qty: r.qty }));
+    if (l1cells.length) out.push(build(l1.label.trim() || "Layer 1", l1cells, grandAvg));
+    extraLayers.forEach((L, i) => {
+      const cells = Object.entries(L.cells)
+        .filter(([, q]) => q > 0)
+        .map(([k, q]) => { const [, color] = splitCellKey(k); return { color, qty: q }; });
+      if (cells.length) out.push(build(L.maths.label.trim() || `Layer ${i + 2}`, cells, numOrNull(L.maths.avg) ?? grandAvg));
+    });
+    return out;
+  }, [picked, matrix, extraLayers, cardAvg, l1]);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -914,13 +951,20 @@ export function NewJobCardForm({
 
         {/* live calc panel */}
         <div className="rounded-card border border-slate-800 bg-gradient-to-b from-[#0f1226] to-[#1b1f3b] p-5 text-indigo-50">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-[11px] font-bold uppercase tracking-wide text-indigo-300">Live summary · {num(cutQty)} pcs</h3>
             {picked && (
-              <label className="flex items-center gap-1.5 text-[10px] text-indigo-200/80">
-                avg {picked.unit.toLowerCase()}/pc
-                <input type="number" step="0.001" value={cardAvg} placeholder={picked.avgConsumption != null ? String(picked.avgConsumption) : "—"} onChange={(e) => setCardAvg(e.target.value)} className="w-16 rounded-md border border-white/10 bg-white/5 px-1.5 py-1 text-center text-[11px] tnum text-white outline-none focus:border-indigo-300" />
-              </label>
+              <div className="flex items-center gap-2">
+                <div className="flex rounded-md border border-white/15 p-0.5 text-[10px] font-semibold">
+                  {(["separate", "combined"] as const).map((v) => (
+                    <button key={v} type="button" onClick={() => setSummaryView(v)} className={`rounded px-2 py-0.5 capitalize ${summaryView === v ? "bg-white/20 text-white" : "text-indigo-200/70 hover:text-white"}`}>{v}</button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-1.5 text-[10px] text-indigo-200/80">
+                  avg {picked.unit.toLowerCase()}/pc
+                  <input type="number" step="0.001" value={cardAvg} placeholder={picked.avgConsumption != null ? String(picked.avgConsumption) : "—"} onChange={(e) => setCardAvg(e.target.value)} className="w-16 rounded-md border border-white/10 bg-white/5 px-1.5 py-1 text-center text-[11px] tnum text-white outline-none focus:border-indigo-300" />
+                </label>
+              </div>
             )}
           </div>
 
@@ -949,6 +993,40 @@ export function NewJobCardForm({
                 ))}
               </div>
 
+              {/* Change 16 Part A/B: SEPARATE view = one block per layer, used & left per colour */}
+              {summaryView === "separate" && (
+                <div className="mt-3 max-h-[420px] space-y-2.5 overflow-y-auto pr-0.5">
+                  {layerSummaries.map((L, i) => (
+                    <div key={i} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
+                      <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-indigo-200">{L.label}</div>
+                      <table className="w-full text-[11px]">
+                        <thead>
+                          <tr className="text-left text-[9px] uppercase tracking-wide text-indigo-300/70">
+                            <th className="py-0.5">Colour</th>
+                            <th className="py-0.5 text-right">Cut</th>
+                            <th className="py-0.5 text-right">Used {picked.unit.toLowerCase()}</th>
+                            <th className="py-0.5 text-right">Left</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {L.rows.map((r, ri) => (
+                            <tr key={ri} className="border-t border-white/5">
+                              <td className="py-1 font-semibold text-white">{r.display}</td>
+                              <td className="py-1 text-right tnum text-indigo-100">{num(r.qty)}</td>
+                              <td className="py-1 text-right tnum text-indigo-100">{r.used != null ? num(r.used) : "—"}</td>
+                              <td className={`py-1 text-right tnum font-semibold ${r.left != null && r.left < 0 ? "text-rose-300" : "text-emerald-300"}`}>{r.left != null ? num(r.left) : "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                  <p className="text-[9px] text-indigo-300/60">Left = current colour stock − this layer&apos;s use (shared snapshot; not sequential across layers). Negatives = over-cut.</p>
+                </div>
+              )}
+
+              {/* COMBINED view = all-layers per-colour cards + fabric-detail plan inputs */}
+              {summaryView === "combined" && (
               <div className="mt-3 max-h-[420px] space-y-2.5 overflow-y-auto pr-0.5">
                 {fabricRows.map((r) => {
                   const usedAfter =
@@ -1000,6 +1078,7 @@ export function NewJobCardForm({
                   );
                 })}
               </div>
+              )}
 
               <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3 text-[13px]">
                 <span className="text-indigo-200">Stock check</span>

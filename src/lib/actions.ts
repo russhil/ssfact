@@ -104,8 +104,6 @@ export type NewJobInput = {
   fabricLines?: { color: string; estAvg?: number | null; gsm?: number | null; rollWidth?: number | null }[];
   // fabric-detail plan per colour (Change 10, Part F)
   fabricDetail?: { colour: string; reqPcs?: number | null; reqMtr?: number | null; rolls?: number | null; imageUrl?: string | null }[];
-  // multi-vendor stitching (Change 10, Part G)
-  stitch?: { vendorName: string; colour?: string | null; lotQty?: number | null; note?: string | null }[];
   // edited trim sheet (Change 02); omit to fall back to the product's preset BOM
   bomLines?: { trimItemId: number | null; material: string; color?: string | null; dimension: BomDim; perPieceQty: number }[];
   // header additions (Change 10, Part E)
@@ -399,21 +397,8 @@ export async function createJobCard(input: NewJobInput) {
       });
     }
 
-    // Multi-vendor stitching assignments (Part G) — optional at create.
-    for (const s of input.stitch ?? []) {
-      if (!s.vendorName?.trim()) continue;
-      const sv = await tx.vendor.findUnique({ where: { name: s.vendorName.trim() } });
-      if (!sv) continue;
-      await tx.stitchAssignment.create({
-        data: {
-          jobCardId: created.id,
-          vendorId: sv.id,
-          colour: s.colour ? colorKey(s.colour) : null,
-          lotQty: s.lotQty ?? null,
-          note: s.note ?? null,
-        },
-      });
-    }
+    // Change 16 Part F: card-level stitch assignments retired — vendor lives on the
+    // cutting layer (Change 14 A) and the "received" record is the dispatch (Change 14 B).
 
     return created;
   });
@@ -786,56 +771,9 @@ export async function addCuttingLayer(input: {
   return { ok: true, layerNo };
 }
 
-export async function addStitchAssignment(input: {
-  jobCardId: number;
-  vendorId: number;
-  colour?: string | null;
-  lotQty?: number | null;
-  note?: string | null;
-}) {
-  await requireRole("ADMIN", "STAFF");
-  await db.stitchAssignment.create({
-    data: {
-      jobCardId: input.jobCardId,
-      vendorId: input.vendorId,
-      colour: input.colour ? colorKey(input.colour) : null,
-      lotQty: input.lotQty ?? null,
-      note: input.note ?? null,
-    },
-  });
-  revalidatePath(`/job-cards/${input.jobCardId}`);
-  return { ok: true };
-}
-
-export async function addStitchReceipt(input: {
-  assignmentId: number;
-  qty: number;
-  date?: string;
-  note?: string | null;
-}) {
-  await requireRole("ADMIN", "STAFF");
-  if (input.qty <= 0) throw new Error("Qty must be positive");
-  const a = await db.stitchAssignment.findUnique({ where: { id: input.assignmentId }, select: { jobCardId: true } });
-  if (!a) throw new Error("Assignment not found");
-  await db.stitchReceipt.create({
-    data: {
-      assignmentId: input.assignmentId,
-      qty: input.qty,
-      date: input.date ? new Date(input.date) : new Date(),
-      note: input.note ?? null,
-    },
-  });
-  revalidatePath(`/job-cards/${a.jobCardId}`);
-  return { ok: true };
-}
-
-export async function removeStitchAssignment(input: { id: number }) {
-  await requireRole("ADMIN", "STAFF");
-  const a = await db.stitchAssignment.findUnique({ where: { id: input.id }, select: { jobCardId: true } });
-  await db.stitchAssignment.delete({ where: { id: input.id } });
-  if (a) revalidatePath(`/job-cards/${a.jobCardId}`);
-  return { ok: true };
-}
+// Change 16 Part F: addStitchAssignment / addStitchReceipt / removeStitchAssignment retired.
+// Vendor is set on the cutting layer (Change 14 A); "received" is the dispatch (Change 14 B).
+// The StitchAssignment/StitchReceipt tables + legacy rows remain (read-only in the UI).
 
 // ── Fabric master CRUD (admin/staff) — presets, suppliers, per-colour stock ──
 
@@ -1300,7 +1238,7 @@ export async function reorderImages(input: { ids: number[] }) {
 
 export async function updateProduct(input: {
   id: number; name?: string; headCategory?: string | null; status?: string;
-  samplingStatus?: string | null; productionLot?: string | null; fabricRemarks?: string | null; otherRemarks?: string | null;
+  productionLot?: string | null; fabricRemarks?: string | null; otherRemarks?: string | null;
   fabricId?: number | null; // Change 15: link to the Fabric master
   mrp?: number | null; customWsRate?: number | null; avgConsumption?: number | null;
 }) {
@@ -1312,7 +1250,6 @@ export async function updateProduct(input: {
       ...(rest.name !== undefined ? { name: rest.name } : {}),
       ...(rest.headCategory !== undefined ? { headCategory: rest.headCategory } : {}),
       ...(rest.status !== undefined ? { status: rest.status as any } : {}),
-      ...(rest.samplingStatus !== undefined ? { samplingStatus: (rest.samplingStatus || null) as any } : {}),
       ...(rest.productionLot !== undefined ? { productionLot: (rest.productionLot || null) as any } : {}),
       ...(rest.fabricId !== undefined ? { fabricId: rest.fabricId } : {}),
       ...(rest.fabricRemarks !== undefined ? { fabricRemarks: rest.fabricRemarks } : {}),
@@ -1346,7 +1283,6 @@ export async function createProduct(input: {
   itemDesc?: string | null;
   headCategory?: string | null;
   status?: string;
-  samplingStatus?: string | null;
   productionLot?: string | null;
   avgConsumption?: number | null;
   unit?: string;
@@ -1381,7 +1317,6 @@ export async function createProduct(input: {
           status: (input.status ?? "ACTIVE") as any,
           unit: (input.unit ?? "MTR") as any,
           fabricId: input.fabricId ?? null,
-          samplingStatus: (input.samplingStatus || null) as any,
           productionLot: (input.productionLot || null) as any,
           avgConsumption: input.avgConsumption ?? null,
           mrp: canSeeCost ? input.mrp ?? null : null,

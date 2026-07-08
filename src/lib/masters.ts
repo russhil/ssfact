@@ -192,6 +192,28 @@ export async function getVendorChallans(vendorId: number) {
   return listChallans({ vendorId });
 }
 
+// Change 16 Part C: a vendor's cutting layers (with cut cells + the dispatches booked
+// against them) for the layer-by-layer vendor detail page + dispatch log.
+export async function getVendorByName(name: string) {
+  return db.vendor.findUnique({ where: { name }, select: { id: true, name: true, kind: true } });
+}
+export async function getVendorLayers(vendorId: number) {
+  return db.cuttingLayer.findMany({
+    where: { vendorId },
+    orderBy: [{ jobCardId: "desc" }, { layerNo: "asc" }],
+    include: {
+      cells: true,
+      cuttingMaster: { select: { name: true } },
+      jobCard: { include: { product: true } },
+      dispatches: {
+        orderBy: { date: "asc" },
+        include: { lines: true, layers: { select: { id: true, layerNo: true, label: true } } },
+      },
+    },
+  });
+}
+export type VendorLayer = Awaited<ReturnType<typeof getVendorLayers>>[number];
+
 export async function getSupplierChallans(supplierId: number) {
   return listChallans({ supplierId });
 }
