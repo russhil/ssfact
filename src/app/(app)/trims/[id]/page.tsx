@@ -2,10 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getTrimStock, getTrimLedger } from "@/lib/trims";
+import { getTrimSourcing } from "@/lib/masters";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
 import { ImageUploader } from "@/components/image-uploader";
+import { SourcingPanel } from "@/components/sourcing-panel";
 import { num, fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +20,13 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
   const ledger = await getTrimLedger(trimId);
   const u = await getCurrentUser();
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
+  const canSeeCost = u?.role === "ADMIN"; // sourcing rates are cost data — owner only
   const images = await db.imageAsset.findMany({ where: { trimItemId: trimId }, orderBy: { sortOrder: "asc" } });
+  // Change 18 Part E: trim PO history (trims have no per-supplier rate record of their own).
+  const sourcing = canSeeCost ? await getTrimSourcing(trimId) : null;
+  const trimMaster = canSeeCost
+    ? await db.trimItem.findUnique({ where: { id: trimId }, select: { ratePerUnit: true, unit: true } })
+    : null;
 
   return (
     <div className="p-6">
@@ -46,6 +54,10 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
         ))}
       </div>
       <p className="mt-2 text-[11px] text-faint">Current is the latest physical count from the store register — opening ± movements may not fully reconcile.</p>
+
+      {sourcing && (
+        <SourcingPanel pos={sourcing.pos} unit={trimMaster?.unit ?? ""} poHref="/pot" estimate={trimMaster?.ratePerUnit ?? null} />
+      )}
 
       {(canEdit || images.length > 0) && (
         <Card className="mt-3.5 p-5">

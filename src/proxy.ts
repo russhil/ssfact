@@ -13,6 +13,10 @@ const ROUTE_ROLES: { prefix: string; roles: Role[] }[] = [
   { prefix: "/pending-trims", roles: ["ADMIN", "STAFF", "TRIMS"] },
   { prefix: "/suppliers", roles: ["ADMIN", "STAFF"] },
   { prefix: "/fabric-orders", roles: ["ADMIN", "STAFF"] },
+  // Change 18 Part B: trim procurement mirrors fabric procurement, same gate.
+  // "/pot" must precede "/po" — matching is first-prefix-wins.
+  { prefix: "/trim-orders", roles: ["ADMIN", "STAFF"] },
+  { prefix: "/pot", roles: ["ADMIN", "STAFF"] },
   { prefix: "/po", roles: ["ADMIN", "STAFF"] },
   { prefix: "/masters", roles: ["ADMIN", "STAFF"] },
   { prefix: "/job-cards", roles: ["ADMIN", "STAFF", "VENDOR"] },

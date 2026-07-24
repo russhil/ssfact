@@ -63,26 +63,38 @@ function poStageOf(o: { poNumber: string | null; sentAt: Date | null }): "Draft"
   return "Draft";
 }
 
+// Change 18 Part C: the inward challans a purchase order was received on. Voided challans
+// are excluded — a reversed receipt is not a receipt.
+const CHALLAN_LINK = {
+  where: { voidedAt: null },
+  select: { id: true, challanNo: true, status: true },
+  orderBy: { id: "asc" as const },
+};
+export type OrderChallanLink = { id: number; challanNo: string | null; status: string };
+const receivedOnOf = (cs: OrderChallanLink[]) => cs.find((c) => c.status === "LOCKED")?.challanNo ?? null;
+
 export async function getFabricOrders() {
   const orders = await db.fabricOrder.findMany({
-    include: { fabric: true, supplier: true, lines: true },
+    include: { fabric: true, supplier: true, lines: true, challans: CHALLAN_LINK },
     orderBy: [{ status: "asc" }, { expectedDate: "asc" }],
   });
   return orders.map((o) => {
     // new orders use lines[]; legacy rows fall back to the single color/qty
     const lines = o.lines.length > 0 ? o.lines.map((l) => ({ colour: l.colour, qty: l.qty })) : o.color ? [{ colour: o.color, qty: o.qty }] : [];
     const totalQty = lines.reduce((a, l) => a + l.qty, 0) || o.qty;
+    const challans = o.challans as OrderChallanLink[];
     return {
       id: o.id, fabric: o.fabric.name, fabricId: o.fabricId, supplier: o.supplier?.name ?? null,
       lines, totalQty, colourCount: lines.length, unit: o.unit, rate: o.rate, status: o.status as string,
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
       poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
+      challans, receivedOn: receivedOnOf(challans),
     };
   });
 }
 
 export async function getFabricOrder(id: number) {
-  const o = await db.fabricOrder.findUnique({ where: { id }, include: { fabric: true, supplier: true, lines: true } });
+  const o = await db.fabricOrder.findUnique({ where: { id }, include: { fabric: true, supplier: true, lines: true, challans: CHALLAN_LINK } });
   if (!o) return null;
   const lines = o.lines.length > 0 ? o.lines.map((l) => ({ colour: l.colour, qty: l.qty })) : o.color ? [{ colour: o.color, qty: o.qty }] : [];
   return {
@@ -91,6 +103,114 @@ export async function getFabricOrder(id: number) {
     lines, totalQty: lines.reduce((a, l) => a + l.qty, 0) || o.qty,
     status: o.status as string, expectedDate: o.expectedDate, orderDate: o.orderDate,
     poNumber: o.poNumber, poGeneratedAt: o.poGeneratedAt, sentAt: o.sentAt, poStage: poStageOf(o),
+    challans: o.challans as OrderChallanLink[],
+  };
+}
+
+// ── Change 18 Part B — trim orders (mirror of the fabric pair above) ──
+
+export async function getTrimOrders() {
+  const orders = await db.trimOrder.findMany({
+    include: { trimItem: true, supplier: true, lines: true, challans: CHALLAN_LINK },
+    orderBy: [{ status: "asc" }, { expectedDate: "asc" }],
+  });
+  return orders.map((o) => {
+    const challans = o.challans as OrderChallanLink[];
+    return {
+      id: o.id, trim: o.trimItem.name, trimItemId: o.trimItemId, supplier: o.supplier?.name ?? null,
+      lines: o.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty })),
+      totalQty: o.qty, unit: o.unit ?? o.trimItem.unit ?? null, rate: o.rate, status: o.status as string,
+      expectedDate: o.expectedDate, receivedDate: o.receivedDate,
+      poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
+      challans, receivedOn: receivedOnOf(challans),
+    };
+  });
+}
+export type TrimOrderRow = Awaited<ReturnType<typeof getTrimOrders>>[number];
+
+export async function getTrimOrder(id: number) {
+  const o = await db.trimOrder.findUnique({ where: { id }, include: { trimItem: true, supplier: true, lines: true, challans: CHALLAN_LINK } });
+  if (!o) return null;
+  return {
+    id: o.id, trim: o.trimItem.name, unit: o.unit ?? o.trimItem.unit ?? null, rate: o.rate, remarks: o.remarks,
+    supplier: o.supplier ? { name: o.supplier.name, address: (o.supplier as { address?: string | null }).address ?? null, phone: o.supplier.phone, email: (o.supplier as { email?: string | null }).email ?? null } : null,
+    lines: o.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty })),
+    totalQty: o.qty,
+    status: o.status as string, expectedDate: o.expectedDate, orderDate: o.orderDate,
+    poNumber: o.poNumber, poGeneratedAt: o.poGeneratedAt, sentAt: o.sentAt, poStage: poStageOf(o),
+    challans: o.challans as OrderChallanLink[],
+  };
+}
+
+/** Active trims for the trim-order picker (mirrors getFabricPickList). */
+export async function getTrimPickList() {
+  const rows = await db.trimItem.findMany({
+    where: { status: "ACTIVE" },
+    select: { id: true, name: true, unit: true, currentStock: true, ratePerUnit: true },
+    orderBy: { name: "asc" },
+  });
+  return rows.map((t) => ({ id: t.id, name: t.name, unit: t.unit, stock: t.currentStock, rate: t.ratePerUnit }));
+}
+export type TrimPick = Awaited<ReturnType<typeof getTrimPickList>>[number];
+
+// ── Change 18 Part E — sourcing quick-view ──
+// The master rate is an ESTIMATE. The true rate lives on each PO. This read gives the
+// master a read-only "who quoted what" panel without opening every order.
+
+export async function getFabricSourcing(fabricId: number) {
+  const [rates, pos] = await Promise.all([
+    db.fabricSupplier.findMany({
+      where: { fabricId },
+      include: { supplier: { select: { id: true, name: true } } },
+      orderBy: [{ sourcedAt: "desc" }, { id: "asc" }],
+    }),
+    db.fabricOrder.findMany({
+      where: { fabricId },
+      include: { supplier: { select: { name: true } } },
+      orderBy: [{ poGeneratedAt: "desc" }, { orderDate: "desc" }],
+      take: 10,
+    }),
+  ]);
+  return {
+    rates: rates.map((r) => ({
+      id: r.id,
+      supplier: r.supplier?.name ?? r.name, // legacy rows kept their free-text name
+      supplierId: r.supplierId,
+      rate: r.rate,
+      poNumber: r.poNumber,
+      sourcedAt: r.sourcedAt,
+    })),
+    pos: pos.map((o) => ({
+      id: o.id,
+      poNumber: o.poNumber,
+      supplier: o.supplier?.name ?? null,
+      rate: o.rate,
+      unit: o.unit as string,
+      qty: o.qty,
+      orderDate: o.orderDate,
+      status: o.status as string,
+    })),
+  };
+}
+
+export async function getTrimSourcing(trimItemId: number) {
+  const pos = await db.trimOrder.findMany({
+    where: { trimItemId },
+    include: { supplier: { select: { name: true } }, trimItem: { select: { unit: true } } },
+    orderBy: [{ poGeneratedAt: "desc" }, { orderDate: "desc" }],
+    take: 10,
+  });
+  return {
+    pos: pos.map((o) => ({
+      id: o.id,
+      poNumber: o.poNumber,
+      supplier: o.supplier?.name ?? null,
+      rate: o.rate,
+      unit: o.unit ?? o.trimItem.unit ?? "",
+      qty: o.qty,
+      orderDate: o.orderDate,
+      status: o.status as string,
+    })),
   };
 }
 
@@ -187,6 +307,9 @@ export async function getChallan(id: number) {
       supplier: true,
       vendor: true,
       jobCard: { select: { id: true, siNo: true } },
+      // Change 18 Part C: the PO this challan received against ("For PO-2026-007").
+      fabricOrder: { select: { id: true, poNumber: true } },
+      trimOrder: { select: { id: true, poNumber: true } },
       lines: { include: { fabric: true, trimItem: true }, orderBy: { id: "asc" } },
     },
   });
@@ -207,6 +330,11 @@ export async function getChallan(id: number) {
     vendorId: c.vendorId,
     jobCardId: c.jobCardId,
     jobCardSiNo: c.jobCard?.siNo ?? null,
+    poRef: c.fabricOrder
+      ? { kind: "FABRIC" as const, id: c.fabricOrder.id, poNumber: c.fabricOrder.poNumber }
+      : c.trimOrder
+        ? { kind: "TRIM" as const, id: c.trimOrder.id, poNumber: c.trimOrder.poNumber }
+        : null,
     counterparty: cp
       ? {
           name: cp.name,

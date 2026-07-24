@@ -15,6 +15,8 @@ import { Plus, X, Check } from "lucide-react";
 
 type Supplier = { id: number; name: string; rate: number | null };
 type ColorRow = { id: number; color: string; opening: number; current: number };
+/** Change 18 Part D: suppliers come from the ONE shared Supplier master. */
+type SupplierOption = { id: number; name: string };
 
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
 
@@ -26,6 +28,7 @@ export function FabricMasterForm({
   form,
   ratePerUnit,
   suppliers,
+  supplierOptions = [],
   colors,
 }: {
   fabricId: number;
@@ -35,6 +38,7 @@ export function FabricMasterForm({
   form: string | null;
   ratePerUnit: number | null;
   suppliers: Supplier[];
+  supplierOptions?: SupplierOption[];
   colors: ColorRow[];
 }) {
   const router = useRouter();
@@ -44,7 +48,7 @@ export function FabricMasterForm({
   const [rate, setRate] = useState(ratePerUnit != null ? String(ratePerUnit) : "");
   const [savedMaster, setSavedMaster] = useState(false);
 
-  const [supName, setSupName] = useState("");
+  const [supId, setSupId] = useState<number | 0>(0);
   const [supRate, setSupRate] = useState("");
   const [newColor, setNewColor] = useState("");
   const [busy, setBusy] = useState(false);
@@ -111,9 +115,9 @@ export function FabricMasterForm({
         </div>
       </div>
 
-      {/* suppliers */}
+      {/* suppliers — Change 18 Part D: one supplier master, these rows are sourcing rates */}
       <div className="mt-4">
-        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-faint">Suppliers</div>
+        <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-faint">Sourced from</div>
         <div className="flex flex-wrap items-center gap-1.5">
           {suppliers.map((s) => (
             <span key={s.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-slate-50 px-2.5 py-1 text-[11px] font-semibold">
@@ -124,16 +128,20 @@ export function FabricMasterForm({
           {suppliers.length === 0 && <span className="text-[11px] text-faint">none yet</span>}
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <input value={supName} onChange={(e) => setSupName(e.target.value)} placeholder="Supplier name"
-            className="w-52 rounded-lg border border-border px-2.5 py-1.5 text-[12px] outline-none focus:border-primary" />
+          <select value={supId} onChange={(e) => setSupId(+e.target.value)}
+            className="w-52 rounded-lg border border-border px-2.5 py-1.5 text-[12px] outline-none focus:border-primary">
+            <option value={0}>— pick supplier —</option>
+            {supplierOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
           <input type="number" value={supRate} onChange={(e) => setSupRate(e.target.value)} placeholder="₹ rate"
             className="w-24 rounded-lg border border-border px-2.5 py-1.5 text-[12px] outline-none focus:border-primary" />
           <button
-            onClick={() => supName.trim() && run(async () => { await addFabricSupplier({ fabricId, name: supName, rate: numOrNull(supRate) }); setSupName(""); setSupRate(""); })}
-            disabled={busy || !supName.trim()}
+            onClick={() => supId && run(async () => { await addFabricSupplier({ fabricId, supplierId: supId, rate: numOrNull(supRate) }); setSupId(0); setSupRate(""); })}
+            disabled={busy || !supId}
             className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-[12px] font-semibold hover:bg-slate-50 disabled:opacity-40">
             <Plus size={13} /> Add
           </button>
+          <span className="text-[11px] text-faint">Rate here is what they quote — the master estimate above is separate.</span>
         </div>
       </div>
 
