@@ -67,6 +67,14 @@ enum ChallanStatus {
   LOCKED // numbered & posted to inventory; no further line edits
 }
 
+// Materials challan kind (Change 17, Part C) — derived from the lines on save/lock.
+// One document model; null for legacy rows (derived lazily in views).
+enum ChallanKind {
+  FABRIC // fabric-only lines
+  TRIM // trim-only lines
+  COMBINED // both fabric and trim lines
+}
+
 enum Role {
   ADMIN
   STAFF
@@ -282,6 +290,7 @@ model JobCard {
   movements         StockMovement[]
   layers            CuttingLayer[]
   stitchAssignments StitchAssignment[]
+  materialChallans  MaterialChallan[]  @relation("JobCardChallans") // Change 17 Part C
 
   @@index([vendorId])
   @@index([productId])
@@ -304,10 +313,17 @@ model CuttingLayer {
   vendorId Int?
 
   // per-layer fabric maths (Part C)
-  avgConsumption Float? // m per piece, e.g. 0.781
+  avgConsumption Float? // m per piece, e.g. 0.781 — faint suggestion/estimate only (Change 17 A)
   rolls          Int? // roll count used, e.g. 11
-  fabricMtr      Float? // total fabric for this layer, e.g. 1100
+  fabricMtr      Float? // Fabric USED — metres actually consumed by this lay (Change 17 A)
   fabricBalance  Float? // leftover after this layer, may be negative
+
+  // Change 17 Part A: Fabric ISSUED to this lay (hand-entered). Extra = issued − used
+  // is derived (may be negative = short-issued), never stored.
+  fabricIssued Float?
+  // Change 17 Part B: this lay's own editable size ratio, JSON [["S",1],["M",1.5],…].
+  // null ⇒ fall back to the card ratio (back-compat for legacy layers).
+  sizeRatio String?
 
   cells      CuttingLayerCell[]
   dispatches DispatchEvent[]    @relation("DispatchLayers") // Change 14: dispatched against these layers
@@ -389,7 +405,8 @@ model DispatchEvent {
   id         Int            @id @default(autoincrement())
   date       DateTime
   qty        Float // event total = Σ lines.qty (kept in sync for roll-ups)
-  challan    String?
+  challan    String? // legacy free-text challan ref (kept for back-compat)
+  dispatchNo String?        @unique // Change 17 Part I: own "DC-2026-001" series (finished garments)
   note       String?
   arrangedBy String? // who logged the dispatch (defaults to logged-in user)
   reason     DispatchReason @default(ORDER) // ORDER / SALE / OTHER (Change 10, Part H)
@@ -588,10 +605,16 @@ model TrimItem {
   supplier     Supplier?      @relation(fields: [supplierId], references: [id])
   supplierId   Int?
   ratePerUnit  Float?
-  unit         String? // pcs / mtr / kg / set
+  unit         String? // pcs / mtr / kg / set (Change 17 H: growing dropdown via Lookup UNIT)
   status       TrimStatus     @default(ACTIVE)
   remarks      String?
   imageUrl     String?
+  // Change 17 Part D: "applies to" + per-piece average defined ONCE on the master;
+  // the trim sheet rolls these up (no re-entry on the job card). Nullable = no preset.
+  dimension    BomDimension?
+  perPieceAvg  Float?
+  // Change 17 Part H: per-trim reorder trigger; low-stock when currentStock <= reorderLevel.
+  reorderLevel Float?
   // optional spec fields (surfaced per category, never forced)
   size          String?
   material      String?
@@ -772,6 +795,13 @@ model MaterialChallan {
   challanNo String?          @unique // e.g. "CH-OUT-2026-001" / "CH-IN-2026-001" (set on lock)
   date      DateTime         @default(now())
 
+  // Change 17 Part C: derived kind (FABRIC/TRIM/COMBINED) — null for legacy rows.
+  kind ChallanKind?
+  // Change 17 Part C: the job card this challan is raised against ("master head").
+  // Optional for FABRIC (pure stock purchase); expected (warned in UI) for TRIM/COMBINED.
+  jobCard   JobCard? @relation("JobCardChallans", fields: [jobCardId], references: [id])
+  jobCardId Int?
+
   // counterparty: exactly one side is set based on direction
   supplier   Supplier? @relation(fields: [supplierId], references: [id]) // INWARD
   supplierId Int?
@@ -787,6 +817,7 @@ model MaterialChallan {
   @@index([direction])
   @@index([vendorId])
   @@index([supplierId])
+  @@index([jobCardId])
 }
 
 model MaterialChallanLine {

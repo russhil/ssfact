@@ -2,22 +2,25 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { addChallanLine, removeChallanLine, lockChallan, voidChallan } from "@/lib/actions";
+import { addChallanLine, removeChallanLine, lockChallan, voidChallan, editLockedChallan } from "@/lib/actions";
 import { waLink, mailtoLink } from "@/lib/share";
 import { num } from "@/lib/format";
-import { Printer, MessageCircle, Mail, Plus, X } from "lucide-react";
+import { Printer, MessageCircle, Mail, Plus, X, Pencil } from "lucide-react";
 
 type Opt = { id: number; name: string };
 type LineView = { id: number; kind: "fabric" | "trim"; name: string; colour: string | null; qty: number; unit: string };
+type EditLine = { fabricId: number | null; trimItemId: number | null; colour: string | null; qty: number; unit: string | null; rate: number | null; note: string | null };
+type ELine = { kind: "fabric" | "trim"; refId: number | 0; colour: string; qty: string; unit: string; rate: string; note: string };
 
 const inp = "rounded-md border border-border px-2 py-1.5 text-[12px] outline-none focus:border-primary";
 const btn = "no-print inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold shadow-sm";
+const emptyELine = (): ELine => ({ kind: "fabric", refId: 0, colour: "", qty: "", unit: "", rate: "", note: "" });
 
 export function ChallanDocActions({
-  challanId, status, direction, challanNo, lines, phone, email, summary, subject, fabrics, trims, colours,
+  challanId, status, direction, challanNo, lines, editLines = [], phone, email, summary, subject, fabrics, trims, colours,
 }: {
   challanId: number; status: string; direction: "INWARD" | "OUTWARD"; challanNo: string | null;
-  lines: LineView[]; phone: string | null; email: string | null; summary: string; subject: string;
+  lines: LineView[]; editLines?: EditLine[]; phone: string | null; email: string | null; summary: string; subject: string;
   fabrics: Opt[]; trims: Opt[]; colours: { name: string }[];
 }) {
   const router = useRouter();
@@ -27,6 +30,50 @@ export function ChallanDocActions({
   const [colour, setColour] = useState("");
   const [qty, setQty] = useState("");
   const [unit, setUnit] = useState("");
+
+  // Locked-edit state (Change 17 Part C): whole-line-set replace via editLockedChallan.
+  const [editing, setEditing] = useState(false);
+  const [elines, setELines] = useState<ELine[]>([]);
+  function openEdit() {
+    const seed: ELine[] = editLines.map((l) => ({
+      kind: l.fabricId ? "fabric" : "trim",
+      refId: (l.fabricId ?? l.trimItemId ?? 0) as number | 0,
+      colour: l.colour ?? "",
+      qty: String(l.qty),
+      unit: l.unit ?? "",
+      rate: l.rate != null ? String(l.rate) : "",
+      note: l.note ?? "",
+    }));
+    setELines([...seed, emptyELine()]);
+    setEditing(true);
+  }
+  const setEL = (i: number, patch: Partial<ELine>) =>
+    setELines((rows) => {
+      const next = rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
+      const last = next[next.length - 1];
+      if (last && last.refId && +last.qty > 0) next.push(emptyELine());
+      return next;
+    });
+  const removeEL = (i: number) => setELines((rows) => (rows.length <= 1 ? [emptyELine()] : rows.filter((_, idx) => idx !== i)));
+  async function saveEdit() {
+    const filled = elines.filter((l) => l.refId && +l.qty > 0);
+    if (filled.length === 0) { alert("A locked challan must keep at least one line."); return; }
+    if (!confirm("Re-post this challan? Old stock movements are reversed and the new lines posted.")) return;
+    setBusy(true);
+    try {
+      await editLockedChallan({
+        id: challanId,
+        lines: filled.map((l) => ({
+          fabricId: l.kind === "fabric" ? (l.refId as number) : null,
+          colour: l.kind === "fabric" ? l.colour || null : null,
+          trimItemId: l.kind === "trim" ? (l.refId as number) : null,
+          qty: +l.qty, unit: l.unit || null, rate: l.rate ? +l.rate : null, note: l.note || null,
+        })),
+      });
+      setEditing(false);
+      router.refresh();
+    } catch (e) { alert((e as Error).message); } finally { setBusy(false); }
+  }
 
   async function addLine() {
     if (!refId || !qty || +qty <= 0) return;
@@ -81,11 +128,68 @@ export function ChallanDocActions({
 
   // LOCKED / VOID
   return (
-    <div className="no-print mb-4 flex flex-wrap items-center gap-2">
-      <button onClick={() => window.print()} className={`${btn} bg-primary text-white hover:bg-indigo-600`}><Printer size={15} /> Print / PDF</button>
-      <button onClick={() => window.open(waLink(phone, summary), "_blank")} className={`${btn} border border-border bg-white hover:bg-slate-50`}><MessageCircle size={15} /> WhatsApp</button>
-      <button onClick={() => window.open(mailtoLink(email, subject, summary), "_blank")} className={`${btn} border border-border bg-white hover:bg-slate-50`}><Mail size={15} /> Email{email ? "" : " (no address)"}</button>
-      {status === "LOCKED" && <button onClick={doVoid} disabled={busy} className={`${btn} border border-rose-200 bg-white text-rose-600 hover:bg-rose-50`}>Void</button>}
+    <div className="no-print mb-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <button onClick={() => window.print()} className={`${btn} bg-primary text-white hover:bg-indigo-600`}><Printer size={15} /> Print / PDF</button>
+        <button onClick={() => window.open(waLink(phone, summary), "_blank")} className={`${btn} border border-border bg-white hover:bg-slate-50`}><MessageCircle size={15} /> WhatsApp</button>
+        <button onClick={() => window.open(mailtoLink(email, subject, summary), "_blank")} className={`${btn} border border-border bg-white hover:bg-slate-50`}><Mail size={15} /> Email{email ? "" : " (no address)"}</button>
+        {status === "LOCKED" && <button onClick={() => (editing ? setEditing(false) : openEdit())} disabled={busy} className={`${btn} border border-border bg-white hover:bg-slate-50`}><Pencil size={15} /> {editing ? "Cancel edit" : "Edit"}</button>}
+        {status === "LOCKED" && <button onClick={doVoid} disabled={busy} className={`${btn} border border-rose-200 bg-white text-rose-600 hover:bg-rose-50`}>Void</button>}
+      </div>
+
+      {status === "LOCKED" && editing && (
+        <div className="mt-3 rounded-xl border border-dashed border-border bg-slate-50/50 p-3">
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted">Edit {challanNo} — reverses & re-posts on save</div>
+          <div className="overflow-x-auto rounded-lg border border-border bg-white">
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
+                  <th className="px-2 py-2 font-semibold">Type</th>
+                  <th className="px-2 py-2 font-semibold">Item</th>
+                  <th className="px-2 py-2 font-semibold">Colour</th>
+                  <th className="px-2 py-2 text-right font-semibold">Qty</th>
+                  <th className="px-2 py-2 font-semibold">Unit</th>
+                  <th className="px-2 py-2 text-right font-semibold">Rate</th>
+                  <th className="px-2 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {elines.map((l, i) => (
+                  <tr key={i} className="border-b border-slate-50 last:border-0">
+                    <td className="px-2 py-1">
+                      <select value={l.kind} onChange={(e) => setEL(i, { kind: e.target.value as "fabric" | "trim", refId: 0, colour: "" })} className={inp}>
+                        <option value="fabric">Fabric</option><option value="trim">Trim/Acc</option>
+                      </select>
+                    </td>
+                    <td className="px-2 py-1">
+                      <select value={l.refId} onChange={(e) => setEL(i, { refId: +e.target.value })} className={`${inp} min-w-[150px]`}>
+                        <option value={0}>— pick {l.kind} —</option>
+                        {(l.kind === "fabric" ? fabrics : trims).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-2 py-1">
+                      {l.kind === "fabric"
+                        ? <input list="edit-colours" value={l.colour} onChange={(e) => setEL(i, { colour: e.target.value })} placeholder="colour" className={`${inp} w-24`} />
+                        : <span className="text-faint">—</span>}
+                    </td>
+                    <td className="px-1 py-1"><input type="number" value={l.qty} onChange={(e) => setEL(i, { qty: e.target.value })} placeholder="0" className={`${inp} w-20 text-right tnum`} /></td>
+                    <td className="px-1 py-1">
+                      <select value={l.unit} onChange={(e) => setEL(i, { unit: e.target.value })} className={inp}><option value="">—</option><option>MTR</option><option>KG</option><option>PCS</option><option>SET</option></select>
+                    </td>
+                    <td className="px-1 py-1"><input type="number" value={l.rate} onChange={(e) => setEL(i, { rate: e.target.value })} placeholder="₹" className={`${inp} w-16 text-right tnum`} /></td>
+                    <td className="px-1 py-1 text-right"><button onClick={() => removeEL(i)} className="text-faint hover:text-danger"><X size={13} /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <datalist id="edit-colours">{colours.map((c) => <option key={c.name} value={c.name} />)}</datalist>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <button onClick={saveEdit} disabled={busy} className="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-indigo-600 disabled:opacity-40">{busy ? "Saving…" : "Save changes (re-post)"}</button>
+            <span className="text-[11px] text-faint">Old movements reverse and the new lines post — stock stays exact.</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

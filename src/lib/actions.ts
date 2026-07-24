@@ -80,8 +80,10 @@ export type NewJobLayerInput = {
   vendorName?: string | null; // Change 14: this layer's stitching vendor (defaults to the card vendor)
   avgConsumption?: number | null;
   rolls?: number | null;
-  fabricMtr?: number | null;
+  fabricMtr?: number | null; // Fabric USED
   fabricBalance?: number | null;
+  fabricIssued?: number | null; // Change 17 A: Fabric ISSUED (Extra = issued − used, derived)
+  sizeRatio?: string | null; // Change 17 B: this lay's own size ratio JSON
   cells: { colour: string; size: string; qty: number }[];
 };
 
@@ -261,20 +263,37 @@ export async function createJobCard(input: NewJobInput) {
           dimension: ((l.dimension ?? "FLAT") as BomDim),
           perPieceQty: l.perPieceQty ?? l.qty ?? 0,
         }));
-  const bomPlan = rawBom.map((l) => ({
-    trimItemId: l.trimItemId ?? null,
-    material: l.material,
-    color: l.color ?? null,
-    dimension: l.dimension,
-    perPieceQty: l.perPieceQty ?? 0,
-    requiredQty: explodeBom(l.dimension, l.color, l.perPieceQty ?? 0, cutQty, cutByColour),
-  }));
-  // Flag shortage (trimsPending) against current stock BEFORE depletion.
-  const trimIds = [...new Set(bomPlan.map((l) => l.trimItemId).filter((x): x is number => x != null))];
-  const trims = trimIds.length
-    ? await db.trimItem.findMany({ where: { id: { in: trimIds } }, select: { id: true, currentStock: true } })
+  // Change 17 Part D: roll "applies to" (dimension) + per-piece average up from the Trim
+  // Master when the BOM line doesn't carry them — single source of truth, no re-entry on
+  // the job card. If the line supplies its own per-piece qty, trust its dimension; when the
+  // figure comes from the master, use the master's "applies to" too.
+  const bomTrimIds = [...new Set(rawBom.map((l) => l.trimItemId).filter((x): x is number => x != null))];
+  const bomTrims = bomTrimIds.length
+    ? await db.trimItem.findMany({
+        where: { id: { in: bomTrimIds } },
+        select: { id: true, currentStock: true, dimension: true, perPieceAvg: true },
+      })
     : [];
-  const trimStock = new Map(trims.map((t) => [t.id, t.currentStock]));
+  const trimById = new Map(bomTrims.map((t) => [t.id, t]));
+
+  const bomPlan = rawBom.map((l) => {
+    const master = l.trimItemId != null ? trimById.get(l.trimItemId) : undefined;
+    const hasLinePerPiece = !!(l.perPieceQty && l.perPieceQty > 0);
+    const perPieceQty = hasLinePerPiece ? l.perPieceQty! : master?.perPieceAvg ?? 0;
+    const dimension = (hasLinePerPiece
+      ? l.dimension
+      : (master?.dimension as BomDim | undefined) ?? l.dimension ?? "FLAT") as BomDim;
+    return {
+      trimItemId: l.trimItemId ?? null,
+      material: l.material,
+      color: l.color ?? null,
+      dimension,
+      perPieceQty,
+      requiredQty: explodeBom(dimension, l.color, perPieceQty, cutQty, cutByColour),
+    };
+  });
+  // Flag shortage (trimsPending) against current stock BEFORE depletion.
+  const trimStock = new Map(bomTrims.map((t) => [t.id, t.currentStock]));
   const trimsPending = bomPlan.some((l) => l.trimItemId != null && l.requiredQty > (trimStock.get(l.trimItemId) ?? 0));
 
   // MRP: only an owner may set/override it; otherwise default from the product master.
@@ -340,6 +359,8 @@ export async function createJobCard(input: NewJobInput) {
           rolls: l.rolls ?? null,
           fabricMtr: l.fabricMtr ?? null,
           fabricBalance: l.fabricBalance ?? null,
+          fabricIssued: l.fabricIssued ?? null,
+          sizeRatio: l.sizeRatio ?? null,
           cells: { create: l.cells.map((c) => ({ colour: c.colour, size: c.size, qty: c.qty })) },
         } as any,
       });
@@ -636,30 +657,49 @@ export async function addDispatch(input: {
   const newDispatched = job.dispatchedQty + qty;
   const closed = newDispatched >= job.cutQty && job.cutQty > 0;
 
-  await db.jobCard.update({
-    where: { id: job.id },
-    data: {
-      dispatchedQty: newDispatched,
-      status: closed ? "CLOSED" : job.status,
-      dispatches: {
-        create: [
-          {
-            date: input.date ? new Date(input.date) : new Date(),
-            qty,
-            challan: input.challan ?? null,
-            note: input.note ?? null,
-            arrangedBy: input.arrangedBy ?? null,
-            reason: input.reason ?? "ORDER",
-            ...(lines.length
-              ? { lines: { create: lines.map((l) => ({ colour: l.colour ?? null, size: l.size, qty: l.qty })) } }
-              : {}),
-            ...(input.layerIds?.length
-              ? { layers: { connect: input.layerIds.map((id) => ({ id })) } }
-              : {}),
-          } as any,
-        ],
+  // Change 17 Part I: each dispatch gets its own DC-YYYY-NNN challan series (finished
+  // garments — a different document from the raw-material CH-IN/CH-OUT series). Allocate
+  // and write the event inside one transaction so the number and the row stay in sync.
+  const dispatchNo = await db.$transaction(async (tx) => {
+    const year = new Date().getFullYear();
+    const prefix = `DC-${year}-`;
+    const existing = await tx.dispatchEvent.findMany({
+      where: { dispatchNo: { startsWith: prefix } },
+      select: { dispatchNo: true },
+    });
+    const maxN = existing.reduce(
+      (m, e) => Math.max(m, parseInt((e.dispatchNo ?? "").slice(prefix.length), 10) || 0),
+      0
+    );
+    const dcNo = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+
+    await tx.jobCard.update({
+      where: { id: job.id },
+      data: {
+        dispatchedQty: newDispatched,
+        status: closed ? "CLOSED" : job.status,
+        dispatches: {
+          create: [
+            {
+              date: input.date ? new Date(input.date) : new Date(),
+              qty,
+              dispatchNo: dcNo,
+              challan: input.challan ?? null,
+              note: input.note ?? null,
+              arrangedBy: input.arrangedBy ?? null,
+              reason: input.reason ?? "ORDER",
+              ...(lines.length
+                ? { lines: { create: lines.map((l) => ({ colour: l.colour ?? null, size: l.size, qty: l.qty })) } }
+                : {}),
+              ...(input.layerIds?.length
+                ? { layers: { connect: input.layerIds.map((id) => ({ id })) } }
+                : {}),
+            } as any,
+          ],
+        },
       },
-    },
+    });
+    return dcNo;
   });
 
   revalidatePath("/");
@@ -667,7 +707,7 @@ export async function addDispatch(input: {
   revalidatePath("/board");
   revalidatePath("/job-cards");
   revalidatePath(`/job-cards/${job.id}`);
-  return { siNo: job.siNo, dispatched: newDispatched, closed };
+  return { siNo: job.siNo, dispatched: newDispatched, closed, dispatchNo };
 }
 
 /**
@@ -683,8 +723,10 @@ export async function addCuttingLayer(input: {
   vendorName?: string | null; // Change 14: this layer's stitching vendor
   avgConsumption?: number | null;
   rolls?: number | null;
-  fabricMtr?: number | null;
+  fabricMtr?: number | null; // Fabric USED
   fabricBalance?: number | null;
+  fabricIssued?: number | null; // Change 17 A: Fabric ISSUED
+  sizeRatio?: string | null; // Change 17 B: this lay's own size ratio JSON
   cells: { colour: string; size: string; qty: number }[];
 }) {
   await requireRole("ADMIN", "STAFF");
@@ -725,6 +767,8 @@ export async function addCuttingLayer(input: {
         rolls: input.rolls ?? null,
         fabricMtr: input.fabricMtr ?? null,
         fabricBalance: input.fabricBalance ?? null,
+        fabricIssued: input.fabricIssued ?? null,
+        sizeRatio: input.sizeRatio ?? null,
         cells: { create: cells },
       } as any,
     });
@@ -983,24 +1027,98 @@ export async function deactivateColour(input: { id: number; active?: boolean }) 
   return { ok: true };
 }
 
-export async function createFabricQuick(input: { name: string; unit?: "KG" | "MTR" }) {
+/**
+ * Find-or-create a lightweight FabricSupplier row by (fabricId, name) — Change 17 E/G.
+ * Fills the rate when the row has none; a PO write-back (overwrite=true) sets the actual price.
+ */
+async function upsertFabricSupplierByName(
+  fabricId: number,
+  name: string | null | undefined,
+  rate?: number | null,
+  overwrite = false
+) {
+  const n = name?.trim();
+  if (!n) return;
+  const existing = await db.fabricSupplier.findFirst({ where: { fabricId, name: n } });
+  if (existing) {
+    if (rate != null && (overwrite || existing.rate == null)) {
+      await db.fabricSupplier.update({ where: { id: existing.id }, data: { rate } });
+    }
+  } else {
+    await db.fabricSupplier.create({ data: { fabricId, name: n, rate: rate ?? null } });
+  }
+}
+
+/** Resolve a supplier's name from its id (for the free-text FabricSupplier list). */
+async function supplierNameById(supplierId: number | null | undefined): Promise<string | null> {
+  if (!supplierId) return null;
+  const s = await db.supplier.findUnique({ where: { id: supplierId }, select: { name: true } });
+  return s?.name ?? null;
+}
+
+/**
+ * Quick-create a fabric while ordering (Change 08) — now carries supplier + unit + rate up
+ * to the new master and auto-adds the supplier to its list (Change 17 Part G).
+ */
+export async function createFabricQuick(input: {
+  name: string;
+  unit?: "KG" | "MTR";
+  supplierId?: number | null;
+  supplierName?: string | null;
+  rate?: number | null;
+}) {
   await requireRole("ADMIN", "STAFF");
   const name = input.name.trim();
   if (!name) throw new Error("Fabric name required");
-  const f = await db.fabric.upsert({
-    where: { name },
-    create: { name, unit: (input.unit ?? "MTR") as any },
-    update: {},
-  });
+  const existing = await db.fabric.findUnique({ where: { name } });
+  const f =
+    existing ??
+    (await db.fabric.create({
+      data: { name, unit: (input.unit ?? "MTR") as any, ratePerUnit: input.rate ?? null } as any,
+    }));
+  // Fill rate on an existing bare master; never clobber a set rate here.
+  if (existing && input.rate != null && existing.ratePerUnit == null) {
+    await db.fabric.update({ where: { id: existing.id }, data: { ratePerUnit: input.rate } });
+  }
+  const supplierName = input.supplierName ?? (await supplierNameById(input.supplierId));
+  await upsertFabricSupplierByName(f.id, supplierName, input.rate ?? null);
   revalidatePath("/fabric-orders");
   revalidatePath("/inventory");
   return { id: f.id, name: f.name };
 }
 
+/** First-class create of a fabric master (Change 17 Part F "Add Fabric"). */
+export async function createFabric(input: {
+  name: string;
+  unit?: "KG" | "MTR";
+  gsm?: number | null;
+  rollWidth?: number | null;
+  form?: "OPEN" | "TUBE" | null;
+  ratePerUnit?: number | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const name = input.name.trim();
+  if (!name) throw new Error("Fabric name required");
+  if (await db.fabric.findUnique({ where: { name } })) throw new Error("A fabric with that name already exists");
+  const f = await db.fabric.create({
+    data: {
+      name,
+      unit: (input.unit ?? "MTR") as any,
+      gsm: input.gsm ?? null,
+      rollWidth: input.rollWidth ?? null,
+      form: (input.form ?? null) as any,
+      ratePerUnit: input.ratePerUnit ?? null,
+    } as any,
+  });
+  revalidatePath("/inventory");
+  return { id: f.id };
+}
+
 // ── Change 08: multi-colour fabric orders + PO ──
 export async function createFabricOrder(input: {
   fabricId: number; supplierId?: number | null; expectedDate?: string | null; rate?: number | null;
-  gsm?: number | null; status?: string; remarks?: string | null; lines: { colour: string; qty: number }[];
+  gsm?: number | null; status?: string; remarks?: string | null; unit?: "KG" | "MTR";
+  lines: { colour: string; qty: number }[];
 }) {
   await requireRole("ADMIN", "STAFF");
   const lines = (input.lines ?? [])
@@ -1008,16 +1126,30 @@ export async function createFabricOrder(input: {
     .filter((l) => l.colour && l.qty > 0);
   if (lines.length === 0) throw new Error("Add at least one colour with a quantity");
   const total = lines.reduce((a, l) => a + l.qty, 0);
+  // Change 17 Part E/G: the unit comes from the master by default (override per order).
+  const fabric = await db.fabric.findUnique({ where: { id: input.fabricId }, select: { unit: true, ratePerUnit: true } });
+  const unit = (input.unit ?? fabric?.unit ?? "MTR") as any;
   await db.fabricOrder.create({
     data: {
       fabricId: input.fabricId, supplierId: input.supplierId ?? null,
-      qty: total, rate: input.rate ?? null, gsm: input.gsm ?? null,
+      qty: total, rate: input.rate ?? null, gsm: input.gsm ?? null, unit,
       status: (input.status ?? "ORDER_PLACED") as any, orderDate: new Date(),
       expectedDate: input.expectedDate ? new Date(input.expectedDate) : null, remarks: input.remarks ?? null,
       lines: { create: lines },
     } as any,
   });
+  // Flow-back-up: the order's unit lands on the master; rate fills an empty master rate;
+  // the supplier is auto-added to the fabric's supplier list.
+  await db.fabric.update({
+    where: { id: input.fabricId },
+    data: {
+      unit,
+      ...(input.rate != null && fabric?.ratePerUnit == null ? { ratePerUnit: input.rate } : {}),
+    } as any,
+  });
+  await upsertFabricSupplierByName(input.fabricId, await supplierNameById(input.supplierId), input.rate ?? null);
   revalidatePath("/fabric-orders");
+  revalidatePath("/inventory");
   return { ok: true };
 }
 
@@ -1105,7 +1237,10 @@ export async function receiveFabricOrder(input: { id: number }) {
 /** Assign PO-YYYY-NNN (yearly sequence), lock the order. Idempotent. */
 export async function generatePO(input: { id: number }) {
   await requireRole("ADMIN", "STAFF");
-  const o = await db.fabricOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
+  const o = await db.fabricOrder.findUnique({
+    where: { id: input.id },
+    select: { poNumber: true, fabricId: true, supplierId: true, rate: true, unit: true },
+  });
   if (!o) throw new Error("Order not found");
   if (o.poNumber) return { poNumber: o.poNumber }; // idempotent
   const year = new Date().getFullYear();
@@ -1114,7 +1249,16 @@ export async function generatePO(input: { id: number }) {
   const maxN = existing.reduce((m, e) => Math.max(m, parseInt(e.poNumber!.slice(prefix.length), 10) || 0), 0);
   const poNumber = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
   await db.fabricOrder.update({ where: { id: input.id }, data: { poNumber, poGeneratedAt: new Date() } });
+  // Change 17 Part G: the confirmed PO price + unit are recorded on the fabric master, and
+  // the actual price lands on the supplier row (overwrite — a PO is the authoritative price).
+  const fab = await db.fabric.findUnique({ where: { id: o.fabricId }, select: { ratePerUnit: true } });
+  await db.fabric.update({
+    where: { id: o.fabricId },
+    data: { unit: o.unit as any, ...(o.rate != null && fab?.ratePerUnit == null ? { ratePerUnit: o.rate } : {}) },
+  });
+  await upsertFabricSupplierByName(o.fabricId, await supplierNameById(o.supplierId), o.rate ?? null, true);
   revalidatePath("/fabric-orders");
+  revalidatePath("/inventory");
   return { poNumber };
 }
 
@@ -1128,6 +1272,8 @@ export async function markPOSent(input: { id: number }) {
 export async function createTrim(input: {
   name: string; category?: string | null; supplierId?: number | null; ratePerUnit?: number | null; unit?: string | null;
   openingStock?: number; size?: string | null; material?: string | null; weight?: string | null; shape?: string | null; color?: string | null; remarks?: string | null;
+  // Change 17: master single-source fields (Part D) + reorder trigger (Part H).
+  dimension?: string | null; perPieceAvg?: number | null; reorderLevel?: number | null;
 }) {
   await requireRole("ADMIN", "STAFF");
   if (!input.name.trim()) throw new Error("Name required");
@@ -1140,6 +1286,8 @@ export async function createTrim(input: {
       ratePerUnit: input.ratePerUnit ?? null, unit: input.unit ?? "pcs",
       size: input.size ?? null, material: input.material ?? null, weight: input.weight ?? null,
       shape: input.shape ?? null, color: input.color ?? null, remarks: input.remarks ?? null,
+      dimension: (input.dimension ?? null) as any, perPieceAvg: input.perPieceAvg ?? null,
+      reorderLevel: input.reorderLevel ?? null,
     } as any,
   });
   revalidatePath("/trims");
@@ -1150,6 +1298,8 @@ export async function updateTrim(input: {
   id: number; name?: string; category?: string | null; supplierId?: number | null; ratePerUnit?: number | null;
   unit?: string | null; status?: string; size?: string | null; material?: string | null; weight?: string | null;
   shape?: string | null; color?: string | null; remarks?: string | null;
+  // Change 17: master single-source fields (Part D) + reorder trigger (Part H).
+  dimension?: string | null; perPieceAvg?: number | null; reorderLevel?: number | null;
 }) {
   await requireRole("ADMIN", "STAFF");
   const { id, ...rest } = input;
@@ -1405,24 +1555,45 @@ export async function reorderLookup(input: { ids: number[] }) {
 
 // ── Change 11 — Materials Challans (inward/outward, shared inventory ledger) ──
 
+/** Derive a challan's kind from its lines (Change 17 Part C). Null when it has no lines. */
+function deriveChallanKind(
+  lines: { fabricId?: number | null; trimItemId?: number | null }[]
+): "FABRIC" | "TRIM" | "COMBINED" | null {
+  const hasFabric = lines.some((l) => l.fabricId != null);
+  const hasTrim = lines.some((l) => l.trimItemId != null);
+  if (hasFabric && hasTrim) return "COMBINED";
+  if (hasFabric) return "FABRIC";
+  if (hasTrim) return "TRIM";
+  return null;
+}
+
+/** Recompute + store a draft challan's kind after its lines change. */
+async function recomputeChallanKind(challanId: number) {
+  const lines = await db.materialChallanLine.findMany({ where: { challanId }, select: { fabricId: true, trimItemId: true } });
+  await db.materialChallan.update({ where: { id: challanId }, data: { kind: deriveChallanKind(lines) as any } });
+}
+
 export async function createChallan(input: {
   direction: "INWARD" | "OUTWARD";
   supplierId?: number | null;
   vendorId?: number | null;
+  jobCardId?: number | null; // Change 17 Part C: the "master head" this challan is raised against
   date?: string;
   note?: string | null;
 }) {
   await requireRole("ADMIN", "STAFF");
   if (input.direction === "INWARD" && !input.supplierId) throw new Error("Inward challan needs a supplier");
   if (input.direction === "OUTWARD" && !input.vendorId) throw new Error("Outward challan needs a vendor");
+  // Job-card requirement by kind is a UI warning only (spec Part C) — never blocked here.
   const c = await db.materialChallan.create({
     data: {
       direction: input.direction as any,
       supplierId: input.direction === "INWARD" ? input.supplierId ?? null : null,
       vendorId: input.direction === "OUTWARD" ? input.vendorId ?? null : null,
+      jobCardId: input.jobCardId ?? null,
       date: input.date ? new Date(input.date) : new Date(),
       note: input.note ?? null,
-    },
+    } as any,
   });
   revalidatePath("/challans");
   return { id: c.id };
@@ -1455,6 +1626,7 @@ export async function addChallanLine(
       note: input.note ?? null,
     },
   });
+  await recomputeChallanKind(challanId);
   revalidatePath(`/challans/${challanId}`);
   revalidatePath("/challans");
   return { ok: true };
@@ -1489,6 +1661,7 @@ export async function removeChallanLine(input: { id: number }) {
   if (!line) return { ok: true };
   await assertDraft(line.challanId);
   await db.materialChallanLine.delete({ where: { id: input.id } });
+  await recomputeChallanKind(line.challanId);
   revalidatePath(`/challans/${line.challanId}`);
   return { ok: true };
 }
@@ -1510,7 +1683,10 @@ export async function lockChallan(input: { id: number }) {
   const now = new Date();
 
   await db.$transaction(async (tx) => {
-    await tx.materialChallan.update({ where: { id: c.id }, data: { status: "LOCKED", challanNo, lockedAt: now } });
+    await tx.materialChallan.update({
+      where: { id: c.id },
+      data: { status: "LOCKED", challanNo, lockedAt: now, kind: deriveChallanKind(c.lines) as any },
+    });
     for (const l of c.lines) {
       await postMaterialMovement(tx, {
         direction: dir,
@@ -1557,4 +1733,82 @@ export async function voidChallan(input: { id: number }) {
   revalidatePath("/inventory");
   revalidatePath("/trims");
   return { ok: true };
+}
+
+/**
+ * Edit a LOCKED challan (Change 17 Part C). Reverses every old line's ledger posting,
+ * replaces the whole line set, and re-posts — all in one transaction — so the master stock
+ * stays exact (void + reissue under the hood). Keeps the number; over-issue may go negative.
+ * DRAFT challans use the add/update/remove line actions instead.
+ */
+export async function editLockedChallan(input: {
+  id: number;
+  lines: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null }[];
+  note?: string | null;
+  jobCardId?: number | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const c = await db.materialChallan.findUnique({ where: { id: input.id }, include: { lines: true } });
+  if (!c) throw new Error("Challan not found");
+  if (c.status !== "LOCKED") throw new Error("Only a locked challan is edited this way — use the draft editor");
+  if (c.voidedAt) throw new Error("Challan is voided — raise a fresh challan");
+
+  // Validate the incoming line set (same rules as addChallanLine).
+  const newLines = input.lines.filter((l) => l.qty !== 0);
+  for (const l of newLines) {
+    if (!l.fabricId && !l.trimItemId) throw new Error("Line must set a fabric or a trim/accessory");
+    if (l.fabricId && l.trimItemId) throw new Error("Line cannot be both fabric and trim");
+    if (!l.qty || l.qty <= 0) throw new Error("Qty must be positive");
+  }
+  if (newLines.length === 0) throw new Error("A locked challan must keep at least one line");
+
+  const reverse = c.direction === "INWARD" ? "OUT" : "IN"; // undo the original post
+  const dir = c.direction === "INWARD" ? "IN" : "OUT"; // re-post the new set
+  const now = new Date();
+
+  await db.$transaction(async (tx) => {
+    // 1) reverse every OLD posting
+    for (const l of c.lines) {
+      await postMaterialMovement(tx, {
+        direction: reverse, qty: l.qty, date: now, note: `Edit reverse ${c.challanNo}`,
+        fabricId: l.fabricId ?? null, colour: l.colour ?? null, trimItemId: l.trimItemId ?? null,
+      });
+    }
+    // 2) swap the line set
+    await tx.materialChallanLine.deleteMany({ where: { challanId: c.id } });
+    for (const l of newLines) {
+      await tx.materialChallanLine.create({
+        data: {
+          challanId: c.id,
+          fabricId: l.fabricId ?? null,
+          colour: l.fabricId && l.colour ? colorKey(l.colour) : null,
+          trimItemId: l.trimItemId ?? null,
+          qty: l.qty, unit: l.unit ?? null, rate: l.rate ?? null, note: l.note ?? null,
+        },
+      });
+    }
+    // 3) re-post every NEW line
+    for (const l of newLines) {
+      await postMaterialMovement(tx, {
+        direction: dir, qty: l.qty, date: now, note: `Challan ${c.challanNo}`,
+        fabricId: l.fabricId ?? null, colour: l.fabricId ? l.colour ?? null : null, trimItemId: l.trimItemId ?? null,
+      });
+    }
+    // 4) refresh derived kind + head fields; keep challanNo + LOCKED, voidedAt stays null
+    await tx.materialChallan.update({
+      where: { id: c.id },
+      data: {
+        kind: deriveChallanKind(newLines) as any,
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        ...(input.jobCardId !== undefined ? { jobCardId: input.jobCardId } : {}),
+      } as any,
+    });
+  });
+
+  revalidatePath("/challans");
+  revalidatePath(`/challans/${c.id}`);
+  revalidatePath(`/challan-doc/${c.id}`);
+  revalidatePath("/inventory");
+  revalidatePath("/trims");
+  return { ok: true, challanNo: c.challanNo };
 }

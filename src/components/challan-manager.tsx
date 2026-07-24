@@ -9,29 +9,43 @@ import { num, inr, fmtDate } from "@/lib/format";
 import { Plus, X, Printer } from "lucide-react";
 
 type Opt = { id: number; name: string };
+type JobOpt = { id: number; label: string };
 type ChallanRow = {
-  id: number; direction: string; status: string; challanNo: string | null; date: Date;
-  counterparty: string; note: string | null; lineCount: number; totalQty: number; totalValue: number | null;
+  id: number; direction: string; status: string; kind: string | null; challanNo: string | null; date: Date;
+  counterparty: string; jobCardId: number | null; jobCardSiNo: string | null;
+  note: string | null; lineCount: number; totalQty: number; totalValue: number | null;
 };
 type Line = { kind: "fabric" | "trim"; refId: number | 0; colour: string; qty: string; unit: string; rate: string; note: string };
 
 const emptyLine = (): Line => ({ kind: "fabric", refId: 0, colour: "", qty: "", unit: "", rate: "", note: "" });
 const inp = "rounded-md border border-border px-2 py-1.5 text-[12px] outline-none focus:border-primary";
 
+// Derive a challan's kind from the lines it holds (mirrors the server helper).
+function kindOf(hasFabric: boolean, hasTrim: boolean): "FABRIC" | "TRIM" | "COMBINED" | null {
+  if (hasFabric && hasTrim) return "COMBINED";
+  if (hasFabric) return "FABRIC";
+  if (hasTrim) return "TRIM";
+  return null;
+}
+const KIND_TONE: Record<string, "ok" | "warn" | "default"> = { FABRIC: "ok", TRIM: "warn", COMBINED: "default" };
+
 export function ChallanManager({
-  fabrics, trims, suppliers, vendors, colours, challans,
+  fabrics, trims, suppliers, vendors, colours, challans, jobCards = [], initialJobCardId = null, initialDirection = "OUTWARD",
 }: {
   fabrics: Opt[]; trims: Opt[]; suppliers: Opt[]; vendors: Opt[]; colours: { name: string }[]; challans: ChallanRow[];
+  jobCards?: JobOpt[]; initialJobCardId?: number | null; initialDirection?: "INWARD" | "OUTWARD";
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"INWARD" | "OUTWARD">("OUTWARD");
+  const [tab, setTab] = useState<"INWARD" | "OUTWARD">(initialDirection);
   const [counterparty, setCounterparty] = useState<number | 0>(0);
+  const [jobCardId, setJobCardId] = useState<number | 0>(initialJobCardId ?? 0);
   const [date, setDate] = useState("");
   const [note, setNote] = useState("");
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
   const [busy, setBusy] = useState(false);
 
   const partyOptions = tab === "INWARD" ? suppliers : vendors;
+  const jobLabel = (id: number) => jobCards.find((j) => j.id === id)?.label ?? "";
 
   function normalize(rows: Line[]): Line[] {
     const last = rows[rows.length - 1];
@@ -47,6 +61,10 @@ export function ChallanManager({
   const anyRate = filled.some((l) => l.rate && +l.rate > 0);
   const totalValue = anyRate ? filled.reduce((a, l) => a + +l.qty * (+l.rate || 0), 0) : null;
 
+  // Live derived kind + the "attach a job card" warning (Change 17 Part C).
+  const draftKind = kindOf(filled.some((l) => l.kind === "fabric"), filled.some((l) => l.kind === "trim"));
+  const needsJobCard = (draftKind === "TRIM" || draftKind === "COMBINED") && !jobCardId;
+
   const shownChallans = challans.filter((c) => c.direction === tab);
 
   async function save(lockAfter: boolean) {
@@ -57,6 +75,7 @@ export function ChallanManager({
         direction: tab,
         supplierId: tab === "INWARD" ? counterparty : null,
         vendorId: tab === "OUTWARD" ? counterparty : null,
+        jobCardId: jobCardId || null,
         date: date || undefined,
         note: note.trim() || null,
       });
@@ -113,10 +132,34 @@ export function ChallanManager({
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`${inp} w-full`} />
             </div>
           </div>
-          <div className="mt-2.5">
-            <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Note <span className="font-normal text-faint">(optional)</span></label>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="remarks…" className={`${inp} w-full`} />
+          <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">
+                Job card <span className="font-normal text-faint">(optional for fabric)</span>
+              </label>
+              <input
+                list="challan-jobcards"
+                defaultValue={jobCardId ? jobLabel(jobCardId) : ""}
+                onChange={(e) => {
+                  const hit = jobCards.find((j) => j.label === e.target.value);
+                  setJobCardId(hit ? hit.id : 0);
+                }}
+                placeholder="search SI / item…"
+                className={`${inp} w-full`}
+              />
+              <datalist id="challan-jobcards">{jobCards.map((j) => <option key={j.id} value={j.label} />)}</datalist>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Note <span className="font-normal text-faint">(optional)</span></label>
+              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="remarks…" className={`${inp} w-full`} />
+            </div>
           </div>
+
+          {needsJobCard && (
+            <div className="mt-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-700">
+              No job card attached to this challan. Trim / combined challans should name their job card.
+            </div>
+          )}
 
           {/* line table */}
           <div className="mt-4 overflow-x-auto rounded-lg border border-border">
@@ -176,6 +219,8 @@ export function ChallanManager({
           <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wide text-muted">Summary</h3>
           <div className="space-y-2 text-[12px]">
             <div className="flex justify-between"><span className="text-muted">Direction</span><Badge tone={tab === "OUTWARD" ? "warn" : "ok"}>{tab === "OUTWARD" ? "Outward (−)" : "Inward (+)"}</Badge></div>
+            <div className="flex justify-between"><span className="text-muted">Kind</span>{draftKind ? <Badge tone={KIND_TONE[draftKind]}>{draftKind}</Badge> : <span className="text-faint">—</span>}</div>
+            {jobCardId > 0 && <div className="flex justify-between"><span className="text-muted">Job card</span><span className="font-semibold">{jobLabel(jobCardId)}</span></div>}
             <div className="flex justify-between"><span className="text-muted">Lines</span><span className="font-bold tnum">{filled.length}</span></div>
             <div className="flex justify-between"><span className="text-muted">Total qty</span><span className="font-bold tnum">{num(totalQty)}</span></div>
             {totalValue != null && <div className="flex justify-between"><span className="text-muted">Total value</span><span className="font-bold tnum">{inr(Math.round(totalValue))}</span></div>}
@@ -203,8 +248,10 @@ export function ChallanManager({
               <thead>
                 <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
                   <th className="px-2 py-2 font-semibold">No / Status</th>
+                  <th className="px-2 py-2 font-semibold">Kind</th>
                   <th className="px-2 py-2 font-semibold">Date</th>
                   <th className="px-2 py-2 font-semibold">{tab === "INWARD" ? "Supplier" : "Vendor"}</th>
+                  <th className="px-2 py-2 font-semibold">Job SI</th>
                   <th className="px-2 py-2 text-right font-semibold">Lines</th>
                   <th className="px-2 py-2 text-right font-semibold">Qty</th>
                   <th className="px-2 py-2"></th>
@@ -228,14 +275,18 @@ function ChallanRowItem({ c }: { c: ChallanRow }) {
   const [busy, setBusy] = useState(false);
   async function doLock() { setBusy(true); try { await lockChallan({ id: c.id }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
   async function doVoid() { if (!confirm(`Void ${c.challanNo} and reverse its stock?`)) return; setBusy(true); try { await voidChallan({ id: c.id }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
+  const isDraft = c.status === "DRAFT";
   return (
-    <tr className="border-b border-slate-50 last:border-0">
+    <tr className={`border-b border-slate-50 last:border-0 ${isDraft ? "bg-amber-50/40" : ""}`}>
       <td className="px-2 py-2">
         <Link href={`/challan-doc/${c.id}`} className="font-bold text-primary-ink hover:underline">{c.challanNo ?? `Draft #${c.id}`}</Link>{" "}
-        <Badge tone={c.status === "LOCKED" ? "ok" : c.status === "VOID" ? "danger" : "default"}>{c.status}</Badge>
+        <Badge tone={c.status === "LOCKED" ? "ok" : c.status === "VOID" ? "danger" : "warn"}>{c.status}</Badge>
+        {isDraft && <div className="mt-0.5 text-[10px] text-faint">number assigned on lock</div>}
       </td>
+      <td className="px-2 py-2">{c.kind ? <Badge tone={KIND_TONE[c.kind] ?? "default"}>{c.kind}</Badge> : <span className="text-faint">—</span>}</td>
       <td className="px-2 py-2 text-slate-500 tnum">{fmtDate(c.date)}</td>
       <td className="px-2 py-2">{c.counterparty}</td>
+      <td className="px-2 py-2">{c.jobCardSiNo ? <Link href={`/job-cards/${c.jobCardId}`} className="text-primary-ink hover:underline">{c.jobCardSiNo}</Link> : <span className="text-faint">—</span>}</td>
       <td className="px-2 py-2 text-right tnum">{c.lineCount}</td>
       <td className="px-2 py-2 text-right font-semibold tnum">{num(c.totalQty)}</td>
       <td className="px-2 py-2 text-right">

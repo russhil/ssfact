@@ -99,7 +99,7 @@ export function FabricMasterForm({
             <option value="TUBE">TUBE</option>
           </select>
         </Labelled>
-        <Labelled label={`Est. price (/${unit.toLowerCase()})`}>
+        <Labelled label={`Est. price (₹/${unit.toLowerCase()})`}>
           <input type="number" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="—"
             className="w-full rounded-lg border border-border px-2.5 py-2 text-[13px] font-semibold outline-none focus:border-primary" />
         </Labelled>
@@ -117,7 +117,7 @@ export function FabricMasterForm({
         <div className="flex flex-wrap items-center gap-1.5">
           {suppliers.map((s) => (
             <span key={s.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-slate-50 px-2.5 py-1 text-[11px] font-semibold">
-              {s.name}{s.rate != null && <span className="text-faint">· {num(s.rate)}</span>}
+              {s.name}{s.rate != null && <span className="text-faint">· ₹{num(s.rate)}</span>}
               <button onClick={() => run(() => removeFabricSupplier({ id: s.id }))} className="text-faint hover:text-danger"><X size={12} /></button>
             </span>
           ))}
@@ -126,7 +126,7 @@ export function FabricMasterForm({
         <div className="mt-2 flex items-center gap-2">
           <input value={supName} onChange={(e) => setSupName(e.target.value)} placeholder="Supplier name"
             className="w-52 rounded-lg border border-border px-2.5 py-1.5 text-[12px] outline-none focus:border-primary" />
-          <input type="number" value={supRate} onChange={(e) => setSupRate(e.target.value)} placeholder="rate"
+          <input type="number" value={supRate} onChange={(e) => setSupRate(e.target.value)} placeholder="₹ rate"
             className="w-24 rounded-lg border border-border px-2.5 py-1.5 text-[12px] outline-none focus:border-primary" />
           <button
             onClick={() => supName.trim() && run(async () => { await addFabricSupplier({ fabricId, name: supName, rate: numOrNull(supRate) }); setSupName(""); setSupRate(""); })}

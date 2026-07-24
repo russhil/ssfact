@@ -15,13 +15,20 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
   const c = await getChallan(Number(id));
   if (!c) notFound();
 
-  const [fabrics, trims, colours] = c.status === "DRAFT"
+  // Draft AND locked (non-void) challans can be edited, so load the pick-lists for both.
+  const editable = !c.voided;
+  const [fabrics, trims, colours, rawLines] = editable
     ? await Promise.all([
         db.fabric.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
         db.trimItem.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
         db.colour.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { name: true } }),
+        db.materialChallanLine.findMany({
+          where: { challanId: c.id },
+          orderBy: { id: "asc" },
+          select: { fabricId: true, trimItemId: true, colour: true, qty: true, unit: true, rate: true, note: true },
+        }),
       ])
-    : [[], [], []];
+    : [[], [], [], []];
 
   const isOut = c.direction === "OUTWARD";
   const docTitle = isOut ? "DELIVERY CHALLAN" : "INWARD CHALLAN";
@@ -46,6 +53,7 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
         direction={c.direction}
         challanNo={c.challanNo}
         lines={c.lines.map((l) => ({ id: l.id, kind: l.kind, name: l.name, colour: l.colour, qty: l.qty, unit: l.unit }))}
+        editLines={rawLines.map((l) => ({ fabricId: l.fabricId, trimItemId: l.trimItemId, colour: l.colour, qty: l.qty, unit: l.unit, rate: l.rate, note: l.note }))}
         phone={c.counterparty?.phone ?? null}
         email={c.counterparty?.email ?? null}
         summary={summary}
@@ -61,6 +69,10 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
         <div>
           <h1 className="text-[20px] font-extrabold tracking-tight">Sport Sun</h1>
           <p className="mt-0.5 text-[13px] font-bold tracking-wide">{docTitle}{c.voided ? " (VOID)" : ""}</p>
+          <p className="mt-0.5 text-[11px] text-muted">
+            {c.kind ?? "—"}
+            {c.jobCardSiNo && <> · Job <Link href={`/job-cards/${c.jobCardId}`} className="no-print text-primary-ink hover:underline">{c.jobCardSiNo}</Link><span className="hidden print:inline">{c.jobCardSiNo}</span></>}
+          </p>
         </div>
         <div className="text-right">
           <div className="text-[16px] font-bold">{c.challanNo ?? `DRAFT #${c.id}`}</div>

@@ -15,7 +15,8 @@ const sizeRank = (s: string) => { const i = SIZE_ORDER.indexOf(s.toUpperCase());
 
 export default async function DispatchDocPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  await getCurrentUser();
+  const u = await getCurrentUser();
+  if (!u || (u.role !== "ADMIN" && u.role !== "STAFF")) notFound();
   const ev = await db.dispatchEvent.findUnique({
     where: { id: Number(id) },
     include: {
@@ -76,7 +77,7 @@ export default async function DispatchDocPage({ params }: { params: Promise<{ id
 
       <div className="mt-3 grid grid-cols-4 gap-3 text-[11px]">
         {[
-          ["Challan", ev.challan ?? `DSP-${ev.id}`],
+          ["Challan", ev.dispatchNo ?? ev.challan ?? `DSP-${ev.id}`],
           ["Vendor / In-house", vendor ?? "—"],
           ["Layers", layerLabels.length ? layerLabels.join(", ") : "—"],
           ["Total pcs", `${num(ev.qty)}`],

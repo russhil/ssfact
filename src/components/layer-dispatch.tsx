@@ -36,33 +36,43 @@ export function LayerDispatch({
   defaultArrangedBy: string;
 }) {
   const router = useRouter();
-  const [sel, setSel] = useState<Set<number>>(new Set());
   const [sale, setSale] = useState(false);
   const [grid, setGrid] = useState<Record<string, string>>({}); // key `colour|||size` -> qty
   const [saleGrid, setSaleGrid] = useState<Record<string, string>>({}); // size -> qty
   const [date, setDate] = useState("");
   const [challan, setChallan] = useState("");
   const [busy, setBusy] = useState(false);
+  const [lastDc, setLastDc] = useState<string | null>(null); // Change 17: last DC-YYYY-NNN issued
 
   // legacy fallback (no layers) — simple total qty + reason
   const [legacyQty, setLegacyQty] = useState("");
   const [legacyReason, setLegacyReason] = useState<"ORDER" | "SALE">("ORDER");
 
   const key = (c: string, s: string) => `${c}|||${s}`;
-  const lockedVendor = useMemo(() => {
-    const first = [...sel][0];
-    return first != null ? layers.find((l) => l.id === first)?.vendor ?? null : null;
-  }, [sel, layers]);
 
-  const selectedLayers = layers.filter((l) => sel.has(l.id));
+  // Change 17 Part I: card-driven — the table covers ALL layers of the card by default.
+  // If the card spans >1 stitching vendor, an optional filter narrows it to one vendor so
+  // per-vendor balances stay correct; a null-vendor layer only shows under "All".
+  const vendorList = useMemo(
+    () => [...new Set(layers.map((l) => l.vendor).filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b)),
+    [layers]
+  );
+  const multiVendor = vendorList.length > 1;
+  const [vendorFilter, setVendorFilter] = useState<string | null>(null);
 
-  // union of colours/sizes cut in the selected layers, and pooled cut per cell
+  const activeLayers = useMemo(
+    () => (vendorFilter ? layers.filter((l) => l.vendor === vendorFilter) : layers),
+    [layers, vendorFilter]
+  );
+  const activeLayerIds = useMemo(() => activeLayers.map((l) => l.id), [activeLayers]);
+
+  // union of colours/sizes cut in the active layers, and pooled cut per cell
   const { colours, sizes, cutCell, poolCut } = useMemo(() => {
     const cutMap = new Map<string, number>();
     const colSet = new Set<string>();
     const sizeSet = new Set<string>();
     let pool = 0;
-    for (const l of selectedLayers)
+    for (const l of activeLayers)
       for (const c of l.cells) {
         if (c.qty <= 0) continue;
         colSet.add(c.colour); sizeSet.add(c.size); pool += c.qty;
@@ -74,28 +84,19 @@ export function LayerDispatch({
       cutCell: (c: string, s: string) => cutMap.get(key(c, s)) ?? 0,
       poolCut: pool,
     };
-  }, [selectedLayers]);
+  }, [activeLayers]);
 
   const saleSizes = sizes.length ? sizes : DEFAULT_SIZES;
 
   const priorDispatched = useMemo(
-    () => prior.filter((e) => e.layerIds.some((id) => sel.has(id))).reduce((a, e) => a + e.qty, 0),
-    [prior, sel]
+    () => prior.filter((e) => e.layerIds.some((id) => activeLayerIds.includes(id))).reduce((a, e) => a + e.qty, 0),
+    [prior, activeLayerIds]
   );
   const enteringNow = useMemo(() => {
     if (sale) return Object.values(saleGrid).reduce((a, v) => a + (+v || 0), 0);
     return Object.values(grid).reduce((a, v) => a + (+v || 0), 0);
   }, [grid, saleGrid, sale]);
   const balance = poolCut - priorDispatched - enteringNow;
-
-  function toggleLayer(l: DispatchLayer) {
-    setSel((prev) => {
-      const next = new Set(prev);
-      if (next.has(l.id)) next.delete(l.id);
-      else next.add(l.id);
-      return next;
-    });
-  }
 
   async function save() {
     setBusy(true);
@@ -110,16 +111,17 @@ export function LayerDispatch({
               .filter((l) => l.qty !== 0)
           );
       if (!lines.length) { setBusy(false); return; }
-      await addDispatch({
+      const res = await addDispatch({
         jobCardId,
         reason: sale ? "SALE" : "ORDER",
         date: date || undefined,
         challan: challan.trim() || undefined,
         arrangedBy: defaultArrangedBy || null,
-        layerIds: [...sel],
+        layerIds: activeLayerIds,
         lines,
       });
-      setGrid({}); setSaleGrid({}); setChallan(""); setSel(new Set()); setSale(false);
+      setGrid({}); setSaleGrid({}); setChallan(""); setSale(false);
+      setLastDc(res?.dispatchNo ?? null);
       router.refresh();
     } catch (e) {
       alert("Could not dispatch: " + (e as Error).message);
@@ -128,20 +130,27 @@ export function LayerDispatch({
     }
   }
 
+  const dcBanner = lastDc ? (
+    <div className="mb-2 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700">
+      Dispatch logged — challan <span className="tnum">{lastDc}</span>. Open it from Recent Dispatches to print / share.
+    </div>
+  ) : null;
+
   // ── legacy card: no cutting layers → single-qty dispatch ─────────────────────
   if (layers.length === 0) {
     async function saveLegacy() {
       if (!legacyQty || +legacyQty === 0) return;
       setBusy(true);
       try {
-        await addDispatch({ jobCardId, qty: +legacyQty, reason: legacyReason, date: date || undefined, challan: challan.trim() || undefined, arrangedBy: defaultArrangedBy || null });
-        setLegacyQty(""); setChallan("");
+        const res = await addDispatch({ jobCardId, qty: +legacyQty, reason: legacyReason, date: date || undefined, challan: challan.trim() || undefined, arrangedBy: defaultArrangedBy || null });
+        setLegacyQty(""); setChallan(""); setLastDc(res?.dispatchNo ?? null);
         router.refresh();
       } catch (e) { alert("Could not dispatch: " + (e as Error).message); } finally { setBusy(false); }
     }
     return (
       <div className="mt-3 rounded-lg border border-dashed border-border p-2.5">
         <div className="mb-1.5 text-[11px] font-semibold text-slate-600">Log dispatch</div>
+        {dcBanner}
         <div className="flex flex-wrap items-center gap-1.5">
           <input type="number" value={legacyQty} onChange={(e) => setLegacyQty(e.target.value)} placeholder="qty" className={`${inp} w-24 text-right tnum`} />
           <div className="flex rounded-md border border-border p-0.5">
@@ -166,34 +175,38 @@ export function LayerDispatch({
         </button>
       </div>
 
-      {/* layer multi-select — same vendor only */}
-      <div className="mb-2.5 flex flex-wrap gap-1.5">
-        {layers.map((l) => {
-          const disabled = lockedVendor != null && l.vendor !== lockedVendor && !sel.has(l.id);
-          return (
-            <button
-              key={l.id}
-              disabled={disabled}
-              onClick={() => toggleLayer(l)}
-              className={cn(
-                "rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold",
-                sel.has(l.id) ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-slate-600",
-                disabled && "cursor-not-allowed opacity-40"
-              )}
-              title={l.vendor ? `Vendor: ${l.vendor}` : "No vendor set"}
-            >
-              {l.label || `Layer ${l.layerNo}`}
-              <span className="ml-1 font-normal text-faint">· {l.vendor ?? "—"}</span>
-            </button>
-          );
-        })}
-      </div>
+      {dcBanner}
 
-      {sel.size === 0 ? (
-        <p className="py-2 text-center text-[11px] text-muted">Pick one or more layers (same vendor) to dispatch against.</p>
+      {/* Change 17 Part I: card-wide table; vendor filter only when the card spans >1 vendor */}
+      {multiVendor && (
+        <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-faint">Vendor</span>
+          <button
+            onClick={() => setVendorFilter(null)}
+            className={cn("rounded-lg border px-2.5 py-1 text-[11px] font-semibold", vendorFilter === null ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-slate-600")}
+          >
+            All
+          </button>
+          {vendorList.map((v) => (
+            <button
+              key={v}
+              onClick={() => setVendorFilter(v)}
+              className={cn("rounded-lg border px-2.5 py-1 text-[11px] font-semibold", vendorFilter === v ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-slate-600")}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {poolCut === 0 ? (
+        <p className="py-2 text-center text-[11px] text-muted">Nothing cut to dispatch{vendorFilter ? ` for ${vendorFilter}` : ""} yet.</p>
       ) : (
         <>
-          {lockedVendor && <div className="mb-2 text-[11px] text-muted">Vendor: <span className="font-semibold text-ink">{lockedVendor}</span> · pool cut {num(poolCut)} · dispatched {num(priorDispatched)}</div>}
+          <div className="mb-2 text-[11px] text-muted">
+            {vendorFilter ? <>Vendor: <span className="font-semibold text-ink">{vendorFilter}</span> · </> : null}
+            pool cut {num(poolCut)} · dispatched {num(priorDispatched)}
+          </div>
 
           {sale ? (
             <div className="overflow-x-auto">

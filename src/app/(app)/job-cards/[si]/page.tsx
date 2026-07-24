@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getJob, getJobMatrix } from "@/lib/jobs";
+import { getJobCardChallans } from "@/lib/masters";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { colorKey } from "@/lib/colour";
@@ -37,6 +38,8 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   const masterList = canEdit
     ? await db.cuttingMaster.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { name: true } })
     : [];
+  // Change 17 Part C: challans raised against this job card (by kind).
+  const jobChallans = canEdit ? await getJobCardChallans(j.id) : [];
 
   const balance = j.cutQty - j.dispatchedQty;
   const fill = j.cutQty ? j.dispatchedQty / j.cutQty : 0;
@@ -276,10 +279,13 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               const lcolours = [...new Set(l.cells.map((c) => c.colour))].sort();
               const lcell = (s: string, c: string) => l.cells.find((x) => x.size === s && x.colour === c)?.qty ?? 0;
               const ltotal = l.cells.reduce((a, c) => a + c.qty, 0);
-              const note = [
+              // Change 17 A: Issued · Used · Extra reconciliation (Extra = issued − used, may be negative).
+              const lIssued = l.fabricIssued;
+              const lUsed = l.fabricMtr;
+              const lExtra = lIssued != null ? Math.round((lIssued - (lUsed ?? 0)) * 100) / 100 : null;
+              const estNote = [
                 l.avgConsumption != null ? `avg ${num(l.avgConsumption, 3)}` : null,
                 l.rolls != null ? `${num(l.rolls)} roll` : null,
-                l.fabricMtr != null ? `${num(l.fabricMtr)} mtr` : null,
                 l.fabricBalance != null ? `bal ${num(l.fabricBalance)}` : null,
               ].filter(Boolean).join(" · ");
               return (
@@ -308,7 +314,18 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                       </tbody>
                     </table>
                   </div>
-                  {note && <p className="mt-1.5 text-[11px] text-muted">{note}</p>}
+                  {(lIssued != null || lUsed != null || estNote) && (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-50 pt-1.5 text-[11px]">
+                      {(lIssued != null || lUsed != null) && (
+                        <span className="flex items-center gap-3">
+                          <span className="text-muted">Issued <b className="tnum text-primary-ink">{lIssued != null ? num(lIssued) : "—"}</b></span>
+                          <span className="text-muted">Used <b className="tnum text-primary-ink">{lUsed != null ? num(lUsed) : "—"}</b></span>
+                          <span className="text-muted">Extra <b className={`tnum ${lExtra != null && lExtra < 0 ? "text-rose-600" : "text-emerald-600"}`}>{lExtra != null ? num(lExtra) : "—"}</b></span>
+                        </span>
+                      )}
+                      {estNote && <span className="text-faint">{estNote}</span>}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -320,6 +337,49 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               colours={mx.colours.filter((c) => c !== "" && c !== "—")}
               masters={masterList.map((m) => m.name)}
             />
+          )}
+        </Card>
+      )}
+
+      {/* Change 17 Part C: challans raised against this job card */}
+      {canEdit && (
+        <Card className="mt-3.5 p-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-[13px] font-bold">Challans <span className="font-medium text-faint">· {jobChallans.length}</span></h3>
+            <div className="flex flex-wrap gap-1.5 text-[11px]">
+              <Link href={`/challans?jobCardId=${j.id}&direction=OUTWARD`} className="rounded-md border border-border bg-white px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50">+ Trim / Combined (outward)</Link>
+              <Link href={`/challans?jobCardId=${j.id}&direction=INWARD`} className="rounded-md border border-border bg-white px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50">+ Fabric (inward)</Link>
+            </div>
+          </div>
+          {jobChallans.length === 0 ? (
+            <p className="text-[12px] text-faint">No challans raised against this card yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
+                    <th className="px-2 py-2 font-semibold">Challan</th>
+                    <th className="px-2 py-2 font-semibold">Kind</th>
+                    <th className="px-2 py-2 font-semibold">Dir</th>
+                    <th className="px-2 py-2 font-semibold">Party</th>
+                    <th className="px-2 py-2 text-right font-semibold">Qty</th>
+                    <th className="px-2 py-2 font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobChallans.map((c) => (
+                    <tr key={c.id} className="border-b border-slate-50">
+                      <td className="px-2 py-1.5"><Link href={`/challan-doc/${c.id}`} className="font-semibold text-primary hover:underline">{c.challanNo ?? `Draft #${c.id}`}</Link></td>
+                      <td className="px-2 py-1.5">{c.kind ? <Badge tone="primary">{c.kind}</Badge> : <span className="text-faint">—</span>}</td>
+                      <td className="px-2 py-1.5 text-faint">{c.direction === "INWARD" ? "IN" : "OUT"}</td>
+                      <td className="px-2 py-1.5">{c.counterparty}</td>
+                      <td className="px-2 py-1.5 text-right tnum">{num(c.totalQty)}</td>
+                      <td className="px-2 py-1.5"><Badge tone={c.status === "LOCKED" ? "ok" : c.status === "VOID" ? "danger" : "default"}>{c.status}</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Card>
       )}

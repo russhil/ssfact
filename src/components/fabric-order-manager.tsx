@@ -15,6 +15,7 @@ type Order = {
   receivedDate: Date | string | null; poNumber: string | null; poStage: string;
 };
 type Pick = { id: number; name: string };
+type FabricPick = { id: number; name: string; unit?: string };
 type ColourOpt = { id: number; name: string; hex: string | null };
 
 const STATUS_TONE: Record<string, "primary" | "warn" | "ok" | "default" | "danger"> = {
@@ -26,10 +27,10 @@ const ADD = "__add__";
 export function FabricOrderManager({
   orders, fabrics, suppliers, colours,
 }: {
-  orders: Order[]; fabrics: Pick[]; suppliers: Pick[]; colours: ColourOpt[];
+  orders: Order[]; fabrics: FabricPick[]; suppliers: Pick[]; colours: ColourOpt[];
 }) {
   const router = useRouter();
-  const [fabricList, setFabricList] = useState(fabrics);
+  const [fabricList, setFabricList] = useState<FabricPick[]>(fabrics);
   const [colourList, setColourList] = useState(colours);
   const [fabricId, setFabricId] = useState("");
   const [addFabric, setAddFabric] = useState(false);
@@ -38,6 +39,15 @@ export function FabricOrderManager({
   const [expected, setExpected] = useState("");
   const [rate, setRate] = useState("");
   const [gsm, setGsm] = useState("");
+  // Change 17 Part G: unit is selectable per order, defaulting from the fabric master.
+  const [unit, setUnit] = useState("MTR");
+
+  // Default the unit from the picked fabric's master unit (override stays possible).
+  function pickFabric(id: string) {
+    setFabricId(id);
+    const f = fabricList.find((x) => String(x.id) === id);
+    if (f?.unit) setUnit(f.unit);
+  }
   const [lines, setLines] = useState<Line[]>([{ colour: "", qty: 0 }]);
   const [addColourRow, setAddColourRow] = useState<number | null>(null);
   const [colourDraft, setColourDraft] = useState("");
@@ -74,8 +84,15 @@ export function FabricOrderManager({
     if (!fabricDraft.trim()) { setAddFabric(false); return; }
     setBusy(true);
     try {
-      const f = await createFabricQuick({ name: fabricDraft });
-      setFabricList((p) => (p.some((x) => x.id === f.id) ? p : [...p, f].sort((a, b) => a.name.localeCompare(b.name))));
+      // Change 17 Part G: a new fabric created while ordering carries supplier + unit + rate up to its master.
+      const f = await createFabricQuick({
+        name: fabricDraft,
+        unit: unit as "KG" | "MTR",
+        supplierId: supplierId ? +supplierId : null,
+        rate: rate ? +rate : null,
+      });
+      const withUnit: FabricPick = { id: f.id, name: f.name, unit };
+      setFabricList((p) => (p.some((x) => x.id === f.id) ? p : [...p, withUnit].sort((a, b) => a.name.localeCompare(b.name))));
       setFabricId(String(f.id));
     } finally { setAddFabric(false); setFabricDraft(""); setBusy(false); }
   }
@@ -87,9 +104,10 @@ export function FabricOrderManager({
       await createFabricOrder({
         fabricId: +fabricId, supplierId: supplierId ? +supplierId : null,
         expectedDate: expected || null, rate: rate ? +rate : null, gsm: gsm ? +gsm : null,
+        unit: unit as "KG" | "MTR",
         lines: filled,
       });
-      setFabricId(""); setSupplierId(""); setExpected(""); setRate(""); setGsm(""); setLines([{ colour: "", qty: 0 }]);
+      setFabricId(""); setSupplierId(""); setExpected(""); setRate(""); setGsm(""); setUnit("MTR"); setLines([{ colour: "", qty: 0 }]);
       router.refresh();
     } finally { setBusy(false); }
   }
@@ -113,7 +131,7 @@ export function FabricOrderManager({
                   <button onClick={() => setAddFabric(false)} className="rounded-lg border border-border px-3 text-slate-500"><X size={14} /></button>
                 </div>
               ) : (
-                <select value={fabricId} onChange={(e) => (e.target.value === ADD ? setAddFabric(true) : setFabricId(e.target.value))} className={inp}>
+                <select value={fabricId} onChange={(e) => (e.target.value === ADD ? setAddFabric(true) : pickFabric(e.target.value))} className={inp}>
                   <option value="">Fabric…</option>
                   {fabricList.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                   <option value={ADD}>➕ Add new fabric…</option>
@@ -138,6 +156,13 @@ export function FabricOrderManager({
             <div>
               <label className="mb-1 block text-[11px] font-semibold text-slate-600">GSM (optional)</label>
               <input type="number" value={gsm} onChange={(e) => setGsm(e.target.value)} placeholder="—" className={inp} />
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold text-slate-600">Unit</label>
+              <select value={unit} onChange={(e) => setUnit(e.target.value)} className={inp}>
+                <option value="MTR">MTR</option>
+                <option value="KG">KG</option>
+              </select>
             </div>
           </div>
 
