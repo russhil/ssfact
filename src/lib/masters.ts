@@ -41,6 +41,8 @@ export type TrimMasterRow = {
   id: number; name: string; category: string | null; family: string | null;
   supplier: string | null; ratePerUnit: number | null; unit: string | null;
   status: string; current: number; opening: number;
+  // Change 17: master single-source fields (Part D) + reorder trigger (Part H).
+  dimension: string | null; perPieceAvg: number | null; reorderLevel: number | null;
 };
 
 export async function getTrimMaster(): Promise<TrimMasterRow[]> {
@@ -49,6 +51,9 @@ export async function getTrimMaster(): Promise<TrimMasterRow[]> {
     id: t.id, name: t.name, category: t.category, family: t.family,
     supplier: t.supplier?.name ?? null, ratePerUnit: t.ratePerUnit, unit: t.unit,
     status: t.status, current: t.currentStock, opening: t.openingStock,
+    dimension: (t as { dimension?: string | null }).dimension ?? null,
+    perPieceAvg: (t as { perPieceAvg?: number | null }).perPieceAvg ?? null,
+    reorderLevel: (t as { reorderLevel?: number | null }).reorderLevel ?? null,
   }));
 }
 
@@ -131,23 +136,28 @@ function challanLineView(l: {
   };
 }
 
-export async function listChallans(filter?: { direction?: "INWARD" | "OUTWARD"; vendorId?: number; supplierId?: number }) {
+export async function listChallans(filter?: { direction?: "INWARD" | "OUTWARD"; vendorId?: number; supplierId?: number; jobCardId?: number }) {
   const rows = await db.materialChallan.findMany({
     where: {
       ...(filter?.direction ? { direction: filter.direction as any } : {}),
       ...(filter?.vendorId ? { vendorId: filter.vendorId } : {}),
       ...(filter?.supplierId ? { supplierId: filter.supplierId } : {}),
+      ...(filter?.jobCardId ? { jobCardId: filter.jobCardId } : {}),
     },
-    include: { supplier: true, vendor: true, lines: true },
+    include: { supplier: true, vendor: true, lines: true, jobCard: { select: { id: true, siNo: true } } },
     orderBy: [{ createdAt: "desc" }],
   });
   return rows.map((c) => ({
     id: c.id,
     direction: c.direction as string,
     status: (c.voidedAt ? "VOID" : c.status) as string,
+    // Change 17 Part C: kind (persisted, or derived from lines for legacy rows) + job card.
+    kind: ((c as { kind?: string | null }).kind ?? deriveKind(c.lines)) as string | null,
     challanNo: c.challanNo,
     date: c.date,
     counterparty: c.supplier?.name ?? c.vendor?.name ?? "—",
+    jobCardId: c.jobCardId,
+    jobCardSiNo: c.jobCard?.siNo ?? null,
     note: c.note,
     lineCount: c.lines.length,
     totalQty: c.lines.reduce((a, l) => a + l.qty, 0),
@@ -155,10 +165,30 @@ export async function listChallans(filter?: { direction?: "INWARD" | "OUTWARD"; 
   }));
 }
 
+/** Derive a challan kind from its lines — for legacy rows whose `kind` column is null. */
+function deriveKind(lines: { fabricId: number | null; trimItemId: number | null }[]): string | null {
+  const hasFabric = lines.some((l) => l.fabricId != null);
+  const hasTrim = lines.some((l) => l.trimItemId != null);
+  if (hasFabric && hasTrim) return "COMBINED";
+  if (hasFabric) return "FABRIC";
+  if (hasTrim) return "TRIM";
+  return null;
+}
+
+/** All challans raised against a job card, tagged by kind (Change 17 Part C). */
+export async function getJobCardChallans(jobCardId: number) {
+  return listChallans({ jobCardId });
+}
+
 export async function getChallan(id: number) {
   const c = await db.materialChallan.findUnique({
     where: { id },
-    include: { supplier: true, vendor: true, lines: { include: { fabric: true, trimItem: true }, orderBy: { id: "asc" } } },
+    include: {
+      supplier: true,
+      vendor: true,
+      jobCard: { select: { id: true, siNo: true } },
+      lines: { include: { fabric: true, trimItem: true }, orderBy: { id: "asc" } },
+    },
   });
   if (!c) return null;
   const lines = c.lines.map(challanLineView);
@@ -169,11 +199,14 @@ export async function getChallan(id: number) {
     direction: c.direction as "INWARD" | "OUTWARD",
     status: (c.voidedAt ? "VOID" : c.status) as string,
     voided: !!c.voidedAt,
+    kind: ((c as { kind?: string | null }).kind ?? deriveKind(c.lines)) as string | null,
     challanNo: c.challanNo,
     date: c.date,
     note: c.note,
     supplierId: c.supplierId,
     vendorId: c.vendorId,
+    jobCardId: c.jobCardId,
+    jobCardSiNo: c.jobCard?.siNo ?? null,
     counterparty: cp
       ? {
           name: cp.name,
@@ -216,4 +249,34 @@ export type VendorLayer = Awaited<ReturnType<typeof getVendorLayers>>[number];
 
 export async function getSupplierChallans(supplierId: number) {
   return listChallans({ supplierId });
+}
+
+// Change 17 Part I: a single dispatch event for the finished-garment DC-YYYY-NNN print doc.
+export async function getDispatchDoc(id: number) {
+  const e = await db.dispatchEvent.findUnique({
+    where: { id },
+    include: {
+      lines: { orderBy: { id: "asc" } },
+      layers: { select: { layerNo: true, label: true, vendor: { select: { name: true } } } },
+      jobCard: { select: { id: true, siNo: true, customItem: true, product: { select: { name: true, skuCode: true } } } },
+    },
+  });
+  if (!e) return null;
+  const vendors = [...new Set(e.layers.map((l) => l.vendor?.name).filter((n): n is string => !!n))];
+  return {
+    id: e.id,
+    dispatchNo: e.dispatchNo,
+    challan: e.challan, // legacy free-text ref
+    date: e.date,
+    reason: e.reason as string,
+    note: e.note,
+    arrangedBy: e.arrangedBy,
+    qty: e.qty,
+    jobCardId: e.jobCardId,
+    siNo: e.jobCard?.siNo ?? null,
+    item: e.jobCard?.product?.name ?? e.jobCard?.customItem ?? "—",
+    sku: e.jobCard?.product?.skuCode ?? null,
+    vendors, // stitching vendors of the layers this dispatch was booked against
+    lines: e.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty })),
+  };
 }

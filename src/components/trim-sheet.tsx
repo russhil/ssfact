@@ -59,7 +59,7 @@ export function TrimSheet({
   return (
     <Card className="mt-3.5 overflow-hidden p-0">
       <div className="border-b border-border px-5 py-3 text-[13px] font-bold">
-        Trim Sheet <span className="font-medium text-faint">· required vs issued · frozen at job creation</span>
+        Trim Sheet <span className="font-medium text-faint">· required vs issued · applies-to &amp; per-piece roll up from the Trim Master · frozen at job creation</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-[12px]">

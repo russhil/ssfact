@@ -26,10 +26,12 @@ type CutMode = "ratio" | "manual";
 type ColorMode = "ratio" | "manual";
 type BomDim = "COLOR" | "SIZE" | "FLAT";
 type BomRow = { trimItemId: number | null; material: string; color: string; dimension: BomDim; perPieceQty: number };
-type LayerMaths = { avg: string; rolls: string; mtr: string; balance: string; date: string; master: string; vendor: string; label: string };
+// Change 17 A: `mtr` is Fabric USED; `issued` is Fabric ISSUED (Extra = issued − used, derived).
+// Change 17 B: `ratio` is this lay's own size ratio (null ⇒ fall back to the card ratio).
+type LayerMaths = { avg: string; rolls: string; mtr: string; balance: string; issued: string; date: string; master: string; vendor: string; label: string; ratio: [string, number][] | null };
 type ExtraLayer = { id: number; cells: Record<string, number>; maths: LayerMaths; fillColour: string; fillQty: string };
 
-const emptyMaths = (): LayerMaths => ({ avg: "", rolls: "", mtr: "", balance: "", date: "", master: "", vendor: "", label: "" });
+const emptyMaths = (): LayerMaths => ({ avg: "", rolls: "", mtr: "", balance: "", issued: "", date: "", master: "", vendor: "", label: "", ratio: null });
 
 export function NewJobCardForm({
   products,
@@ -348,7 +350,9 @@ export function NewJobCardForm({
   let layerSeq = 0;
   function addLayer() {
     layerSeq = Date.now();
-    setExtraLayers((rows) => [...rows, { id: layerSeq + rows.length, cells: {}, maths: emptyMaths(), fillColour: gridColours[0] ?? "", fillQty: "" }]);
+    // Change 17 B: seed the new lay's own ratio from the card ratio (editable thereafter).
+    const seedRatio = sizeRatio.map(([s, w]) => [s, w] as [string, number]);
+    setExtraLayers((rows) => [...rows, { id: layerSeq + rows.length, cells: {}, maths: { ...emptyMaths(), ratio: seedRatio }, fillColour: gridColours[0] ?? "", fillQty: "" }]);
   }
   const patchLayer = (id: number, patch: Partial<ExtraLayer>) =>
     setExtraLayers((rows) => rows.map((L) => (L.id === id ? { ...L, ...patch } : L)));
@@ -362,35 +366,45 @@ export function NewJobCardForm({
         if (L.id !== id) return L;
         const qty = numOrNull(L.fillQty);
         if (qty == null || qty <= 0) return L;
-        const split = splitByRatio(qty, sizeRatio);
+        // Change 17 B: split by this lay's own ratio, else the card ratio.
+        const split = splitByRatio(qty, L.maths.ratio ?? sizeRatio);
         const cells = { ...L.cells };
         for (const s of sizes) cells[cellKey(s, L.fillColour)] = split.get(s) ?? 0;
         return { ...L, cells };
       })
     );
   }
+  // Change 17 B: edit one weight of a lay's own size ratio.
+  const setLayerRatioWeight = (id: number, i: number, w: number) =>
+    setExtraLayers((rows) =>
+      rows.map((L) =>
+        L.id === id ? { ...L, maths: { ...L.maths, ratio: (L.maths.ratio ?? sizeRatio).map((row, idx) => (idx === i ? [row[0], Math.max(0, w)] as [string, number] : row)) } } : L
+      )
+    );
 
   // build the layers payload for save
   function buildLayers() {
-    const layerFromMaths = (m: LayerMaths, cells: { colour: string; size: string; qty: number }[], fallbackLabel: string) => ({
+    const layerFromMaths = (m: LayerMaths, cells: { colour: string; size: string; qty: number }[], fallbackLabel: string, ratio: [string, number][]) => ({
       label: m.label.trim() || fallbackLabel,
       cutDate: m.date || null,
       cuttingMaster: m.master || null,
       vendorName: m.vendor || null,
       avgConsumption: numOrNull(m.avg),
       rolls: intOrNull(m.rolls),
-      fabricMtr: numOrNull(m.mtr),
+      fabricMtr: numOrNull(m.mtr), // Fabric USED
       fabricBalance: numOrNull(m.balance),
+      fabricIssued: numOrNull(m.issued), // Change 17 A
+      sizeRatio: ratio.length ? JSON.stringify(ratio) : null, // Change 17 B
       cells,
     });
     const out = [];
     const l1Cells = matrix.filter((r) => r.qty > 0).map((r) => ({ colour: r.color, size: r.size, qty: r.qty }));
-    if (l1Cells.length) out.push(layerFromMaths(l1, l1Cells, "Layer 1"));
+    if (l1Cells.length) out.push(layerFromMaths(l1, l1Cells, "Layer 1", sizeRatio));
     extraLayers.forEach((L, i) => {
       const cells = Object.entries(L.cells)
         .filter(([, q]) => q > 0)
         .map(([k, q]) => { const [size, colour] = splitCellKey(k); return { colour, size, qty: q }; });
-      if (cells.length) out.push(layerFromMaths(L.maths, cells, `Layer ${i + 2}`));
+      if (cells.length) out.push(layerFromMaths(L.maths, cells, `Layer ${i + 2}`, L.maths.ratio ?? sizeRatio));
     });
     return out;
   }
@@ -809,6 +823,25 @@ export function NewJobCardForm({
                     <button type="button" onClick={() => fillLayerFromRatio(L.id)} className="rounded-md border border-border bg-white px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50">apply size ratio</button>
                   </div>
 
+                  {/* Change 17 B: this lay's own size ratio (defaults from the card, editable) */}
+                  <div className="mb-2 rounded-md border border-dashed border-border bg-white/60 p-2">
+                    <div className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-faint">This lay&apos;s size ratio</div>
+                    <div className="grid gap-1 text-center" style={{ gridTemplateColumns: `repeat(${sizes.length}, minmax(0, 1fr))` }}>
+                      {sizes.map((s, i) => (
+                        <div key={s}>
+                          <div className="text-[9px] font-bold text-faint">{s}</div>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={(L.maths.ratio ?? sizeRatio)[i]?.[1] ?? 0}
+                            onChange={(e) => setLayerRatioWeight(L.id, i, +e.target.value)}
+                            className="mt-0.5 w-full rounded-md border border-border bg-white py-1 text-center text-[11px] font-bold tnum outline-none focus:border-primary"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* colour×size grid */}
                   <div className="overflow-x-auto">
                     <table className="w-full text-center text-[12px]">
@@ -1107,21 +1140,31 @@ export function NewJobCardForm({
 }
 
 function LayerMathsRow({ maths, masters, vendors, onChange }: { maths: LayerMaths; masters: string[]; vendors: string[]; onChange: (patch: Partial<LayerMaths>) => void }) {
-  const mtr = numOrNull(maths.mtr);
-  const note = mtr != null ? `${maths.avg ? `avg ${maths.avg} · ` : ""}${maths.rolls ? `${maths.rolls} roll · ` : ""}${num(mtr)} mtr${maths.balance ? ` · bal ${maths.balance}` : ""}` : null;
+  // Change 17 A: Issued / Used / Extra are the reconciliation trio. Extra = Issued − Used,
+  // may be negative (short-issued) — shown in rose, never clamped. avg/rolls/balance stay as
+  // faint suggestion fields.
+  const issuedV = numOrNull(maths.issued);
+  const usedV = numOrNull(maths.mtr);
+  const extra = issuedV != null ? Math.round((issuedV - (usedV ?? 0)) * 100) / 100 : null;
   const inp = "w-full rounded-md border border-border bg-white px-1.5 py-1 text-[11px] tnum outline-none focus:border-primary";
+  const faint = "w-full rounded-md border border-border bg-slate-50 px-1.5 py-1 text-[11px] tnum text-faint outline-none focus:border-primary focus:bg-white";
   return (
     <div className="mt-3 border-t border-border/60 pt-2.5">
-      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-7">
-        <MathField label="avg m/pc"><input type="number" step="0.001" value={maths.avg} placeholder="—" onChange={(e) => onChange({ avg: e.target.value })} className={inp} /></MathField>
-        <MathField label="rolls"><input type="number" value={maths.rolls} placeholder="—" onChange={(e) => onChange({ rolls: e.target.value })} className={inp} /></MathField>
-        <MathField label="fabric mtr"><input type="number" step="0.01" value={maths.mtr} placeholder="—" onChange={(e) => onChange({ mtr: e.target.value })} className={inp} /></MathField>
-        <MathField label="balance"><input type="number" step="0.01" value={maths.balance} placeholder="—" onChange={(e) => onChange({ balance: e.target.value })} className={inp} /></MathField>
+      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6 lg:grid-cols-9">
+        <MathField label="avg m/pc (est)"><input type="number" step="0.001" value={maths.avg} placeholder="—" onChange={(e) => onChange({ avg: e.target.value })} className={faint} /></MathField>
+        <MathField label="rolls"><input type="number" value={maths.rolls} placeholder="—" onChange={(e) => onChange({ rolls: e.target.value })} className={faint} /></MathField>
+        <MathField label="balance"><input type="number" step="0.01" value={maths.balance} placeholder="—" onChange={(e) => onChange({ balance: e.target.value })} className={faint} /></MathField>
+        <MathField label="fabric issued"><input type="number" step="0.01" value={maths.issued} placeholder="—" onChange={(e) => onChange({ issued: e.target.value })} className={inp} /></MathField>
+        <MathField label="fabric used"><input type="number" step="0.01" value={maths.mtr} placeholder="—" onChange={(e) => onChange({ mtr: e.target.value })} className={inp} /></MathField>
+        <MathField label="extra">
+          <div className={`rounded-md border border-border bg-slate-50 px-1.5 py-1 text-[11px] font-semibold tnum ${extra != null && extra < 0 ? "text-rose-600" : "text-slate-600"}`}>
+            {extra != null ? num(extra) : "—"}
+          </div>
+        </MathField>
         <MathField label="cut date"><input type="date" value={maths.date} onChange={(e) => onChange({ date: e.target.value })} className={inp} /></MathField>
         <MathField label="master"><select value={maths.master} onChange={(e) => onChange({ master: e.target.value })} className={inp}><option value="">default</option>{masters.map((m) => <option key={m}>{m}</option>)}</select></MathField>
         <MathField label="vendor"><select value={maths.vendor} onChange={(e) => onChange({ vendor: e.target.value })} className={inp}><option value="">card vendor</option>{vendors.map((v) => <option key={v}>{v}</option>)}</select></MathField>
       </div>
-      {note && <p className="mt-1.5 text-[10px] text-muted">{note}</p>}
     </div>
   );
 }

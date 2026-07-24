@@ -45,6 +45,7 @@ export default async function DispatchPage() {
             <thead>
               <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
                 <th className="px-5 py-2.5 font-semibold">Date</th>
+                <th className="px-5 py-2.5 font-semibold">Challan</th>
                 <th className="px-5 py-2.5 font-semibold">Job</th>
                 <th className="px-5 py-2.5 font-semibold">Item</th>
                 <th className="px-5 py-2.5 text-right font-semibold">Qty</th>
@@ -54,6 +55,9 @@ export default async function DispatchPage() {
               {recent.map((e) => (
                 <tr key={e.id} className="border-b border-slate-50 last:border-0">
                   <td className="px-5 py-2.5 text-slate-500 tnum">{fmtDate(e.date)}</td>
+                  <td className="px-5 py-2.5">
+                    <Link href={`/dispatch-doc/${e.id}`} className="font-semibold text-primary-ink hover:underline tnum">{e.dispatchNo ?? e.challan ?? `#${e.id}`}</Link>
+                  </td>
                   <td className="px-5 py-2.5">
                     <Link href={`/job-cards/${e.jobCard.id}`} className="font-bold text-primary-ink hover:underline">{e.jobCard.siNo}</Link>
                   </td>

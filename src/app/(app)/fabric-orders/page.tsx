@@ -21,7 +21,7 @@ export default async function FabricOrdersPage() {
       </div>
       <FabricOrderManager
         orders={orders}
-        fabrics={fabrics.map((f) => ({ id: f.id, name: f.name }))}
+        fabrics={fabrics.map((f) => ({ id: f.id, name: f.name, unit: f.unit }))}
         suppliers={suppliers.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }))}
         colours={colours}
       />

@@ -7,7 +7,7 @@ import { num } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function TrimsPage() {
-  const [trims, summary, suppliers, categories] = await Promise.all([getTrimMaster(), getTrimSummary(), getSuppliers(), listLookups("TRIM_CATEGORY")]);
+  const [trims, summary, suppliers, categories, units] = await Promise.all([getTrimMaster(), getTrimSummary(), getSuppliers(), listLookups("TRIM_CATEGORY"), listLookups("UNIT")]);
 
   return (
     <div className="p-6">
@@ -35,7 +35,7 @@ export default async function TrimsPage() {
         </Card>
       </div>
 
-      <TrimMasterManager trims={trims} suppliers={suppliers.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }))} categories={categories} />
+      <TrimMasterManager trims={trims} suppliers={suppliers.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }))} categories={categories} units={units} />
     </div>
   );
 }

@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { getFabricStock } from "@/lib/inventory";
+import { getCurrentUser } from "@/lib/auth";
 import { Card, Badge, PageHeader } from "@/components/ui";
+import { AddFabricButton } from "@/components/add-fabric-button";
 import { num, pct } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function InventoryPage() {
-  const stock = await getFabricStock();
+  const [stock, user] = await Promise.all([getFabricStock(), getCurrentUser()]);
+  const canEdit = user?.role === "ADMIN" || user?.role === "STAFF";
   const low = stock.filter((s) => s.usedPct >= 0.85 && s.available > 0).length;
   const short = stock.filter((s) => s.available <= 0).length;
   const totalAvail = stock.reduce((a, s) => a + Math.max(0, s.available), 0);
@@ -17,6 +20,12 @@ export default async function InventoryPage() {
         title="Inventory"
         subtitle="Live fabric stock — depletes automatically as job cards consume it."
       />
+
+      {canEdit && (
+        <div className="mb-4">
+          <AddFabricButton />
+        </div>
+      )}
 
       <div className="mb-4 grid grid-cols-4 gap-3.5">
         <Card className="p-4">
