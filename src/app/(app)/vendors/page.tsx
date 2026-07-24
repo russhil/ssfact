@@ -14,15 +14,20 @@ export default async function VendorsPage() {
   const canEdit = me?.role === "ADMIN" || me?.role === "STAFF";
   const [vendorList, cuttingList] = canEdit ? await Promise.all([getVendorList(), getCuttingMasterList()]) : [[], []];
 
+  // Change 19 C: roll up by the LAYER vendor. This index used to attribute a whole card to
+  // its header vendor, so its totals contradicted /vendors/[name], which is already
+  // layer-based. Split cards now contribute to each vendor in proportion to the work.
   const map = new Map<string, { name: string; jobs: number; active: number; cut: number; disp: number; overdue: number }>();
   for (const j of jobs) {
-    const v = map.get(j.vendor) ?? { name: j.vendor, jobs: 0, active: 0, cut: 0, disp: 0, overdue: 0 };
-    v.jobs++;
-    if (j.status === "ACTIVE") v.active++;
-    if (j.overdue) v.overdue++;
-    v.cut += j.cutQty;
-    v.disp += j.dispatchedQty;
-    map.set(j.vendor, v);
+    for (const s of j.split) {
+      const v = map.get(s.vendor) ?? { name: s.vendor, jobs: 0, active: 0, cut: 0, disp: 0, overdue: 0 };
+      v.jobs++;
+      if (j.status === "ACTIVE") v.active++;
+      if (j.overdue) v.overdue++;
+      v.cut += s.cutQty;
+      v.disp += s.dispatchedQty;
+      map.set(s.vendor, v);
+    }
   }
   const vendors = [...map.values()]
     .filter((v) => v.cut > 0 && v.name !== "Unassigned")

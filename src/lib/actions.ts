@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
 import { requireRole } from "@/lib/auth";
 import { colorKey } from "@/lib/colour";
+import { getJobTrimIssues } from "@/lib/jobs";
 import { revalidatePath } from "next/cache";
 
 type BomDim = "COLOR" | "SIZE" | "FLAT";
@@ -161,7 +162,8 @@ export async function createJobCard(input: NewJobInput) {
 
   const vendor =
     (await db.vendor.findUnique({ where: { name: input.vendorName } })) ??
-    (await db.vendor.findUnique({ where: { name: "Unassigned" } }))!;
+    (await db.vendor.findUnique({ where: { name: "Unassigned" } }));
+  if (!vendor) throw new Error('No vendor found — add the vendor, or an "Unassigned" vendor, first');
 
   let cuttingMasterId: number | null = null;
   if (input.cuttingMaster) {
@@ -271,7 +273,8 @@ export async function createJobCard(input: NewJobInput) {
   const bomTrims = bomTrimIds.length
     ? await db.trimItem.findMany({
         where: { id: { in: bomTrimIds } },
-        select: { id: true, currentStock: true, dimension: true, perPieceAvg: true },
+        // `unit` feeds the auto-drafted outward trim challan (Change 19 A.2).
+        select: { id: true, currentStock: true, dimension: true, perPieceAvg: true, unit: true },
       })
     : [];
   const trimById = new Map(bomTrims.map((t) => [t.id, t]));
@@ -395,7 +398,10 @@ export async function createJobCard(input: NewJobInput) {
       });
     }
 
-    // Frozen BOM snapshot (from the EDITED trim sheet) + live trim depletion via the ledger.
+    // Change 19 A.1: the frozen BOM snapshot is a PLAN, not a movement. Creating a card no
+    // longer deducts trims — it used to post an OUT here, and staff ALSO raised a real
+    // outward challan for the same trims, so every card double-counted. Trims now leave
+    // stock in exactly one place: locking an OUTWARD challan (see the draft below).
     for (const line of bomPlan) {
       await tx.jobBomLine.create({
         data: {
@@ -410,13 +416,25 @@ export async function createJobCard(input: NewJobInput) {
           jobCardId: created.id,
         } as any,
       });
-      await postMaterialMovement(tx, {
-        direction: "OUT",
-        qty: line.requiredQty,
-        date: now,
-        trimItemId: line.trimItemId ?? undefined,
-      });
     }
+
+    // Change 19 A.2: give the physical trim issue a home. The exploded BOM is drafted as an
+    // OUTWARD challan against this card so staff don't re-type it — they adjust it to what
+    // actually went out and lock it. THE LOCK IS THE DEDUCTION; this draft moves nothing.
+    await draftTrimChallanLines(
+      tx,
+      created.id,
+      vendor.id,
+      siNo,
+      bomPlan
+        .filter((l) => l.trimItemId != null && l.requiredQty > 0)
+        .map((l) => ({
+          trimItemId: l.trimItemId!,
+          qty: l.requiredQty,
+          unit: trimById.get(l.trimItemId!)?.unit ?? null,
+          note: [l.material, l.color].filter(Boolean).join(" · ") || null,
+        }))
+    );
 
     // Change 16 Part F: card-level stitch assignments retired — vendor lives on the
     // cutting layer (Change 14 A) and the "received" record is the dispatch (Change 14 B).
@@ -428,7 +446,90 @@ export async function createJobCard(input: NewJobInput) {
   revalidatePath("/job-cards");
   revalidatePath("/inventory");
   revalidatePath("/trims");
+  revalidatePath("/challans");
   return { slug: String(job.id), siNo: job.siNo };
+}
+
+/**
+ * Change 19 A.2/A.3 — write a DRAFT OUTWARD trim challan for a job card.
+ *
+ * Free-text BOM lines (no trimItemId) are skipped: there's nothing to deduct, though they
+ * still live on the JobBomLine snapshot. An empty line set creates no challan at all — we
+ * never leave a blank document lying around.
+ */
+async function draftTrimChallanLines(
+  tx: Tx,
+  jobCardId: number,
+  vendorId: number,
+  siNo: string,
+  lines: { trimItemId: number; qty: number; unit: string | null; note: string | null }[]
+): Promise<number | null> {
+  if (lines.length === 0) return null;
+  const ch = await tx.materialChallan.create({
+    data: {
+      direction: "OUTWARD",
+      status: "DRAFT",
+      kind: "TRIM",
+      vendorId,
+      jobCardId,
+      note: `Trim issue — ${siNo}`,
+    } as any,
+  });
+  for (const l of lines) {
+    await tx.materialChallanLine.create({
+      data: { challanId: ch.id, trimItemId: l.trimItemId, qty: l.qty, unit: l.unit, note: l.note },
+    });
+  }
+  return ch.id;
+}
+
+/**
+ * Change 19 A.3 — raise another outward trim challan for a card mid-job ("more trims needed").
+ * With `fromRemainingBom`, each line is billed down by what locked challans already issued,
+ * so a top-up challan only carries the shortfall.
+ */
+export async function draftTrimChallanForJob(input: { jobCardId: number; fromRemainingBom?: boolean }) {
+  await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.findUnique({
+    where: { id: input.jobCardId },
+    select: { id: true, siNo: true, vendorId: true, jobLines: { select: { trimItemId: true, material: true, color: true, requiredQty: true, totalQty: true } } },
+  });
+  if (!job) throw new Error("Job card not found");
+  if (!job.vendorId) throw new Error("This card has no vendor — an outward challan needs one");
+
+  const issued = await getJobTrimIssues(job.id);
+  const lines = job.jobLines
+    .filter((l) => l.trimItemId != null)
+    .map((l) => {
+      const required = l.requiredQty ?? l.totalQty ?? 0;
+      const already = input.fromRemainingBom ? issued.get(l.trimItemId!)?.locked ?? 0 : 0;
+      return {
+        trimItemId: l.trimItemId!,
+        qty: Math.round((required - already) * 100) / 100,
+        note: [l.material, l.color].filter(Boolean).join(" · ") || null,
+      };
+    })
+    .filter((l) => l.qty > 0);
+  if (lines.length === 0) throw new Error("Nothing left to issue on this card's BOM");
+
+  const units = await db.trimItem.findMany({
+    where: { id: { in: lines.map((l) => l.trimItemId) } },
+    select: { id: true, unit: true },
+  });
+  const unitById = new Map(units.map((u) => [u.id, u.unit]));
+
+  const id = await db.$transaction((tx) =>
+    draftTrimChallanLines(
+      tx,
+      job.id,
+      job.vendorId!,
+      job.siNo,
+      lines.map((l) => ({ ...l, unit: unitById.get(l.trimItemId) ?? null }))
+    )
+  );
+  revalidatePath("/challans");
+  revalidatePath(`/job-cards/${job.id}`);
+  return { id: id! };
 }
 
 export type FabricActualsInput = {
@@ -450,80 +551,118 @@ export async function recordFabricActuals(input: FabricActualsInput) {
   await requireRole("ADMIN", "STAFF");
   const job = await db.jobCard.findUnique({
     where: { id: input.jobCardId },
-    include: { product: true, returnNotes: true, fabricLines: true },
+    include: { product: true, fabricLines: true },
   });
   if (!job) throw new Error("Job card not found");
   const fabricId = job.product?.fabricId ?? null;
 
-  // Returns are locked per colour once recorded — re-saving never double-counts.
-  const returnedColours = new Set(job.returnNotes.map((r) => colorKey(r.color)));
   let totalReturned = 0;
+  let totalIssued = 0;
 
-  for (const l of input.lines) {
-    const key = colorKey(l.color);
-    const existing = job.fabricLines.find((f) => colorKey(f.color) === key);
-    if (existing) {
-      await db.jobFabricLine.update({
-        where: { id: existing.id },
-        data: {
-          actualAvg: l.actualAvg ?? null,
-          qtyIssued: l.qtyIssued,
-          qtyUsed: l.qtyUsed,
-          gsm: l.gsm ?? existing.gsm,
-          rollWidth: l.rollWidth ?? existing.rollWidth,
-          arrangedBy: input.arrangedBy ?? existing.arrangedBy,
-          challan: input.challan ?? existing.challan,
-        } as any,
+  // One transaction: `postedSoFar` is a read-then-write, so two concurrent saves would
+  // otherwise both read the same net and post the delta twice.
+  await db.$transaction(async (tx) => {
+    for (const l of input.lines) {
+      const key = colorKey(l.color);
+      const existing = job.fabricLines.find((f) => colorKey(f.color) === key);
+      if (existing) {
+        await tx.jobFabricLine.update({
+          where: { id: existing.id },
+          data: {
+            actualAvg: l.actualAvg ?? null,
+            qtyIssued: l.qtyIssued,
+            qtyUsed: l.qtyUsed,
+            gsm: l.gsm ?? existing.gsm,
+            rollWidth: l.rollWidth ?? existing.rollWidth,
+            arrangedBy: input.arrangedBy ?? existing.arrangedBy,
+            challan: input.challan ?? existing.challan,
+          } as any,
+        });
+      } else if (fabricId) {
+        await tx.jobFabricLine.create({
+          data: {
+            color: key, fabricId, cutQty: 0,
+            estAvg: l.actualAvg ?? null, actualAvg: l.actualAvg ?? null,
+            gsm: l.gsm ?? null, rollWidth: l.rollWidth ?? null,
+            qtyIssued: l.qtyIssued, qtyUsed: l.qtyUsed, jobCardId: job.id,
+            arrangedBy: input.arrangedBy ?? null, challan: input.challan ?? null,
+          } as any,
+        });
+      }
+      if (!fabricId) continue;
+
+      // ── Change 19 Part B: reconcile the ledger to USED ──
+      // The old code returned Math.max(0, issued − used), which CLAMPED: when a layer was
+      // over-cut (used > issued) it returned nothing, so net stock stayed parked at the
+      // issued ESTIMATE and the extra fabric really consumed was never deducted.
+      // Owner's rule: "It should not look at issued. It should always look at the manually
+      // filled one which is USED." So we post whatever delta makes the net equal USED —
+      // in both directions, never clamped. Negative stock is allowed: it's real over-cut.
+      const agg = await tx.stockMovement.groupBy({
+        by: ["type"],
+        where: {
+          fabricId,
+          jobCardId: job.id,
+          // legacy colourless movements were stored as null; colorKey("") === ""
+          ...(key === "" ? { OR: [{ color: "" }, { color: null }] } : { color: key }),
+        },
+        _sum: { qty: true },
       });
-    } else if (fabricId) {
-      await db.jobFabricLine.create({
-        data: {
-          color: key, fabricId, cutQty: 0,
-          estAvg: l.actualAvg ?? null, actualAvg: l.actualAvg ?? null,
-          gsm: l.gsm ?? null, rollWidth: l.rollWidth ?? null,
-          qtyIssued: l.qtyIssued, qtyUsed: l.qtyUsed, jobCardId: job.id,
-          arrangedBy: input.arrangedBy ?? null, challan: input.challan ?? null,
-        } as any,
-      });
+      const sumOf = (t: string) => agg.find((a) => a.type === t)?._sum.qty ?? 0;
+      const postedSoFar = sumOf("ISSUE") - sumOf("RECEIPT");
+
+      // Idempotency falls out of this: re-saving the same USED gives delta 0 and posts
+      // nothing, which is why the old one-shot `returnedColours` lock is gone.
+      const raw = (l.qtyUsed ?? 0) - postedSoFar;
+      const delta = Math.abs(raw) < 0.005 ? 0 : Math.round(raw * 100) / 100;
+
+      if (delta > 0) {
+        // used more than we've taken out — deduct the difference (over-cut)
+        await postMaterialMovement(tx, {
+          direction: "OUT",
+          qty: delta,
+          date: new Date(),
+          fabricId,
+          colour: key,
+          jobCardId: job.id,
+          note: `Actuals true-up ${job.siNo} · ${key || "—"}`,
+        });
+        totalIssued += delta;
+      } else if (delta < 0) {
+        // used less — the leftover goes back, and still leaves a human-facing ReturnNote
+        const ret = -delta;
+        await postMaterialMovement(tx, {
+          direction: "IN",
+          qty: ret,
+          date: new Date(),
+          fabricId,
+          colour: key,
+          jobCardId: job.id,
+          note: `Return ${job.siNo} · ${key || "—"}`,
+        });
+        await tx.returnNote.create({
+          data: { qty: ret, fabricId, jobCardId: job.id, color: key, note: input.note ?? null } as any,
+        });
+        totalReturned += ret;
+      }
     }
 
-    const returnQty = Math.max(0, l.qtyIssued - l.qtyUsed);
-    if (returnQty > 0 && fabricId && !returnedColours.has(key)) {
-      await db.returnNote.create({
-        data: { qty: returnQty, fabricId, jobCardId: job.id, color: key, note: input.note ?? null } as any,
-      });
-      await db.stockMovement.create({
-        data: {
-          type: "RECEIPT", qty: returnQty, date: new Date(),
-          fabricId, jobCardId: job.id, color: key, note: `Return ${job.siNo} · ${key}`,
-        } as any,
-      });
-      const fc = await db.fabricColor.upsert({
-        where: { fabricId_color: { fabricId, color: key } },
-        create: { fabricId, color: key, openingStock: returnQty, currentStock: returnQty },
-        update: { currentStock: { increment: returnQty } },
-      });
-      void fc;
-      returnedColours.add(key);
-      totalReturned += returnQty;
-    }
-  }
-
-  // Roll up to the job-level legacy fields for back-compat displays.
-  const sum = (k: "qtyIssued" | "qtyUsed") => input.lines.reduce((a, l) => a + (l[k] ?? 0), 0);
-  const avgs = input.lines.map((l) => l.actualAvg).filter((v): v is number => v != null);
-  await db.jobCard.update({
-    where: { id: job.id },
-    data: {
-      actualAvg: avgs.length ? avgs.reduce((a, b) => a + b, 0) / avgs.length : null,
-      fabricDispatched: sum("qtyIssued"),
-      fabricUsed: sum("qtyUsed"),
-    },
+    // Roll up to the job-level legacy fields for back-compat displays.
+    const sum = (k: "qtyIssued" | "qtyUsed") => input.lines.reduce((a, l) => a + (l[k] ?? 0), 0);
+    const avgs = input.lines.map((l) => l.actualAvg).filter((v): v is number => v != null);
+    await tx.jobCard.update({
+      where: { id: job.id },
+      data: {
+        actualAvg: avgs.length ? avgs.reduce((a, b) => a + b, 0) / avgs.length : null,
+        fabricDispatched: sum("qtyIssued"),
+        fabricUsed: sum("qtyUsed"),
+      },
+    });
   });
 
   revalidatePath(`/job-cards/${String(job.id)}`);
   revalidatePath("/inventory");
-  return { returnQty: totalReturned };
+  return { returnQty: totalReturned, extraIssued: totalIssued };
 }
 
 export async function setJobStage(input: {

@@ -19,6 +19,12 @@ export type TrimSheetLine = {
   challan: string | null;
   trimName: string | null;
   trimCurrent: number | null;
+  // Change 19 A.4: trims that have actually left the store, from the OUTWARD challan
+  // ledger. `issuedFromChallans` = locked (posted to stock); `pendingFromDrafts` = drafted
+  // but not yet issued. Optional so free-text lines (no trim master) keep the legacy path.
+  trimItemId?: number | null;
+  issuedFromChallans?: number;
+  pendingFromDrafts?: number;
 };
 
 const DIM_LABEL: Record<string, string> = { COLOR: "colour", SIZE: "size", FLAT: "flat" };
@@ -59,7 +65,7 @@ export function TrimSheet({
   return (
     <Card className="mt-3.5 overflow-hidden p-0">
       <div className="border-b border-border px-5 py-3 text-[13px] font-bold">
-        Trim Sheet <span className="font-medium text-faint">· required vs issued · applies-to &amp; per-piece roll up from the Trim Master · frozen at job creation</span>
+        Trim Sheet <span className="font-medium text-faint">· required (frozen plan) vs issued · issued = locked outward challans · drafts read as pending</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-[12px]">
@@ -71,6 +77,7 @@ export function TrimSheet({
               <th className="px-3 py-2.5 text-right font-semibold">Required</th>
               <th className="px-3 py-2.5 text-right font-semibold">Issued</th>
               <th className="px-3 py-2.5 text-right font-semibold">Balance</th>
+              <th className="px-3 py-2.5 font-semibold">Pending issue</th>
               <th className="px-3 py-2.5 font-semibold">Arranged by</th>
               <th className="px-3 py-2.5 text-right font-semibold">In store</th>
               {canEdit && <th className="px-3 py-2.5"></th>}
@@ -79,8 +86,15 @@ export function TrimSheet({
           <tbody>
             {lines.map((l) => {
               const required = l.requiredQty ?? 0;
-              const issuedV = l.issuedQty ?? 0;
-              const balance = required - issuedV;
+              // Tracked trims read the locked challan ledger; free-text lines keep the
+              // legacy hand-entered number (they never had stock to move).
+              const tracked = l.trimItemId != null;
+              const issuedV = tracked ? l.issuedFromChallans ?? 0 : l.issuedQty ?? 0;
+              const pending = l.pendingFromDrafts ?? 0;
+              // Balance may go negative — over-issuing is real and must be visible.
+              const balance = Math.round((required - issuedV) * 100) / 100;
+              const logged = l.issuedQty ?? 0;
+              const divergent = tracked && logged > 0 && Math.abs(logged - issuedV) > 0.005;
               const short = l.trimCurrent != null && required > l.trimCurrent && balance > 0;
               const isEditing = editing === l.id;
               return (
@@ -93,10 +107,16 @@ export function TrimSheet({
                     {isEditing ? (
                       <input type="number" value={issued} onChange={(e) => setIssued(e.target.value)} className="w-20 rounded-md border border-border px-2 py-1 text-right text-[12px] tnum outline-none focus:border-primary" />
                     ) : (
-                      num(issuedV)
+                      <span>
+                        {num(issuedV)}
+                        {divergent && <span className="ml-1 block text-[10px] text-faint">logged: {num(logged)}</span>}
+                      </span>
                     )}
                   </td>
-                  <td className={`px-3 py-2 text-right tnum font-bold ${balance > 0 ? "text-amber-600" : "text-emerald-600"}`}>{num(balance)}</td>
+                  <td className={`px-3 py-2 text-right tnum font-bold ${balance < 0 ? "text-rose-600" : balance > 0 ? "text-amber-600" : "text-emerald-600"}`}>{num(balance)}</td>
+                  <td className="px-3 py-2">
+                    {pending > 0 ? <Badge tone="warn">{num(pending)} drafted</Badge> : <span className="text-faint">—</span>}
+                  </td>
                   <td className="px-3 py-2 text-slate-500">
                     {isEditing ? (
                       <div className="flex flex-col gap-1">

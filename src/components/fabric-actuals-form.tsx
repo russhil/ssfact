@@ -15,7 +15,12 @@ export type ActualsLine = {
   qtyIssued: number;
   qtyUsed: number;
   returned: number;
-  locked: boolean;
+  /**
+   * Change 19 B: net already taken out of stock for this card+colour (Σ ISSUE − Σ RECEIPT).
+   * Saving posts whatever delta makes that net equal USED, so the preview below is the real
+   * movement — not the old clamped "issued − used", which hid every over-cut.
+   */
+  posted: number;
 };
 
 type Draft = { avg: string; issued: string; used: string };
@@ -48,8 +53,9 @@ export function FabricActualsForm({
   const set = (i: number, k: keyof Draft, v: string) =>
     setDrafts((p) => p.map((d, idx) => (idx === i ? { ...d, [k]: v } : d)));
 
-  const previewReturn = drafts.reduce((a, d) => a + Math.max(0, (+d.issued || 0) - (+d.used || 0)), 0);
-  const anyLocked = lines.some((l) => l.locked);
+  // delta > 0 → more will be deducted (over-cut); delta < 0 → leftover returns; 0 → nothing.
+  const deltaOf = (i: number) => Math.round(((+drafts[i].used || 0) - lines[i].posted) * 100) / 100;
+  const netDelta = lines.reduce((a, _l, i) => a + deltaOf(i), 0);
 
   async function submit() {
     setSaving(true);
@@ -67,7 +73,13 @@ export function FabricActualsForm({
         arrangedBy: by || null,
         challan: challan || null,
       });
-      setDone(r.returnQty > 0 ? `Saved · ${num(r.returnQty)} ${u} returned to stock` : "Saved");
+      setDone(
+        [
+          "Saved",
+          r.returnQty > 0 ? `${num(r.returnQty)} ${u} returned to stock` : null,
+          r.extraIssued > 0 ? `${num(r.extraIssued)} ${u} extra deducted` : null,
+        ].filter(Boolean).join(" · ")
+      );
       router.refresh();
     } finally {
       setSaving(false);
@@ -87,12 +99,13 @@ export function FabricActualsForm({
               <th className="px-2 py-1 text-right font-semibold">Actual avg</th>
               <th className="px-2 py-1 text-right font-semibold">Issued ({u})</th>
               <th className="px-2 py-1 text-right font-semibold">Used ({u})</th>
-              <th className="px-2 py-1 text-right font-semibold">Return</th>
+              <th className="px-2 py-1 text-right font-semibold">Net posted</th>
+              <th className="px-2 py-1 text-right font-semibold">Movement</th>
             </tr>
           </thead>
           <tbody>
             {lines.map((l, i) => {
-              const ret = Math.max(0, (+drafts[i].issued || 0) - (+drafts[i].used || 0));
+              const d = deltaOf(i);
               return (
                 <tr key={l.color || i} className="border-t border-slate-50">
                   <td className="px-2 py-1 font-semibold text-slate-600">{l.color || "—"}</td>
@@ -105,8 +118,9 @@ export function FabricActualsForm({
                   <td className="px-1 py-1">
                     <Cell value={drafts[i].used} onChange={(v) => set(i, "used", v)} />
                   </td>
-                  <td className="px-2 py-1 text-right tnum text-emerald-600">
-                    {l.locked ? <span className="text-faint">locked</span> : ret > 0 ? num(ret) : "—"}
+                  <td className="px-2 py-1 text-right tnum text-slate-500">{num(l.posted)}</td>
+                  <td className={`px-2 py-1 text-right tnum ${d > 0 ? "text-rose-600" : d < 0 ? "text-emerald-600" : "text-faint"}`}>
+                    {d > 0 ? `deduct ${num(d)}` : d < 0 ? `return ${num(-d)}` : "—"}
                   </td>
                 </tr>
               );
@@ -120,8 +134,14 @@ export function FabricActualsForm({
       </div>
       <div className="mt-2.5 flex items-center justify-between">
         <span className="text-[12px] text-muted">
-          Return to stock: <b className="text-emerald-600 tnum">{num(previewReturn)} {u}</b>
-          {anyLocked && <span className="ml-2 text-[11px] text-faint">(some colours already returned — re-saving won&apos;t double-count)</span>}
+          {netDelta > 0 ? (
+            <>Will deduct: <b className="text-rose-600 tnum">{num(netDelta)} {u}</b></>
+          ) : netDelta < 0 ? (
+            <>Will return to stock: <b className="text-emerald-600 tnum">{num(-netDelta)} {u}</b></>
+          ) : (
+            <>No stock movement</>
+          )}
+          <span className="ml-2 text-[11px] text-faint">stock always settles at USED — re-saving the same figures moves nothing</span>
         </span>
         <button
           onClick={submit}

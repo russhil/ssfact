@@ -39,7 +39,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
         r.siNo.toLowerCase().includes(needle) ||
         r.item.toLowerCase().includes(needle) ||
         r.styleNo.toLowerCase().includes(needle) ||
-        r.vendor.toLowerCase().includes(needle)
+        r.vendors.some((v) => v.toLowerCase().includes(needle))
       );
     });
   }, [rows, q, f, productId]);

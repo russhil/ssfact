@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { jobItem } from "@/lib/job-display";
+import { LAYER_VENDOR_INCLUDE, splitByLayerVendor } from "@/lib/vendor-split";
 
 export type JobLike = {
   status: string;
@@ -13,7 +14,7 @@ export const isOverdue = (j: JobLike, now = new Date()) =>
 
 export async function getDashboard() {
   const jobs = await db.jobCard.findMany({
-    include: { vendor: true, product: true },
+    include: { vendor: true, product: true, ...LAYER_VENDOR_INCLUDE },
     orderBy: { orderDate: "asc" },
   });
   const now = new Date();
@@ -23,15 +24,17 @@ export async function getDashboard() {
   const active = jobs.filter((j) => j.status === "ACTIVE");
   const overdueJobs = jobs.filter((j) => isOverdue(j, now));
 
-  // vendor progress (active jobs only)
+  // Vendor progress (active jobs only). Change 19 C: split across the LAYER vendors — a
+  // card cut across two units must not show as one vendor's whole workload.
   const byVendor = new Map<string, { name: string; jobs: number; cut: number; disp: number }>();
   for (const j of active) {
-    const k = j.vendor.name;
-    const v = byVendor.get(k) ?? { name: k, jobs: 0, cut: 0, disp: 0 };
-    v.jobs++;
-    v.cut += j.cutQty;
-    v.disp += j.dispatchedQty;
-    byVendor.set(k, v);
+    for (const s of splitByLayerVendor(j)) {
+      const v = byVendor.get(s.vendor) ?? { name: s.vendor, jobs: 0, cut: 0, disp: 0 };
+      v.jobs++;
+      v.cut += s.cutQty;
+      v.disp += s.dispatchedQty;
+      byVendor.set(s.vendor, v);
+    }
   }
   const vendors = [...byVendor.values()]
     .filter((v) => v.cut > 0)
