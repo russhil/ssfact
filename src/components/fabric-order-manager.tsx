@@ -3,16 +3,19 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createFabricOrder, receiveFabricOrder, generatePO, createColour, createFabricQuick } from "@/lib/actions";
+import { createFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick } from "@/lib/actions";
 import { Card, Badge } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
-import { Plus, Check, X, FileText } from "lucide-react";
+import { Plus, Check, X, FileText, Truck } from "lucide-react";
 
 type Line = { colour: string; qty: number };
+type ChallanLink = { id: number; challanNo: string | null; status: string };
 type Order = {
   id: number; fabric: string; fabricId: number; supplier: string | null; lines: Line[]; totalQty: number;
   colourCount: number; unit: string; rate: number | null; status: string; expectedDate: Date | string | null;
   receivedDate: Date | string | null; poNumber: string | null; poStage: string;
+  // Change 18 Part C: the inward challans this order was received on.
+  challans: ChallanLink[];
 };
 type Pick = { id: number; name: string };
 type FabricPick = { id: number; name: string; unit?: string };
@@ -112,6 +115,23 @@ export function FabricOrderManager({
     } finally { setBusy(false); }
   }
   async function act(fn: () => Promise<unknown>) { setBusy(true); try { await fn(); router.refresh(); } finally { setBusy(false); } }
+
+  /**
+   * Change 18 Part A: receiving is logging an inward challan, not a one-click "Receive".
+   * The draft opens pre-filled from the PO so quantities can be corrected to the real
+   * delivery; LOCKING that challan is what puts fabric into stock.
+   */
+  async function logInward(o: Order) {
+    if (o.status === "RECEIVED" && !confirm("This PO is already received. Log another delivery challan against it?")) return;
+    setBusy(true);
+    try {
+      const { id } = await draftChallanFromFabricOrder({ id: o.id });
+      router.push(`/challan-doc/${id}`);
+    } catch (e) {
+      alert((e as Error).message);
+      setBusy(false);
+    }
+  }
 
   const colourOptions = colourList;
 
@@ -235,6 +255,7 @@ export function FabricOrderManager({
               <th className="px-4 py-2.5 text-right font-semibold">Total</th>
               <th className="px-4 py-2.5 font-semibold">Supplier</th>
               <th className="px-4 py-2.5 font-semibold">PO</th>
+              <th className="px-4 py-2.5 font-semibold">Received on</th>
               <th className="px-4 py-2.5 font-semibold">Status</th>
               <th className="px-4 py-2.5"></th>
             </tr>
@@ -251,17 +272,30 @@ export function FabricOrderManager({
                 <td className="px-4 py-2.5 text-right tnum font-semibold">{num(o.totalQty)} {o.unit.toLowerCase()}</td>
                 <td className="px-4 py-2.5 text-slate-500">{o.supplier ?? "—"}</td>
                 <td className="px-4 py-2.5"><Badge tone={STAGE_TONE[o.poStage] ?? "default"}>{o.poNumber ?? o.poStage}</Badge></td>
+                <td className="px-4 py-2.5">
+                  {o.challans.length === 0 ? (
+                    <span className="text-faint">—</span>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {o.challans.map((c) => (
+                        <Link key={c.id} href={`/challan-doc/${c.id}`} className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-primary-ink hover:underline tnum">
+                          {c.challanNo ?? `Draft #${c.id}`}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-2.5"><Badge tone={STATUS_TONE[o.status] ?? "default"}>{o.status.replace("_", " ")}</Badge></td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-wrap justify-end gap-1.5">
                     {!o.poNumber && <button onClick={() => act(() => generatePO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-primary-ink hover:bg-slate-50"><FileText size={12} /> Generate PO</button>}
                     {o.poNumber && <Link href={`/po/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-primary-ink hover:bg-slate-50"><FileText size={12} /> Open PO</Link>}
-                    {o.status !== "RECEIVED" && o.status !== "DISCARDED" && <button onClick={() => act(() => receiveFabricOrder({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"><Check size={12} /> Receive</button>}
+                    {o.status !== "DISCARDED" && <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"><Truck size={12} /> Log Inward Challan</button>}
                   </div>
                 </td>
               </tr>
             ))}
-            {orders.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-muted">No fabric orders yet.</td></tr>}
+            {orders.length === 0 && <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">No fabric orders yet.</td></tr>}
           </tbody>
         </table>
       </Card>

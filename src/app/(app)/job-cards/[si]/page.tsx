@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getJob, getJobMatrix } from "@/lib/jobs";
+import { getJob, getJobMatrix, getJobTrimIssues, getJobFabricPosted } from "@/lib/jobs";
 import { getJobCardChallans } from "@/lib/masters";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
@@ -11,6 +11,7 @@ import { TrimSheet } from "@/components/trim-sheet";
 import { StatusTimeline } from "@/components/status-timeline";
 import { LayerDispatch, type DispatchLayer } from "@/components/layer-dispatch";
 import { AddCuttingLayer } from "@/components/add-cutting-layer";
+import { JobTrimChallanButton } from "@/components/job-trim-challan-button";
 import { num, inr, fmtDate, pct } from "@/lib/format";
 import { STAGE_LABEL, stageTone, normStage } from "@/lib/job-labels";
 import { jobItem, jobStyle, jobMrp } from "@/lib/job-display";
@@ -40,6 +41,11 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
     : [];
   // Change 17 Part C: challans raised against this job card (by kind).
   const jobChallans = canEdit ? await getJobCardChallans(j.id) : [];
+  // Change 19 A.4: trims actually issued = locked OUTWARD challan lines (drafts = pending).
+  const trimIssues = await getJobTrimIssues(j.id);
+  // Change 19 B: net fabric already posted per colour, so the actuals form can preview the
+  // real movement (deduct / return / nothing) instead of the old clamped "return" figure.
+  const fabricPosted = j.product?.fabricId != null ? await getJobFabricPosted(j.id, j.product.fabricId) : new Map<string, number>();
 
   const balance = j.cutQty - j.dispatchedQty;
   const fill = j.cutQty ? j.dispatchedQty / j.cutQty : 0;
@@ -73,7 +79,9 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         qtyIssued: l.qtyIssued ?? 0,
         qtyUsed: l.qtyUsed ?? l.qtyIssued ?? 0,
         returned: returnedByColour.get(colorKey(l.color)) ?? 0,
-        locked: returnedByColour.has(colorKey(l.color)),
+        // Change 19 B: colours are no longer locked after the first return — the server
+        // reconciles to USED and is idempotent, so actuals stay editable forever.
+        posted: fabricPosted.get(colorKey(l.color)) ?? 0,
       }))
     : [
         {
@@ -85,7 +93,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           qtyIssued: j.fabricDispatched ?? j.estFabric ?? 0,
           qtyUsed: j.fabricUsed ?? 0,
           returned,
-          locked: j.returnNotes.length > 0,
+          posted: fabricPosted.get("") ?? 0,
         },
       ];
 
@@ -106,6 +114,14 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   // total fabric/roll roll-up across layers (Part C)
   const totalLayerMtr = j.layers.reduce((a, l) => a + (l.fabricMtr ?? 0), 0);
   const totalLayerRolls = j.layers.reduce((a, l) => a + (l.rolls ?? 0), 0);
+  // Change 19 C: card-level Issued/Extra to match the per-layer strip. Extra is null when
+  // no layer records an issued figure (legacy rows) — an unknown, not a zero.
+  const totalLayerIssued = j.layers.reduce((a, l) => a + (l.fabricIssued ?? 0), 0);
+  const totalLayerExtra = j.layers.some((l) => l.fabricIssued != null)
+    ? Math.round((totalLayerIssued - totalLayerMtr) * 100) / 100
+    : null;
+  // The vendors actually stitching this card live on its layers, not the header.
+  const layerVendors = [...new Set(j.layers.map((l) => l.vendor?.name).filter((n): n is string => !!n))];
 
   // Change 14: layers + prior dispatch for the multi-layer dispatch widget
   const dispatchLayers: DispatchLayer[] = j.layers.map((l) => ({
@@ -266,13 +282,19 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         </Card>
       </div>
 
-      {/* cutting layers */}
-      {j.layers.length > 0 && (
+      {/* Cutting layers — Change 19 C: a numbered series under the header, each with its
+          own vendor. The header vendor is the organiser; the layer vendor does the work. */}
+      {(j.layers.length > 0 || canEdit) && (
         <Card className="mt-3.5 p-5">
-          <h3 className="mb-3 text-[13px] font-bold">
-            Cutting Layers <span className="font-medium text-faint">· {j.layers.length} lay{j.layers.length > 1 ? "s" : ""}
-              {totalLayerMtr > 0 && ` · ${num(totalLayerMtr)} ${unit.toLowerCase()}`}{totalLayerRolls > 0 && ` · ${num(totalLayerRolls)} rolls`}</span>
+          <h3 className="text-[13px] font-bold">
+            Cutting Layers <span className="font-medium text-faint">· {j.layers.length} lay{j.layers.length === 1 ? "" : "s"}
+              {totalLayerMtr > 0 && ` · ${num(totalLayerMtr)} ${unit.toLowerCase()} used`}{totalLayerIssued > 0 && ` · ${num(totalLayerIssued)} issued`}{totalLayerRolls > 0 && ` · ${num(totalLayerRolls)} rolls`}</span>
           </h3>
+          <p className="mb-3 mt-0.5 text-[11px] text-faint">
+            Header vendor (organiser): <b className="text-slate-600">{j.vendor.name}</b>
+            {layerVendors.length > 1 && <> · this card is split across {layerVendors.length} stitching vendors</>}
+            {totalLayerExtra != null && <> · extra <b className={totalLayerExtra < 0 ? "text-rose-600" : "text-emerald-600"}>{num(totalLayerExtra)}</b></>}
+          </p>
           <div className="space-y-3">
             {j.layers.map((l) => {
               const lsizes = [...new Set(l.cells.map((c) => c.size))].sort(orderSizes);
@@ -291,7 +313,12 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               return (
                 <div key={l.id} className="rounded-xl border border-border p-3">
                   <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-[12px]">
-                    <span className="flex items-center gap-1.5 font-bold text-primary-ink">{l.label || `Layer ${l.layerNo}`} <span className="font-medium text-faint">· {num(ltotal)} pcs</span>{l.vendor && <Badge tone="primary">{l.vendor.name}</Badge>}</span>
+                    <span className="flex items-center gap-1.5 font-bold text-primary-ink">
+                      Layer {l.layerNo}
+                      {l.label && <span className="font-medium text-faint">{l.label}</span>}
+                      <span className="font-medium text-faint">· {num(ltotal)} pcs</span>
+                      {l.vendor && <Badge tone="primary">{l.vendor.name}</Badge>}
+                    </span>
                     <span className="text-faint">{l.cutDate ? fmtDate(l.cutDate) : ""}{l.cuttingMaster ? ` · ${l.cuttingMaster.name}` : ""}</span>
                   </div>
                   <div className="overflow-x-auto">
@@ -406,7 +433,8 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                   <th className="px-2 py-2 text-right font-semibold">Width</th>
                   <th className="px-2 py-2 text-right font-semibold">Issued</th>
                   <th className="px-2 py-2 text-right font-semibold">Used</th>
-                  <th className="px-2 py-2 text-right font-semibold">Returned</th>
+                  {/* Change 19 B: a colour can now return more than once, so this is gross. */}
+                  <th className="px-2 py-2 text-right font-semibold">Returned (gross)</th>
                 </tr>
               </thead>
               <tbody>
@@ -444,7 +472,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               ["Actual avg", j.actualAvg != null ? `${j.actualAvg} ${unit.toLowerCase()}/pc` : "—"],
               ["Dispatched", j.fabricDispatched != null ? `${num(j.fabricDispatched)} ${unit.toLowerCase()}` : "—"],
               ["Used", j.fabricUsed != null ? `${num(j.fabricUsed)} ${unit.toLowerCase()}` : "—"],
-              ["Returned", returned > 0 ? `${num(returned)} ${unit.toLowerCase()}` : "—"],
+              ["Returned (gross)", returned > 0 ? `${num(returned)} ${unit.toLowerCase()}` : "—"],
             ].map(([l, v]) => (
               <div key={l}>
                 <div className="text-[11px] text-faint">{l}</div>
@@ -546,26 +574,39 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         </Card>
       )}
 
-      {/* Trim sheet (editable issue log) */}
+      {/* Trim sheet — required (plan) vs issued (locked outward challans), Change 19 A.4 */}
       <div id="trims" />
       {j.jobLines.length > 0 && (
-        <TrimSheet
-          canEdit={canEdit}
-          defaultArrangedBy={u?.displayName ?? ""}
-          lines={j.jobLines.map((l) => ({
-            id: l.id,
-            material: l.material,
-            color: l.color,
-            dimension: l.dimension ?? "FLAT",
-            requiredQty: l.requiredQty ?? l.totalQty ?? null,
-            issuedQty: l.issuedQty ?? null,
-            arrangedBy: l.arrangedBy ?? null,
-            issueDate: l.issueDate ? l.issueDate.toISOString() : null,
-            challan: l.challan ?? null,
-            trimName: l.trimItem?.name ?? null,
-            trimCurrent: l.trimItem ? l.trimItem.currentStock : null,
-          }))}
-        />
+        <>
+          <TrimSheet
+            canEdit={canEdit}
+            defaultArrangedBy={u?.displayName ?? ""}
+            lines={j.jobLines.map((l) => ({
+              id: l.id,
+              material: l.material,
+              color: l.color,
+              dimension: l.dimension ?? "FLAT",
+              requiredQty: l.requiredQty ?? l.totalQty ?? null,
+              issuedQty: l.issuedQty ?? null,
+              arrangedBy: l.arrangedBy ?? null,
+              issueDate: l.issueDate ? l.issueDate.toISOString() : null,
+              challan: l.challan ?? null,
+              trimName: l.trimItem?.name ?? null,
+              trimCurrent: l.trimItem ? l.trimItem.currentStock : null,
+              trimItemId: l.trimItemId ?? null,
+              issuedFromChallans: l.trimItemId != null ? trimIssues.get(l.trimItemId)?.locked ?? 0 : undefined,
+              pendingFromDrafts: l.trimItemId != null ? trimIssues.get(l.trimItemId)?.draft ?? 0 : undefined,
+            }))}
+          />
+          {canEdit && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <JobTrimChallanButton jobCardId={j.id} />
+              <span className="text-[11px] text-faint">
+                Trims leave stock only when an outward challan is locked. Need more mid-job? Raise another one.
+              </span>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

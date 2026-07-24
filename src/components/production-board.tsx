@@ -117,7 +117,8 @@ export function ProductionBoard({
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
       if (stages.size && !stages.has(r.stage)) return false;
-      if (vendors.size && !vendors.has(r.vendor)) return false;
+      // Change 19 C: a split card matches if ANY of its layer vendors is selected.
+      if (vendors.size && !r.vendors.some((v) => vendors.has(v))) return false;
       if (masters.size && (!r.cutMaster || !masters.has(r.cutMaster))) return false;
       if (products.size && !products.has(r.item)) return false;
       if (fabrics.size && (!r.fabricName || !fabrics.has(r.fabricName))) return false;
@@ -129,7 +130,7 @@ export function ProductionBoard({
         r.siNo.toLowerCase().includes(needle) ||
         r.sku.toLowerCase().includes(needle) ||
         r.item.toLowerCase().includes(needle) ||
-        r.vendor.toLowerCase().includes(needle)
+        r.vendors.some((v) => v.toLowerCase().includes(needle))
       );
     });
   }, [rows, q, stages, vendors, masters, products, fabrics, status, overdueOnly]);
@@ -273,7 +274,7 @@ export function ProductionBoard({
                       <td className="px-2 py-2 text-right"><StitchBalance v={disp - cut} /></td>
                       <td className="px-2 py-2" />
                       <td className="px-2 py-2" />
-                      <td className="px-2 py-2 text-slate-500">{[...new Set(members.map((m) => m.vendor))].length} vendors</td>
+                      <td className="px-2 py-2 text-slate-500">{[...new Set(members.flatMap((m) => m.vendors))].length} vendors</td>
                       <td className="px-2 py-2" />
                       <td className="px-2 py-2" />
                       <td className="px-2 py-2 text-right"><DaysToEtd d={worst} closed={false} /></td>

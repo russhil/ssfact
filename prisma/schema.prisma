@@ -203,15 +203,25 @@ model FabricColor {
   @@index([fabricId])
 }
 
-// A fabric can have several suppliers (lightweight).
+// Change 18 Part D/E: one sourcing-rate record per (fabric, supplier) — "rates we've
+// sourced this fabric at". No longer a rival supplier identity: `supplierId` points at
+// the real Supplier master. `name` is kept so legacy free-text rows still render.
+// Deliberately NOT @@unique([fabricId, supplierId]) — every legacy row carries
+// supplierId = null and SQLite treats NULLs as distinct, so the constraint would only
+// half-apply. One-row-per-(fabric, supplier) is enforced in upsertFabricSourcingRate.
 model FabricSupplier {
-  id       Int    @id @default(autoincrement())
-  name     String
-  rate     Float?
-  fabric   Fabric @relation(fields: [fabricId], references: [id], onDelete: Cascade)
-  fabricId Int
+  id         Int       @id @default(autoincrement())
+  name       String
+  rate       Float?
+  supplier   Supplier? @relation(fields: [supplierId], references: [id])
+  supplierId Int?
+  poNumber   String? // provenance: the PO this rate was quoted on
+  sourcedAt  DateTime?
+  fabric     Fabric    @relation(fields: [fabricId], references: [id], onDelete: Cascade)
+  fabricId   Int
 
   @@index([fabricId])
+  @@index([supplierId])
 }
 
 /// @deprecated — production styles are merged into Product (the single master).
@@ -627,6 +637,7 @@ model TrimItem {
   jobLines     JobBomLine[]
   images       ImageAsset[]
   challanLines MaterialChallanLine[]
+  orders       TrimOrder[] // Change 18 Part B
 
   @@index([normName])
   @@index([family])
@@ -648,6 +659,10 @@ model Supplier {
   trims            TrimItem[]
   fabricOrders     FabricOrder[]
   materialChallans MaterialChallan[]
+  // Change 18 Part B/D: trim purchase orders + the per-fabric sourcing-rate records
+  // that used to live under a free-text name.
+  trimOrders       TrimOrder[]
+  fabricSuppliers  FabricSupplier[]
 
   @@index([type])
 }
@@ -714,6 +729,8 @@ model FabricOrder {
   sentAt        DateTime? // set when emailed/WhatsApp-shared
   lines         FabricOrderLine[]
   images        ImageAsset[]
+  // Change 18 Part C: the inward challans this PO was received on.
+  challans      MaterialChallan[]
 
   @@index([fabricId])
   @@index([supplierId])
@@ -729,6 +746,48 @@ model FabricOrderLine {
   qty           Float
 
   @@index([fabricOrderId])
+}
+
+// Change 18 Part B: trim procurement — the mirror of FabricOrder, so trims are bought
+// the same way fabric is. Own PO series (POT-YYYY-NNN); goods still enter stock only by
+// locking the inward challan raised against this order. `status` deliberately reuses
+// FabricOrderStatus (SQLite stores enums as TEXT — a duplicate enum buys nothing).
+model TrimOrder {
+  id            Int               @id @default(autoincrement())
+  trimItem      TrimItem          @relation(fields: [trimItemId], references: [id])
+  trimItemId    Int
+  supplier      Supplier?         @relation(fields: [supplierId], references: [id])
+  supplierId    Int?
+  qty           Float // total; derived from lines[] when the order is split
+  unit          String? // matches the trim master's unit (pcs / mtr / kg / set)
+  rate          Float?
+  status        FabricOrderStatus @default(ORDER_PLACED)
+  orderDate     DateTime?
+  expectedDate  DateTime?
+  receivedDate  DateTime?
+  remarks       String?
+  poNumber      String?           @unique // POT-2026-001
+  poGeneratedAt DateTime?
+  sentAt        DateTime?
+  lines         TrimOrderLine[]
+  challans      MaterialChallan[]
+
+  @@index([trimItemId])
+  @@index([supplierId])
+  @@index([status])
+}
+
+// Optional colour/size split of a trim order (buttons in 3 colours, tags in 2 sizes).
+// A plain qty order carries no lines at all.
+model TrimOrderLine {
+  id          Int       @id @default(autoincrement())
+  trimOrder   TrimOrder @relation(fields: [trimOrderId], references: [id], onDelete: Cascade)
+  trimOrderId Int
+  colour      String?
+  size        String?
+  qty         Float
+
+  @@index([trimOrderId])
 }
 
 model TrimMovement {
@@ -808,6 +867,14 @@ model MaterialChallan {
   vendor     Vendor?   @relation(fields: [vendorId], references: [id]) // OUTWARD
   vendorId   Int?
 
+  // Change 18 Part C: the purchase order this inward challan received against — the link
+  // that makes "did this PO come in, and on what challan?" answerable. Both null for an
+  // ad-hoc challan raised without a PO.
+  fabricOrder   FabricOrder? @relation(fields: [fabricOrderId], references: [id], onDelete: SetNull)
+  fabricOrderId Int?
+  trimOrder     TrimOrder?   @relation(fields: [trimOrderId], references: [id], onDelete: SetNull)
+  trimOrderId   Int?
+
   note      String?
   lockedAt  DateTime?
   voidedAt  DateTime?
@@ -818,6 +885,8 @@ model MaterialChallan {
   @@index([vendorId])
   @@index([supplierId])
   @@index([jobCardId])
+  @@index([fabricOrderId])
+  @@index([trimOrderId])
 }
 
 model MaterialChallanLine {

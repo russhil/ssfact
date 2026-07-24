@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { LAYER_VENDOR_INCLUDE, splitByLayerVendor } from "@/lib/vendor-split";
 
 // ── Pending Trims: cards whose trim needs exceed store stock, grouped by trim ──
 export type PendingTrim = {
@@ -47,7 +48,7 @@ export type VendorVariance = {
 
 export async function getVendorFabricVariance(): Promise<VendorVariance[]> {
   const jobs = await db.jobCard.findMany({
-    include: { vendor: true, product: { include: { fabric: true } }, fabricLines: true },
+    include: { vendor: true, product: { include: { fabric: true } }, fabricLines: true, ...LAYER_VENDOR_INCLUDE },
   });
   const byVendor = new Map<string, VendorVariance>();
   for (const j of jobs) {
@@ -57,14 +58,18 @@ export async function getVendorFabricVariance(): Promise<VendorVariance[]> {
     const assumed = logged.reduce((a, l) => a + l.cutQty * (l.estAvg ?? j.estAvg ?? 0), 0);
     const extra = actual - assumed;
     const rate = j.product?.fabric?.ratePerUnit ?? 0;
-    const g =
-      byVendor.get(j.vendor.name) ??
-      byVendor.set(j.vendor.name, { vendor: j.vendor.name, cards: 0, assumed: 0, actual: 0, extra: 0, cost: 0, unit: j.product?.unit ?? "MTR" }).get(j.vendor.name)!;
-    g.cards += 1;
-    g.assumed += assumed;
-    g.actual += actual;
-    g.extra += extra;
-    g.cost += Math.max(0, extra) * rate;
+    // Change 19 C: fabric lines are per colour, not per layer, so a split card's variance is
+    // apportioned by each vendor's share of the cut — the closest honest attribution.
+    for (const s of splitByLayerVendor(j)) {
+      const g =
+        byVendor.get(s.vendor) ??
+        byVendor.set(s.vendor, { vendor: s.vendor, cards: 0, assumed: 0, actual: 0, extra: 0, cost: 0, unit: j.product?.unit ?? "MTR" }).get(s.vendor)!;
+      g.cards += 1;
+      g.assumed += assumed * s.share;
+      g.actual += actual * s.share;
+      g.extra += extra * s.share;
+      g.cost += Math.max(0, extra * s.share) * rate;
+    }
   }
   return [...byVendor.values()].filter((v) => v.extra > 0.5).sort((a, b) => b.cost - a.cost);
 }
@@ -75,7 +80,11 @@ export type VendorPendency = { vendor: string; openCards: number; piecesOut: num
 export async function getVendorPendency(now = new Date()): Promise<VendorPendency[]> {
   const jobs = await db.jobCard.findMany({
     where: { status: "ACTIVE" },
-    include: { vendor: true, dispatches: true },
+    include: {
+      vendor: true,
+      dispatches: { select: { qty: true, date: true, layers: { select: { id: true } } } },
+      layers: { select: { id: true, cells: { select: { qty: true } }, vendor: { select: { name: true } } } },
+    },
   });
   const byVendor = new Map<string, VendorPendency & { oldest: number }>();
   for (const j of jobs) {
@@ -85,12 +94,17 @@ export async function getVendorPendency(now = new Date()): Promise<VendorPendenc
     const lastReceipt = j.dispatches.length ? Math.max(...j.dispatches.map((d) => d.date.getTime())) : null;
     const end = lastReceipt ?? now.getTime();
     const days = start ? Math.round((end - start.getTime()) / 86_400_000) : 0;
-    const g =
-      byVendor.get(j.vendor.name) ??
-      byVendor.set(j.vendor.name, { vendor: j.vendor.name, openCards: 0, piecesOut: 0, daysHeld: 0, oldest: 0 }).get(j.vendor.name)!;
-    g.openCards += 1;
-    g.piecesOut += bal;
-    g.oldest = Math.max(g.oldest, days);
+    // Change 19 C: pieces still out sit with the vendor holding that LAYER, per vendor.
+    for (const s of splitByLayerVendor(j)) {
+      const vBal = s.cutQty - s.dispatchedQty;
+      if (vBal <= 0) continue;
+      const g =
+        byVendor.get(s.vendor) ??
+        byVendor.set(s.vendor, { vendor: s.vendor, openCards: 0, piecesOut: 0, daysHeld: 0, oldest: 0 }).get(s.vendor)!;
+      g.openCards += 1;
+      g.piecesOut += vBal;
+      g.oldest = Math.max(g.oldest, days);
+    }
   }
   return [...byVendor.values()]
     .filter((v) => v.vendor !== "Unassigned" && v.piecesOut > 0)

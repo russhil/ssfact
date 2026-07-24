@@ -2,7 +2,8 @@ import { db } from "@/lib/db";
 import { isOverdue } from "@/lib/queries";
 import { jobItem, jobSku, jobStyle, jobMrp } from "@/lib/job-display";
 import { normStage, type Stage } from "@/lib/job-labels";
-import type { JobScope } from "@/lib/jobs";
+import { vendorScopeWhere, type JobScope } from "@/lib/jobs";
+import { LAYER_VENDOR_INCLUDE, layerVendorNames, vendorLabel } from "@/lib/vendor-split";
 
 const DAY = 86_400_000;
 
@@ -23,7 +24,10 @@ export type BoardRow = {
   fabricIssueDate: Date | null;
   avg: number | null; // actual avg falls back to estimate
   cutMaster: string | null;
+  /** Display label — layer vendors ("Acme", "Acme +1"), Change 19 C. */
   vendor: string;
+  /** Every vendor stitching this card; the filter/search/sort read this. */
+  vendors: string[];
   cuttingIssuedOn: Date | null;
   plannedEtd: Date | null;
   daysToEtd: number | null; // whole days; negative = overdue; null = no ETD (sorts last)
@@ -55,11 +59,12 @@ export async function getProductionBoard(
   scope?: JobScope
 ): Promise<{ rows: BoardRow[]; filterOptions: BoardFilterOptions }> {
   const jobs = await db.jobCard.findMany({
-    where: scope?.vendorName ? { vendor: { name: scope.vendorName } } : undefined,
+    where: vendorScopeWhere(scope),
     include: {
       product: { include: { fabric: true } },
       vendor: true,
       cuttingMaster: true,
+      ...LAYER_VENDOR_INCLUDE,
     },
     orderBy: { id: "desc" },
   });
@@ -68,6 +73,7 @@ export async function getProductionBoard(
 
   const rows: BoardRow[] = jobs.map((j) => {
     const stage = normStage(j.stage);
+    const vendors = layerVendorNames(j);
     return {
       id: j.id,
       slug: String(j.id),
@@ -85,7 +91,8 @@ export async function getProductionBoard(
       fabricIssueDate: j.fabricIssueDate,
       avg: j.actualAvg ?? j.estAvg ?? j.avgConsumption ?? null,
       cutMaster: j.cuttingMaster?.name ?? null,
-      vendor: j.vendor.name,
+      vendor: vendorLabel(vendors),
+      vendors,
       cuttingIssuedOn: j.cuttingIssuedOn,
       plannedEtd: j.plannedEtd,
       daysToEtd: j.plannedEtd
@@ -111,7 +118,8 @@ export async function getProductionBoard(
     rows,
     filterOptions: {
       stages: [...new Set(rows.map((r) => r.stage))],
-      vendors: distinct(rows.map((r) => r.vendor)),
+      // every vendor across all layers, not the composite display label
+      vendors: distinct(rows.flatMap((r) => r.vendors)),
       cuttingMasters: distinct(rows.map((r) => r.cutMaster)),
       products: distinct(rows.map((r) => r.item)),
       fabrics: distinct(rows.map((r) => r.fabricName)),

@@ -52,7 +52,7 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
         status={c.status}
         direction={c.direction}
         challanNo={c.challanNo}
-        lines={c.lines.map((l) => ({ id: l.id, kind: l.kind, name: l.name, colour: l.colour, qty: l.qty, unit: l.unit }))}
+        lines={c.lines.map((l) => ({ id: l.id, kind: l.kind, name: l.name, colour: l.colour, qty: l.qty, unit: l.unit, rate: l.rate }))}
         editLines={rawLines.map((l) => ({ fabricId: l.fabricId, trimItemId: l.trimItemId, colour: l.colour, qty: l.qty, unit: l.unit, rate: l.rate, note: l.note }))}
         phone={c.counterparty?.phone ?? null}
         email={c.counterparty?.email ?? null}
@@ -72,6 +72,16 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
           <p className="mt-0.5 text-[11px] text-muted">
             {c.kind ?? "—"}
             {c.jobCardSiNo && <> · Job <Link href={`/job-cards/${c.jobCardId}`} className="no-print text-primary-ink hover:underline">{c.jobCardSiNo}</Link><span className="hidden print:inline">{c.jobCardSiNo}</span></>}
+            {/* Change 18 Part C: which purchase order this receipt belongs to. */}
+            {c.poRef && (
+              <>
+                {" "}· For{" "}
+                <Link href={c.poRef.kind === "FABRIC" ? `/po/${c.poRef.id}` : `/pot/${c.poRef.id}`} className="no-print font-semibold text-primary-ink hover:underline">
+                  {c.poRef.poNumber ?? `order #${c.poRef.id}`}
+                </Link>
+                <span className="hidden print:inline">{c.poRef.poNumber ?? `order #${c.poRef.id}`}</span>
+              </>
+            )}
           </p>
         </div>
         <div className="text-right">

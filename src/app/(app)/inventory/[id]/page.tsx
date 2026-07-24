@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getFabricStock, getFabricLedger } from "@/lib/inventory";
+import { getFabricSourcing, getSuppliers } from "@/lib/masters";
 import { getCurrentUser } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
 import { FabricMasterForm } from "@/components/fabric-master-form";
+import { SourcingPanel } from "@/components/sourcing-panel";
 import { num, pct, fmtDate } from "@/lib/format";
 import { jobItem } from "@/lib/job-display";
 import { ArrowLeft } from "lucide-react";
@@ -18,6 +20,12 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
   const ledger = await getFabricLedger(fabricId);
   const u = await getCurrentUser();
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
+  const canSeeCost = u?.role === "ADMIN"; // sourcing rates are cost data — owner only
+  const sourcing = canSeeCost ? await getFabricSourcing(fabricId) : null;
+  // Change 18 Part D: the supplier picker draws on the ONE shared Supplier master.
+  const supplierOptions = canEdit
+    ? (await getSuppliers()).filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }))
+    : [];
 
   const attrs: [string, string][] = [
     ["Unit", stock.unit],
@@ -66,6 +74,11 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
           ))}
         </dl>
       </Card>
+
+      {/* Change 18 Part E: sourcing history — estimate on the master, true rate on the PO */}
+      {sourcing && (
+        <SourcingPanel rates={sourcing.rates} pos={sourcing.pos} unit={stock.unit} poHref="/po" estimate={stock.ratePerUnit} />
+      )}
 
       {/* per-colour stock */}
       {stock.colors.length > 0 && (
@@ -119,6 +132,7 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
           form={stock.form}
           ratePerUnit={stock.ratePerUnit}
           suppliers={stock.suppliers}
+          supplierOptions={supplierOptions}
           colors={stock.colors.map((c) => ({
             id: c.id,
             color: c.color,

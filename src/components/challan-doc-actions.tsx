@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { addChallanLine, removeChallanLine, lockChallan, voidChallan, editLockedChallan } from "@/lib/actions";
+import { addChallanLine, removeChallanLine, updateChallanLine, lockChallan, voidChallan, editLockedChallan } from "@/lib/actions";
 import { waLink, mailtoLink } from "@/lib/share";
 import { num } from "@/lib/format";
-import { Printer, MessageCircle, Mail, Plus, X, Pencil } from "lucide-react";
+import { Printer, MessageCircle, Mail, Plus, X, Pencil, Check } from "lucide-react";
 
 type Opt = { id: number; name: string };
-type LineView = { id: number; kind: "fabric" | "trim"; name: string; colour: string | null; qty: number; unit: string };
+type LineView = { id: number; kind: "fabric" | "trim"; name: string; colour: string | null; qty: number; unit: string; rate?: number | null };
+/** Change 18: per-line draft edits, keyed by line id. Seeded lazily on first keystroke. */
+type DraftEdit = { qty: string; unit: string; rate: string; colour: string };
 type EditLine = { fabricId: number | null; trimItemId: number | null; colour: string | null; qty: number; unit: string | null; rate: number | null; note: string | null };
 type ELine = { kind: "fabric" | "trim"; refId: number | 0; colour: string; qty: string; unit: string; rate: string; note: string };
 
@@ -30,6 +32,7 @@ export function ChallanDocActions({
   const [colour, setColour] = useState("");
   const [qty, setQty] = useState("");
   const [unit, setUnit] = useState("");
+  const [edits, setEdits] = useState<Record<number, DraftEdit>>({});
 
   // Locked-edit state (Change 17 Part C): whole-line-set replace via editLockedChallan.
   const [editing, setEditing] = useState(false);
@@ -90,21 +93,71 @@ export function ChallanDocActions({
     } catch (e) { alert((e as Error).message); } finally { setBusy(false); }
   }
   async function del(id: number) { setBusy(true); try { await removeChallanLine({ id }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
+
+  // Change 18: a draft pre-filled from a PO almost never matches the real delivery, so
+  // every draft line's qty / unit / rate (and colour, for fabric) is editable before lock.
+  // The item itself is fixed — delete the line and add a new one to change it.
+  const seedEdit = (l: LineView): DraftEdit => ({
+    qty: String(l.qty),
+    unit: l.unit ?? "",
+    rate: l.rate != null ? String(l.rate) : "",
+    colour: l.colour ?? "",
+  });
+  const editOf = (l: LineView) => edits[l.id] ?? seedEdit(l);
+  const setEdit = (l: LineView, patch: Partial<DraftEdit>) =>
+    setEdits((m) => ({ ...m, [l.id]: { ...editOf(l), ...patch } }));
+  const isDirty = (l: LineView) => {
+    const e = edits[l.id];
+    if (!e) return false;
+    const s = seedEdit(l);
+    return e.qty !== s.qty || e.unit !== s.unit || e.rate !== s.rate || e.colour !== s.colour;
+  };
+  async function saveLine(l: LineView) {
+    const e = editOf(l);
+    setBusy(true);
+    try {
+      await updateChallanLine(l.id, {
+        qty: +e.qty,
+        unit: e.unit || null,
+        rate: e.rate ? +e.rate : null,
+        ...(l.kind === "fabric" ? { colour: e.colour || null } : {}),
+      });
+      setEdits((m) => { const { [l.id]: _drop, ...rest } = m; return rest; });
+      router.refresh();
+    } catch (err) { alert((err as Error).message); } finally { setBusy(false); }
+  }
   async function lock() { if (!confirm("Lock & post to inventory? Lines become read-only.")) return; setBusy(true); try { await lockChallan({ id: challanId }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
   async function doVoid() { if (!confirm(`Void ${challanNo} and reverse its stock movements?`)) return; setBusy(true); try { await voidChallan({ id: challanId }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
 
   if (status === "DRAFT") {
     return (
       <div className="no-print mb-4 rounded-xl border border-dashed border-border bg-slate-50/50 p-3">
-        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted">Draft — editable</div>
+        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted">
+          Draft — editable <span className="font-medium normal-case tracking-normal text-faint">· correct the quantities to what physically arrived, then lock</span>
+        </div>
         {lines.length > 0 && (
           <div className="mb-2 space-y-1">
-            {lines.map((l) => (
-              <div key={l.id} className="flex items-center justify-between text-[12px]">
-                <span>{l.name}{l.colour ? ` · ${l.colour}` : ""} — <b className="tnum">{num(l.qty)}</b> {l.unit}</span>
-                <button onClick={() => del(l.id)} disabled={busy} className="text-faint hover:text-danger"><X size={13} /></button>
-              </div>
-            ))}
+            {lines.map((l) => {
+              const e = editOf(l);
+              const dirty = isDirty(l);
+              return (
+                <div key={l.id} className="flex flex-wrap items-center gap-1.5 text-[12px]">
+                  <span className="min-w-[140px] font-semibold">{l.name}</span>
+                  {l.kind === "fabric" && (
+                    <input list="doc-colours" value={e.colour} onChange={(ev) => setEdit(l, { colour: ev.target.value })} placeholder="colour" className={`${inp} w-24`} />
+                  )}
+                  <input type="number" step="any" value={e.qty} onChange={(ev) => setEdit(l, { qty: ev.target.value })} className={`${inp} w-20 text-right tnum`} />
+                  <select value={e.unit} onChange={(ev) => setEdit(l, { unit: ev.target.value })} className={inp}>
+                    <option value="">unit</option><option>MTR</option><option>KG</option><option>PCS</option><option>SET</option>
+                  </select>
+                  <input type="number" step="any" value={e.rate} onChange={(ev) => setEdit(l, { rate: ev.target.value })} placeholder="₹ rate" className={`${inp} w-20 text-right tnum`} />
+                  {dirty && (
+                    <button onClick={() => saveLine(l)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"><Check size={12} /> Save</button>
+                  )}
+                  <button onClick={() => del(l.id)} disabled={busy} className="ml-auto text-faint hover:text-danger"><X size={13} /></button>
+                </div>
+              );
+            })}
           </div>
         )}
         <div className="flex flex-wrap items-center gap-1.5">

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
 import { requireRole } from "@/lib/auth";
 import { colorKey } from "@/lib/colour";
+import { getJobTrimIssues } from "@/lib/jobs";
 import { revalidatePath } from "next/cache";
 
 type BomDim = "COLOR" | "SIZE" | "FLAT";
@@ -161,7 +162,8 @@ export async function createJobCard(input: NewJobInput) {
 
   const vendor =
     (await db.vendor.findUnique({ where: { name: input.vendorName } })) ??
-    (await db.vendor.findUnique({ where: { name: "Unassigned" } }))!;
+    (await db.vendor.findUnique({ where: { name: "Unassigned" } }));
+  if (!vendor) throw new Error('No vendor found — add the vendor, or an "Unassigned" vendor, first');
 
   let cuttingMasterId: number | null = null;
   if (input.cuttingMaster) {
@@ -271,7 +273,8 @@ export async function createJobCard(input: NewJobInput) {
   const bomTrims = bomTrimIds.length
     ? await db.trimItem.findMany({
         where: { id: { in: bomTrimIds } },
-        select: { id: true, currentStock: true, dimension: true, perPieceAvg: true },
+        // `unit` feeds the auto-drafted outward trim challan (Change 19 A.2).
+        select: { id: true, currentStock: true, dimension: true, perPieceAvg: true, unit: true },
       })
     : [];
   const trimById = new Map(bomTrims.map((t) => [t.id, t]));
@@ -395,7 +398,10 @@ export async function createJobCard(input: NewJobInput) {
       });
     }
 
-    // Frozen BOM snapshot (from the EDITED trim sheet) + live trim depletion via the ledger.
+    // Change 19 A.1: the frozen BOM snapshot is a PLAN, not a movement. Creating a card no
+    // longer deducts trims — it used to post an OUT here, and staff ALSO raised a real
+    // outward challan for the same trims, so every card double-counted. Trims now leave
+    // stock in exactly one place: locking an OUTWARD challan (see the draft below).
     for (const line of bomPlan) {
       await tx.jobBomLine.create({
         data: {
@@ -410,13 +416,25 @@ export async function createJobCard(input: NewJobInput) {
           jobCardId: created.id,
         } as any,
       });
-      await postMaterialMovement(tx, {
-        direction: "OUT",
-        qty: line.requiredQty,
-        date: now,
-        trimItemId: line.trimItemId ?? undefined,
-      });
     }
+
+    // Change 19 A.2: give the physical trim issue a home. The exploded BOM is drafted as an
+    // OUTWARD challan against this card so staff don't re-type it — they adjust it to what
+    // actually went out and lock it. THE LOCK IS THE DEDUCTION; this draft moves nothing.
+    await draftTrimChallanLines(
+      tx,
+      created.id,
+      vendor.id,
+      siNo,
+      bomPlan
+        .filter((l) => l.trimItemId != null && l.requiredQty > 0)
+        .map((l) => ({
+          trimItemId: l.trimItemId!,
+          qty: l.requiredQty,
+          unit: trimById.get(l.trimItemId!)?.unit ?? null,
+          note: [l.material, l.color].filter(Boolean).join(" · ") || null,
+        }))
+    );
 
     // Change 16 Part F: card-level stitch assignments retired — vendor lives on the
     // cutting layer (Change 14 A) and the "received" record is the dispatch (Change 14 B).
@@ -428,7 +446,90 @@ export async function createJobCard(input: NewJobInput) {
   revalidatePath("/job-cards");
   revalidatePath("/inventory");
   revalidatePath("/trims");
+  revalidatePath("/challans");
   return { slug: String(job.id), siNo: job.siNo };
+}
+
+/**
+ * Change 19 A.2/A.3 — write a DRAFT OUTWARD trim challan for a job card.
+ *
+ * Free-text BOM lines (no trimItemId) are skipped: there's nothing to deduct, though they
+ * still live on the JobBomLine snapshot. An empty line set creates no challan at all — we
+ * never leave a blank document lying around.
+ */
+async function draftTrimChallanLines(
+  tx: Tx,
+  jobCardId: number,
+  vendorId: number,
+  siNo: string,
+  lines: { trimItemId: number; qty: number; unit: string | null; note: string | null }[]
+): Promise<number | null> {
+  if (lines.length === 0) return null;
+  const ch = await tx.materialChallan.create({
+    data: {
+      direction: "OUTWARD",
+      status: "DRAFT",
+      kind: "TRIM",
+      vendorId,
+      jobCardId,
+      note: `Trim issue — ${siNo}`,
+    } as any,
+  });
+  for (const l of lines) {
+    await tx.materialChallanLine.create({
+      data: { challanId: ch.id, trimItemId: l.trimItemId, qty: l.qty, unit: l.unit, note: l.note },
+    });
+  }
+  return ch.id;
+}
+
+/**
+ * Change 19 A.3 — raise another outward trim challan for a card mid-job ("more trims needed").
+ * With `fromRemainingBom`, each line is billed down by what locked challans already issued,
+ * so a top-up challan only carries the shortfall.
+ */
+export async function draftTrimChallanForJob(input: { jobCardId: number; fromRemainingBom?: boolean }) {
+  await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.findUnique({
+    where: { id: input.jobCardId },
+    select: { id: true, siNo: true, vendorId: true, jobLines: { select: { trimItemId: true, material: true, color: true, requiredQty: true, totalQty: true } } },
+  });
+  if (!job) throw new Error("Job card not found");
+  if (!job.vendorId) throw new Error("This card has no vendor — an outward challan needs one");
+
+  const issued = await getJobTrimIssues(job.id);
+  const lines = job.jobLines
+    .filter((l) => l.trimItemId != null)
+    .map((l) => {
+      const required = l.requiredQty ?? l.totalQty ?? 0;
+      const already = input.fromRemainingBom ? issued.get(l.trimItemId!)?.locked ?? 0 : 0;
+      return {
+        trimItemId: l.trimItemId!,
+        qty: Math.round((required - already) * 100) / 100,
+        note: [l.material, l.color].filter(Boolean).join(" · ") || null,
+      };
+    })
+    .filter((l) => l.qty > 0);
+  if (lines.length === 0) throw new Error("Nothing left to issue on this card's BOM");
+
+  const units = await db.trimItem.findMany({
+    where: { id: { in: lines.map((l) => l.trimItemId) } },
+    select: { id: true, unit: true },
+  });
+  const unitById = new Map(units.map((u) => [u.id, u.unit]));
+
+  const id = await db.$transaction((tx) =>
+    draftTrimChallanLines(
+      tx,
+      job.id,
+      job.vendorId!,
+      job.siNo,
+      lines.map((l) => ({ ...l, unit: unitById.get(l.trimItemId) ?? null }))
+    )
+  );
+  revalidatePath("/challans");
+  revalidatePath(`/job-cards/${job.id}`);
+  return { id: id! };
 }
 
 export type FabricActualsInput = {
@@ -450,80 +551,118 @@ export async function recordFabricActuals(input: FabricActualsInput) {
   await requireRole("ADMIN", "STAFF");
   const job = await db.jobCard.findUnique({
     where: { id: input.jobCardId },
-    include: { product: true, returnNotes: true, fabricLines: true },
+    include: { product: true, fabricLines: true },
   });
   if (!job) throw new Error("Job card not found");
   const fabricId = job.product?.fabricId ?? null;
 
-  // Returns are locked per colour once recorded — re-saving never double-counts.
-  const returnedColours = new Set(job.returnNotes.map((r) => colorKey(r.color)));
   let totalReturned = 0;
+  let totalIssued = 0;
 
-  for (const l of input.lines) {
-    const key = colorKey(l.color);
-    const existing = job.fabricLines.find((f) => colorKey(f.color) === key);
-    if (existing) {
-      await db.jobFabricLine.update({
-        where: { id: existing.id },
-        data: {
-          actualAvg: l.actualAvg ?? null,
-          qtyIssued: l.qtyIssued,
-          qtyUsed: l.qtyUsed,
-          gsm: l.gsm ?? existing.gsm,
-          rollWidth: l.rollWidth ?? existing.rollWidth,
-          arrangedBy: input.arrangedBy ?? existing.arrangedBy,
-          challan: input.challan ?? existing.challan,
-        } as any,
+  // One transaction: `postedSoFar` is a read-then-write, so two concurrent saves would
+  // otherwise both read the same net and post the delta twice.
+  await db.$transaction(async (tx) => {
+    for (const l of input.lines) {
+      const key = colorKey(l.color);
+      const existing = job.fabricLines.find((f) => colorKey(f.color) === key);
+      if (existing) {
+        await tx.jobFabricLine.update({
+          where: { id: existing.id },
+          data: {
+            actualAvg: l.actualAvg ?? null,
+            qtyIssued: l.qtyIssued,
+            qtyUsed: l.qtyUsed,
+            gsm: l.gsm ?? existing.gsm,
+            rollWidth: l.rollWidth ?? existing.rollWidth,
+            arrangedBy: input.arrangedBy ?? existing.arrangedBy,
+            challan: input.challan ?? existing.challan,
+          } as any,
+        });
+      } else if (fabricId) {
+        await tx.jobFabricLine.create({
+          data: {
+            color: key, fabricId, cutQty: 0,
+            estAvg: l.actualAvg ?? null, actualAvg: l.actualAvg ?? null,
+            gsm: l.gsm ?? null, rollWidth: l.rollWidth ?? null,
+            qtyIssued: l.qtyIssued, qtyUsed: l.qtyUsed, jobCardId: job.id,
+            arrangedBy: input.arrangedBy ?? null, challan: input.challan ?? null,
+          } as any,
+        });
+      }
+      if (!fabricId) continue;
+
+      // ── Change 19 Part B: reconcile the ledger to USED ──
+      // The old code returned Math.max(0, issued − used), which CLAMPED: when a layer was
+      // over-cut (used > issued) it returned nothing, so net stock stayed parked at the
+      // issued ESTIMATE and the extra fabric really consumed was never deducted.
+      // Owner's rule: "It should not look at issued. It should always look at the manually
+      // filled one which is USED." So we post whatever delta makes the net equal USED —
+      // in both directions, never clamped. Negative stock is allowed: it's real over-cut.
+      const agg = await tx.stockMovement.groupBy({
+        by: ["type"],
+        where: {
+          fabricId,
+          jobCardId: job.id,
+          // legacy colourless movements were stored as null; colorKey("") === ""
+          ...(key === "" ? { OR: [{ color: "" }, { color: null }] } : { color: key }),
+        },
+        _sum: { qty: true },
       });
-    } else if (fabricId) {
-      await db.jobFabricLine.create({
-        data: {
-          color: key, fabricId, cutQty: 0,
-          estAvg: l.actualAvg ?? null, actualAvg: l.actualAvg ?? null,
-          gsm: l.gsm ?? null, rollWidth: l.rollWidth ?? null,
-          qtyIssued: l.qtyIssued, qtyUsed: l.qtyUsed, jobCardId: job.id,
-          arrangedBy: input.arrangedBy ?? null, challan: input.challan ?? null,
-        } as any,
-      });
+      const sumOf = (t: string) => agg.find((a) => a.type === t)?._sum.qty ?? 0;
+      const postedSoFar = sumOf("ISSUE") - sumOf("RECEIPT");
+
+      // Idempotency falls out of this: re-saving the same USED gives delta 0 and posts
+      // nothing, which is why the old one-shot `returnedColours` lock is gone.
+      const raw = (l.qtyUsed ?? 0) - postedSoFar;
+      const delta = Math.abs(raw) < 0.005 ? 0 : Math.round(raw * 100) / 100;
+
+      if (delta > 0) {
+        // used more than we've taken out — deduct the difference (over-cut)
+        await postMaterialMovement(tx, {
+          direction: "OUT",
+          qty: delta,
+          date: new Date(),
+          fabricId,
+          colour: key,
+          jobCardId: job.id,
+          note: `Actuals true-up ${job.siNo} · ${key || "—"}`,
+        });
+        totalIssued += delta;
+      } else if (delta < 0) {
+        // used less — the leftover goes back, and still leaves a human-facing ReturnNote
+        const ret = -delta;
+        await postMaterialMovement(tx, {
+          direction: "IN",
+          qty: ret,
+          date: new Date(),
+          fabricId,
+          colour: key,
+          jobCardId: job.id,
+          note: `Return ${job.siNo} · ${key || "—"}`,
+        });
+        await tx.returnNote.create({
+          data: { qty: ret, fabricId, jobCardId: job.id, color: key, note: input.note ?? null } as any,
+        });
+        totalReturned += ret;
+      }
     }
 
-    const returnQty = Math.max(0, l.qtyIssued - l.qtyUsed);
-    if (returnQty > 0 && fabricId && !returnedColours.has(key)) {
-      await db.returnNote.create({
-        data: { qty: returnQty, fabricId, jobCardId: job.id, color: key, note: input.note ?? null } as any,
-      });
-      await db.stockMovement.create({
-        data: {
-          type: "RECEIPT", qty: returnQty, date: new Date(),
-          fabricId, jobCardId: job.id, color: key, note: `Return ${job.siNo} · ${key}`,
-        } as any,
-      });
-      const fc = await db.fabricColor.upsert({
-        where: { fabricId_color: { fabricId, color: key } },
-        create: { fabricId, color: key, openingStock: returnQty, currentStock: returnQty },
-        update: { currentStock: { increment: returnQty } },
-      });
-      void fc;
-      returnedColours.add(key);
-      totalReturned += returnQty;
-    }
-  }
-
-  // Roll up to the job-level legacy fields for back-compat displays.
-  const sum = (k: "qtyIssued" | "qtyUsed") => input.lines.reduce((a, l) => a + (l[k] ?? 0), 0);
-  const avgs = input.lines.map((l) => l.actualAvg).filter((v): v is number => v != null);
-  await db.jobCard.update({
-    where: { id: job.id },
-    data: {
-      actualAvg: avgs.length ? avgs.reduce((a, b) => a + b, 0) / avgs.length : null,
-      fabricDispatched: sum("qtyIssued"),
-      fabricUsed: sum("qtyUsed"),
-    },
+    // Roll up to the job-level legacy fields for back-compat displays.
+    const sum = (k: "qtyIssued" | "qtyUsed") => input.lines.reduce((a, l) => a + (l[k] ?? 0), 0);
+    const avgs = input.lines.map((l) => l.actualAvg).filter((v): v is number => v != null);
+    await tx.jobCard.update({
+      where: { id: job.id },
+      data: {
+        actualAvg: avgs.length ? avgs.reduce((a, b) => a + b, 0) / avgs.length : null,
+        fabricDispatched: sum("qtyIssued"),
+        fabricUsed: sum("qtyUsed"),
+      },
+    });
   });
 
   revalidatePath(`/job-cards/${String(job.id)}`);
   revalidatePath("/inventory");
-  return { returnQty: totalReturned };
+  return { returnQty: totalReturned, extraIssued: totalIssued };
 }
 
 export async function setJobStage(input: {
@@ -876,12 +1015,23 @@ export async function setFabricColorStock(input: {
   return { ok: true };
 }
 
-export async function addFabricSupplier(input: { fabricId: number; name: string; rate?: number | null }) {
+/**
+ * Add (or update) a supplier we source this fabric from, with the rate they quoted.
+ * Change 18 Part D: routed through the sourcing-rate upsert so the row is keyed to the
+ * REAL Supplier master — one row per (fabric, supplier), no rival identity. A hand-typed
+ * name that isn't in the master yet creates the supplier rather than a loose string.
+ * This is a user-driven edit, so it overwrites the stored rate.
+ */
+export async function addFabricSupplier(input: { fabricId: number; supplierId?: number | null; name?: string; rate?: number | null }) {
   await requireRole("ADMIN", "STAFF");
-  if (!input.name.trim()) throw new Error("Supplier name is required");
-  await db.fabricSupplier.create({
-    data: { fabricId: input.fabricId, name: input.name.trim(), rate: input.rate ?? null },
-  });
+  if (!input.supplierId && !input.name?.trim()) throw new Error("Pick a supplier (or type a new name)");
+  await upsertFabricSourcingRate(
+    input.fabricId,
+    { id: input.supplierId, name: input.name },
+    input.rate ?? null,
+    undefined,
+    true
+  );
   revalidatePath(`/inventory/${input.fabricId}`);
   return { ok: true };
 }
@@ -1028,32 +1178,59 @@ export async function deactivateColour(input: { id: number; active?: boolean }) 
 }
 
 /**
- * Find-or-create a lightweight FabricSupplier row by (fabricId, name) — Change 17 E/G.
- * Fills the rate when the row has none; a PO write-back (overwrite=true) sets the actual price.
+ * Change 18 Part D/E — record what we sourced a fabric at, per REAL supplier.
+ *
+ * This replaces the old upsert-by-free-text-name: `FabricSupplier` is no longer a rival
+ * supplier identity, it's a sourcing-rate record hanging off the shared `Supplier` master.
+ * Legacy rows (supplierId null, name only) are ADOPTED on first match rather than
+ * duplicated. Provenance (which PO quoted this rate, when) is only stamped when the rate
+ * itself is written, so the two can never drift apart.
+ *
+ * The master's `Fabric.ratePerUnit` is an ESTIMATE and is never touched from here.
  */
-async function upsertFabricSupplierByName(
+async function upsertFabricSourcingRate(
   fabricId: number,
-  name: string | null | undefined,
+  supplier: { id?: number | null; name?: string | null },
   rate?: number | null,
+  provenance?: { poNumber?: string | null; sourcedAt?: Date | null },
   overwrite = false
 ) {
-  const n = name?.trim();
-  if (!n) return;
-  const existing = await db.fabricSupplier.findFirst({ where: { fabricId, name: n } });
-  if (existing) {
-    if (rate != null && (overwrite || existing.rate == null)) {
-      await db.fabricSupplier.update({ where: { id: existing.id }, data: { rate } });
-    }
-  } else {
-    await db.fabricSupplier.create({ data: { fabricId, name: n, rate: rate ?? null } });
+  // Resolve the real Supplier: prefer the id, else find-or-create by unique name.
+  let s: { id: number; name: string } | null = null;
+  if (supplier.id) {
+    s = await db.supplier.findUnique({ where: { id: supplier.id }, select: { id: true, name: true } });
   }
-}
+  if (!s) {
+    const n = supplier.name?.trim();
+    if (!n) return; // nothing to key on — no-op, same as before
+    s = await db.supplier.upsert({
+      where: { name: n },
+      create: { name: n },
+      update: {},
+      select: { id: true, name: true },
+    });
+  }
 
-/** Resolve a supplier's name from its id (for the free-text FabricSupplier list). */
-async function supplierNameById(supplierId: number | null | undefined): Promise<string | null> {
-  if (!supplierId) return null;
-  const s = await db.supplier.findUnique({ where: { id: supplierId }, select: { name: true } });
-  return s?.name ?? null;
+  // Match on the real supplier first; fall back to adopting a legacy name-only row.
+  const existing = await db.fabricSupplier.findFirst({
+    where: { fabricId, OR: [{ supplierId: s.id }, { supplierId: null, name: s.name }] },
+    orderBy: { id: "asc" },
+  });
+  const writeRate = rate != null && (overwrite || existing?.rate == null);
+  const prov = writeRate && provenance
+    ? { poNumber: provenance.poNumber ?? null, sourcedAt: provenance.sourcedAt ?? new Date() }
+    : {};
+
+  if (existing) {
+    await db.fabricSupplier.update({
+      where: { id: existing.id },
+      data: { supplierId: s.id, name: s.name, ...(writeRate ? { rate } : {}), ...prov } as any,
+    });
+  } else {
+    await db.fabricSupplier.create({
+      data: { fabricId, supplierId: s.id, name: s.name, rate: rate ?? null, ...prov } as any,
+    });
+  }
 }
 
 /**
@@ -1076,12 +1253,9 @@ export async function createFabricQuick(input: {
     (await db.fabric.create({
       data: { name, unit: (input.unit ?? "MTR") as any, ratePerUnit: input.rate ?? null } as any,
     }));
-  // Fill rate on an existing bare master; never clobber a set rate here.
-  if (existing && input.rate != null && existing.ratePerUnit == null) {
-    await db.fabric.update({ where: { id: existing.id }, data: { ratePerUnit: input.rate } });
-  }
-  const supplierName = input.supplierName ?? (await supplierNameById(input.supplierId));
-  await upsertFabricSupplierByName(f.id, supplierName, input.rate ?? null);
+  // Change 18 Part E: the rate entered here seeds the ESTIMATE on a brand-new master only.
+  // An EXISTING master's estimate is never touched by an order — edit the master to change it.
+  await upsertFabricSourcingRate(f.id, { id: input.supplierId, name: input.supplierName }, input.rate ?? null);
   revalidatePath("/fabric-orders");
   revalidatePath("/inventory");
   return { id: f.id, name: f.name };
@@ -1127,7 +1301,7 @@ export async function createFabricOrder(input: {
   if (lines.length === 0) throw new Error("Add at least one colour with a quantity");
   const total = lines.reduce((a, l) => a + l.qty, 0);
   // Change 17 Part E/G: the unit comes from the master by default (override per order).
-  const fabric = await db.fabric.findUnique({ where: { id: input.fabricId }, select: { unit: true, ratePerUnit: true } });
+  const fabric = await db.fabric.findUnique({ where: { id: input.fabricId }, select: { unit: true } });
   const unit = (input.unit ?? fabric?.unit ?? "MTR") as any;
   await db.fabricOrder.create({
     data: {
@@ -1138,16 +1312,16 @@ export async function createFabricOrder(input: {
       lines: { create: lines },
     } as any,
   });
-  // Flow-back-up: the order's unit lands on the master; rate fills an empty master rate;
-  // the supplier is auto-added to the fabric's supplier list.
-  await db.fabric.update({
-    where: { id: input.fabricId },
-    data: {
-      unit,
-      ...(input.rate != null && fabric?.ratePerUnit == null ? { ratePerUnit: input.rate } : {}),
-    } as any,
-  });
-  await upsertFabricSupplierByName(input.fabricId, await supplierNameById(input.supplierId), input.rate ?? null);
+  // Change 18 Part E: the order's unit still lands on the master, but its RATE no longer
+  // does — `Fabric.ratePerUnit` is the estimate and only a master edit may change it.
+  // The order's price is recorded as a sourcing rate against the real supplier instead.
+  await db.fabric.update({ where: { id: input.fabricId }, data: { unit } as any });
+  await upsertFabricSourcingRate(
+    input.fabricId,
+    { id: input.supplierId },
+    input.rate ?? null,
+    { sourcedAt: new Date() }
+  );
   revalidatePath("/fabric-orders");
   revalidatePath("/inventory");
   return { ok: true };
@@ -1193,13 +1367,21 @@ export async function deleteFabricOrder(input: { id: number }) {
 
 export async function updateFabricOrderStatus(input: { id: number; status: string }) {
   await requireRole("ADMIN", "STAFF");
-  if (input.status === "RECEIVED") return receiveFabricOrder({ id: input.id });
+  // Change 18 Part A: setting RECEIVED no longer auto-receives stock. Goods enter stock
+  // only by locking the inward challan raised against the order (draftChallanFromFabricOrder).
   await db.fabricOrder.update({ where: { id: input.id }, data: { status: input.status as any } });
   revalidatePath("/fabric-orders");
   return { ok: true };
 }
 
-/** Receive a fabric order: land EVERY line's qty into that colour's stock once (guard via receivedDate). */
+/**
+ * Receive a fabric order in one shot: land EVERY line's qty into that colour's stock once
+ * (guard via receivedDate).
+ *
+ * Change 18 Part A — LEGACY DOOR, no UI caller. Kept so orders already received this way
+ * keep their stock and history; going forward stock enters only via lockChallan.
+ * Do not delete and do not re-wire to a button.
+ */
 export async function receiveFabricOrder(input: { id: number }) {
   await requireRole("ADMIN", "STAFF");
   const o = await db.fabricOrder.findUnique({ where: { id: input.id }, include: { lines: true } });
@@ -1249,14 +1431,17 @@ export async function generatePO(input: { id: number }) {
   const maxN = existing.reduce((m, e) => Math.max(m, parseInt(e.poNumber!.slice(prefix.length), 10) || 0), 0);
   const poNumber = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
   await db.fabricOrder.update({ where: { id: input.id }, data: { poNumber, poGeneratedAt: new Date() } });
-  // Change 17 Part G: the confirmed PO price + unit are recorded on the fabric master, and
-  // the actual price lands on the supplier row (overwrite — a PO is the authoritative price).
-  const fab = await db.fabric.findUnique({ where: { id: o.fabricId }, select: { ratePerUnit: true } });
-  await db.fabric.update({
-    where: { id: o.fabricId },
-    data: { unit: o.unit as any, ...(o.rate != null && fab?.ratePerUnit == null ? { ratePerUnit: o.rate } : {}) },
-  });
-  await upsertFabricSupplierByName(o.fabricId, await supplierNameById(o.supplierId), o.rate ?? null, true);
+  // Change 18 Part E: a PO carries the TRUE price for that order — it does NOT overwrite
+  // the master's estimate. The confirmed price is appended to the fabric's sourcing history
+  // with its provenance (which PO, when) so the master shows "who quoted what".
+  await db.fabric.update({ where: { id: o.fabricId }, data: { unit: o.unit as any } });
+  await upsertFabricSourcingRate(
+    o.fabricId,
+    { id: o.supplierId },
+    o.rate ?? null,
+    { poNumber, sourcedAt: new Date() },
+    true
+  );
   revalidatePath("/fabric-orders");
   revalidatePath("/inventory");
   return { poNumber };
@@ -1266,6 +1451,139 @@ export async function markPOSent(input: { id: number }) {
   await requireRole("ADMIN", "STAFF");
   await db.fabricOrder.update({ where: { id: input.id }, data: { sentAt: new Date() } });
   revalidatePath("/fabric-orders");
+  return { ok: true };
+}
+
+// ── Change 18 Part B — Trim orders + the POT-YYYY-NNN series ──
+//
+// Trims are bought exactly the way fabric is: raise an order, generate a PO, then log an
+// inward challan against it (draftChallanFromTrimOrder). A plain qty order is valid; the
+// optional lines[] split is for trims ordered colour- or size-wise.
+
+type TrimOrderLineInput = { colour?: string | null; size?: string | null; qty: number };
+
+const cleanTrimLines = (lines?: TrimOrderLineInput[] | null) =>
+  (lines ?? [])
+    .map((l) => ({ colour: l.colour?.trim() || null, size: l.size?.trim() || null, qty: l.qty }))
+    .filter((l) => l.qty > 0);
+
+export async function createTrimOrder(input: {
+  trimItemId: number;
+  supplierId?: number | null;
+  qty?: number | null;
+  unit?: string | null;
+  rate?: number | null;
+  expectedDate?: string | null;
+  remarks?: string | null;
+  status?: string;
+  lines?: TrimOrderLineInput[];
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const lines = cleanTrimLines(input.lines);
+  // A split order's total is the sum of its lines; otherwise the flat qty stands.
+  const total = lines.length > 0 ? lines.reduce((a, l) => a + l.qty, 0) : input.qty ?? 0;
+  if (total <= 0) throw new Error("Enter a quantity (or at least one split line)");
+  const trim = await db.trimItem.findUnique({ where: { id: input.trimItemId }, select: { unit: true } });
+  if (!trim) throw new Error("Trim not found");
+  const o = await db.trimOrder.create({
+    data: {
+      trimItemId: input.trimItemId,
+      supplierId: input.supplierId ?? null,
+      qty: total,
+      unit: input.unit ?? trim.unit ?? null,
+      rate: input.rate ?? null,
+      status: (input.status ?? "ORDER_PLACED") as any,
+      orderDate: new Date(),
+      expectedDate: input.expectedDate ? new Date(input.expectedDate) : null,
+      remarks: input.remarks ?? null,
+      ...(lines.length > 0 ? { lines: { create: lines } } : {}),
+    } as any,
+  });
+  // Change 18 Part E: no write-back to TrimItem.ratePerUnit — the master rate is an estimate.
+  revalidatePath("/trim-orders");
+  return { id: o.id };
+}
+
+export async function updateTrimOrder(input: {
+  id: number;
+  supplierId?: number | null;
+  qty?: number | null;
+  unit?: string | null;
+  rate?: number | null;
+  expectedDate?: string | null;
+  remarks?: string | null;
+  lines?: TrimOrderLineInput[];
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const o = await db.trimOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
+  if (!o) throw new Error("Order not found");
+  if (o.poNumber) throw new Error("Order is locked — PO already generated");
+  await db.$transaction(async (tx) => {
+    if (input.lines) {
+      const lines = cleanTrimLines(input.lines);
+      await tx.trimOrderLine.deleteMany({ where: { trimOrderId: input.id } });
+      if (lines.length > 0) {
+        await tx.trimOrderLine.createMany({ data: lines.map((l) => ({ ...l, trimOrderId: input.id })) });
+        await tx.trimOrder.update({
+          where: { id: input.id },
+          data: { qty: lines.reduce((a, l) => a + l.qty, 0) },
+        });
+      }
+    }
+    await tx.trimOrder.update({
+      where: { id: input.id },
+      data: {
+        ...(input.supplierId !== undefined ? { supplierId: input.supplierId } : {}),
+        ...(input.qty != null && !input.lines?.length ? { qty: input.qty } : {}),
+        ...(input.unit !== undefined ? { unit: input.unit } : {}),
+        ...(input.rate !== undefined ? { rate: input.rate } : {}),
+        ...(input.remarks !== undefined ? { remarks: input.remarks } : {}),
+        ...(input.expectedDate !== undefined
+          ? { expectedDate: input.expectedDate ? new Date(input.expectedDate) : null }
+          : {}),
+      },
+    });
+  });
+  revalidatePath("/trim-orders");
+  return { ok: true };
+}
+
+export async function deleteTrimOrder(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const o = await db.trimOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
+  if (o?.poNumber) throw new Error("Order is locked — PO already generated");
+  await db.trimOrder.delete({ where: { id: input.id } });
+  revalidatePath("/trim-orders");
+  return { ok: true };
+}
+
+/**
+ * Assign POT-YYYY-NNN (yearly sequence), lock the order. Idempotent.
+ * Trims get their own series so trim and fabric PO numbers never collide.
+ */
+export async function generateTrimPO(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const o = await db.trimOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
+  if (!o) throw new Error("Order not found");
+  if (o.poNumber) return { poNumber: o.poNumber }; // idempotent
+  const year = new Date().getFullYear();
+  const prefix = `POT-${year}-`;
+  const existing = await db.trimOrder.findMany({
+    where: { poNumber: { startsWith: prefix } },
+    select: { poNumber: true },
+  });
+  const maxN = existing.reduce((m, e) => Math.max(m, parseInt(e.poNumber!.slice(prefix.length), 10) || 0), 0);
+  const poNumber = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+  await db.trimOrder.update({ where: { id: input.id }, data: { poNumber, poGeneratedAt: new Date() } });
+  // Change 18 Part E: the PO carries the true price; the trim master's estimate is untouched.
+  revalidatePath("/trim-orders");
+  return { poNumber };
+}
+
+export async function markTrimPOSent(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.trimOrder.update({ where: { id: input.id }, data: { sentAt: new Date() } });
+  revalidatePath("/trim-orders");
   return { ok: true };
 }
 
@@ -1309,7 +1627,12 @@ export async function updateTrim(input: {
   return { ok: true };
 }
 
-/** Stock grows via receipts (writes a movement rather than overwriting). */
+/**
+ * Stock grows via receipts (writes a movement rather than overwriting).
+ *
+ * Change 18 Part B — LEGACY DOOR, no UI caller. Trims now enter stock the same way fabric
+ * does: a trim PO, then an inward challan locked against it. Kept for back-compat only.
+ */
 export async function recordTrimReceipt(input: { trimItemId: number; qty: number; rate?: number | null; invoice?: string | null; supplierId?: number | null }) {
   await requireRole("ADMIN", "STAFF");
   await db.$transaction(async (tx) => {
@@ -1695,14 +2018,41 @@ export async function lockChallan(input: { id: number }) {
         note: `Challan ${challanNo}`,
         fabricId: l.fabricId ?? null,
         colour: l.colour ?? null,
+        // ⚠️ jobCardId is DELIBERATELY omitted, even when this challan is raised against a
+        // job card. Change 19 Part B reconciles a card's fabric ledger to the manually
+        // entered USED by netting StockMovement rows keyed on (fabricId, jobCardId, colour);
+        // stamping jobCardId here would fold challan traffic into that net and silently
+        // corrupt the true-up. Do not "fix" this. See recordFabricActuals.
         trimItemId: l.trimItemId ?? null,
       });
+    }
+    // Change 18 Part C: locking the challan is what marks its purchase order received.
+    // receivedDate is preserved once set, so a multi-delivery PO keeps its first date.
+    if (c.fabricOrderId) {
+      const o = await tx.fabricOrder.findUnique({ where: { id: c.fabricOrderId }, select: { receivedDate: true } });
+      if (o) {
+        await tx.fabricOrder.update({
+          where: { id: c.fabricOrderId },
+          data: { status: "RECEIVED", receivedDate: o.receivedDate ?? now },
+        });
+      }
+    }
+    if (c.trimOrderId) {
+      const o = await tx.trimOrder.findUnique({ where: { id: c.trimOrderId }, select: { receivedDate: true } });
+      if (o) {
+        await tx.trimOrder.update({
+          where: { id: c.trimOrderId },
+          data: { status: "RECEIVED", receivedDate: o.receivedDate ?? now },
+        });
+      }
     }
   });
   revalidatePath("/challans");
   revalidatePath(`/challans/${c.id}`);
   revalidatePath("/inventory");
   revalidatePath("/trims");
+  revalidatePath("/fabric-orders");
+  revalidatePath("/trim-orders");
   return { challanNo };
 }
 
@@ -1726,13 +2076,169 @@ export async function voidChallan(input: { id: number }) {
         trimItemId: l.trimItemId ?? null,
       });
     }
+    // Change 18 Part C: if this was the only locked challan holding the order open as
+    // "received", the order goes back to ORDER_PLACED — a voided receipt is not a receipt.
+    // `id: { not: c.id }` matters: this challan's voidedAt is stamped below, in the same tx.
+    if (c.fabricOrderId) {
+      const others = await tx.materialChallan.count({
+        where: { fabricOrderId: c.fabricOrderId, status: "LOCKED", voidedAt: null, id: { not: c.id } },
+      });
+      if (others === 0) {
+        await tx.fabricOrder.update({
+          where: { id: c.fabricOrderId },
+          data: { status: "ORDER_PLACED", receivedDate: null },
+        });
+      }
+    }
+    if (c.trimOrderId) {
+      const others = await tx.materialChallan.count({
+        where: { trimOrderId: c.trimOrderId, status: "LOCKED", voidedAt: null, id: { not: c.id } },
+      });
+      if (others === 0) {
+        await tx.trimOrder.update({
+          where: { id: c.trimOrderId },
+          data: { status: "ORDER_PLACED", receivedDate: null },
+        });
+      }
+    }
     await tx.materialChallan.update({ where: { id: c.id }, data: { voidedAt: now } });
   });
   revalidatePath("/challans");
   revalidatePath(`/challans/${c.id}`);
   revalidatePath("/inventory");
   revalidatePath("/trims");
+  revalidatePath("/fabric-orders");
+  revalidatePath("/trim-orders");
   return { ok: true };
+}
+
+// ── Change 18 Parts A/B/C — PO → Inward Challan → Stock ──
+//
+// There is exactly ONE way goods enter stock: locking an inward challan. A purchase order
+// is received by drafting a challan from it, editing the lines to what physically arrived,
+// and locking that. The old one-shot "Receive" button is gone from the UI.
+
+/** Shared head+lines writer for a PO-derived draft. Kind is derived, never hand-set. */
+async function createDraftInwardChallan(
+  tx: Tx,
+  head: {
+    supplierId: number;
+    fabricOrderId?: number | null;
+    trimOrderId?: number | null;
+    note?: string | null;
+  },
+  lines: {
+    fabricId?: number | null;
+    colour?: string | null;
+    trimItemId?: number | null;
+    qty: number;
+    unit?: string | null;
+    rate?: number | null;
+  }[]
+): Promise<number> {
+  const c = await tx.materialChallan.create({
+    data: {
+      direction: "INWARD",
+      status: "DRAFT",
+      kind: deriveChallanKind(lines) as any,
+      supplierId: head.supplierId,
+      fabricOrderId: head.fabricOrderId ?? null,
+      trimOrderId: head.trimOrderId ?? null,
+      jobCardId: null, // a purchase is not raised against a job card
+      note: head.note ?? null,
+    } as any,
+  });
+  for (const l of lines) {
+    await tx.materialChallanLine.create({
+      data: {
+        challanId: c.id,
+        fabricId: l.fabricId ?? null,
+        colour: l.fabricId && l.colour ? colorKey(l.colour) : null,
+        trimItemId: l.trimItemId ?? null,
+        qty: l.qty,
+        unit: l.unit ?? null,
+        rate: l.rate ?? null,
+      },
+    });
+  }
+  return c.id;
+}
+
+/**
+ * Draft an inward challan pre-filled from a fabric PO (Change 18 Part A). The user lands on
+ * the draft, corrects quantities/rates to the real delivery, and locks it — the lock is what
+ * puts fabric into stock. Re-clicking returns the SAME open draft rather than spawning twins.
+ */
+export async function draftChallanFromFabricOrder(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const o = await db.fabricOrder.findUnique({ where: { id: input.id }, include: { lines: true } });
+  if (!o) throw new Error("Order not found");
+  if (!o.supplierId) throw new Error("Add a supplier to this order before logging an inward challan");
+
+  const open = await db.materialChallan.findFirst({
+    where: { fabricOrderId: o.id, status: "DRAFT", voidedAt: null },
+    select: { id: true },
+  });
+  if (open) return { id: open.id, already: true as const };
+
+  // New multi-colour orders use lines[]; legacy rows fall back to the single color/qty.
+  const rows =
+    o.lines.length > 0
+      ? o.lines.map((l) => ({ colour: colorKey(l.colour), qty: l.qty }))
+      : o.color
+        ? [{ colour: colorKey(o.color), qty: o.qty }]
+        : [];
+  const lines = rows
+    .filter((r) => r.qty > 0)
+    .map((r) => ({ fabricId: o.fabricId, colour: r.colour, qty: r.qty, unit: String(o.unit), rate: o.rate }));
+  if (lines.length === 0) throw new Error("This order has no colour lines to receive");
+
+  const id = await db.$transaction((tx) =>
+    createDraftInwardChallan(
+      tx,
+      { supplierId: o.supplierId!, fabricOrderId: o.id, note: `Against ${o.poNumber ?? `order #${o.id}`}` },
+      lines
+    )
+  );
+  revalidatePath("/fabric-orders");
+  revalidatePath("/challans");
+  return { id };
+}
+
+/** Draft an inward challan pre-filled from a trim PO (Change 18 Part B). Mirror of the fabric one. */
+export async function draftChallanFromTrimOrder(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const o = await db.trimOrder.findUnique({
+    where: { id: input.id },
+    include: { lines: true, trimItem: { select: { unit: true } } },
+  });
+  if (!o) throw new Error("Order not found");
+  if (!o.supplierId) throw new Error("Add a supplier to this order before logging an inward challan");
+
+  const open = await db.materialChallan.findFirst({
+    where: { trimOrderId: o.id, status: "DRAFT", voidedAt: null },
+    select: { id: true },
+  });
+  if (open) return { id: open.id, already: true as const };
+
+  const unit = o.unit ?? o.trimItem.unit ?? null;
+  // A split order receives line by line; a plain-qty order is one line.
+  const rows = o.lines.length > 0 ? o.lines.map((l) => l.qty) : [o.qty];
+  const lines = rows
+    .filter((q) => q > 0)
+    .map((q) => ({ trimItemId: o.trimItemId, qty: q, unit, rate: o.rate }));
+  if (lines.length === 0) throw new Error("This order has nothing to receive");
+
+  const id = await db.$transaction((tx) =>
+    createDraftInwardChallan(
+      tx,
+      { supplierId: o.supplierId!, trimOrderId: o.id, note: `Against ${o.poNumber ?? `order #${o.id}`}` },
+      lines
+    )
+  );
+  revalidatePath("/trim-orders");
+  revalidatePath("/challans");
+  return { id };
 }
 
 /**
@@ -1740,6 +2246,7 @@ export async function voidChallan(input: { id: number }) {
  * replaces the whole line set, and re-posts — all in one transaction — so the master stock
  * stays exact (void + reissue under the hood). Keeps the number; over-issue may go negative.
  * DRAFT challans use the add/update/remove line actions instead.
+ * The challan stays LOCKED throughout, so a linked purchase order stays RECEIVED (Change 18 C).
  */
 export async function editLockedChallan(input: {
   id: number;

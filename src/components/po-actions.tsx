@@ -1,18 +1,20 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { markPOSent } from "@/lib/actions";
+import { markPOSent, markTrimPOSent } from "@/lib/actions";
 import { waLink, mailtoLink } from "@/lib/share";
 import { Printer, Mail, MessageCircle } from "lucide-react";
 
 export function POActions({
-  orderId, email, phone, subject, summary,
+  orderId, email, phone, subject, summary, kind = "FABRIC",
 }: {
   orderId: number; email: string | null; phone: string | null; subject: string; summary: string;
+  /** Change 18 Part B: trim POs live in their own table and series (POT-YYYY-NNN). */
+  kind?: "FABRIC" | "TRIM";
 }) {
   const router = useRouter();
   async function share(href: string) {
-    try { await markPOSent({ id: orderId }); } catch { /* ignore */ }
+    try { await (kind === "TRIM" ? markTrimPOSent({ id: orderId }) : markPOSent({ id: orderId })); } catch { /* ignore */ }
     window.open(href, "_blank");
     router.refresh();
   }

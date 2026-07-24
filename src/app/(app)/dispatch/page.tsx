@@ -15,6 +15,8 @@ export default async function DispatchPage() {
   const open = jobs
     .filter((j) => j.balance > 0)
     .sort((a, b) => b.balance - a.balance)
+    // Change 19 C: the picker names the vendors actually stitching the card (its layer
+    // vendors), not the header vendor — a split card would otherwise mislabel itself.
     .map((j) => ({ id: 0, siNo: j.siNo, item: j.item, vendor: j.vendor, balance: j.balance, slug: j.slug }));
 
   // attach real ids
