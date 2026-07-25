@@ -2,6 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { verifySession, SESSION_COOKIE, type Role } from "@/lib/session";
 
 const ROUTE_ROLES: { prefix: string; roles: Role[] }[] = [
+  // The board shows every vendor's work on one screen, so it is staff-only —
+  // matching what the sidebar has always offered. Without this rule a VENDOR or
+  // TRIMS login could reach it by typing the URL.
+  { prefix: "/board", roles: ["ADMIN", "STAFF"] },
   { prefix: "/catalog", roles: ["ADMIN", "STAFF"] },
   { prefix: "/styles", roles: ["ADMIN"] },
   { prefix: "/production-orders", roles: ["ADMIN"] },
