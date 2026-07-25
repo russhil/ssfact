@@ -6,7 +6,7 @@ import { addDispatch } from "@/lib/actions";
 import { num } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
-const inp = "rounded-md border border-border px-2 py-1.5 text-[12px] outline-none focus:border-primary";
+const inp = "rounded-md border border-border px-2 py-1.5 t-sm outline-none focus:border-primary";
 const DEFAULT_SIZES = ["S", "M", "L", "XL", "2XL", "3XL"];
 const sizeRank = (s: string) => { const i = DEFAULT_SIZES.indexOf(s.toUpperCase()); return i === -1 ? 99 : i; };
 
@@ -131,7 +131,7 @@ export function LayerDispatch({
   }
 
   const dcBanner = lastDc ? (
-    <div className="mb-2 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700">
+    <div className="mb-2 rounded-md border border-ok/30 bg-ok-soft px-2.5 py-1.5 t-xs font-semibold text-ok">
       Dispatch logged — challan <span className="tnum">{lastDc}</span>. Open it from Recent Dispatches to print / share.
     </div>
   ) : null;
@@ -149,18 +149,18 @@ export function LayerDispatch({
     }
     return (
       <div className="mt-3 rounded-lg border border-dashed border-border p-2.5">
-        <div className="mb-1.5 text-[11px] font-semibold text-slate-600">Log dispatch</div>
+        <div className="mb-1.5 t-xs font-semibold text-t1">Log dispatch</div>
         {dcBanner}
         <div className="flex flex-wrap items-center gap-1.5">
           <input type="number" value={legacyQty} onChange={(e) => setLegacyQty(e.target.value)} placeholder="qty" className={`${inp} w-24 text-right tnum`} />
           <div className="flex rounded-md border border-border p-0.5">
             {(["ORDER", "SALE"] as const).map((r) => (
-              <button key={r} onClick={() => setLegacyReason(r)} className={cn("rounded px-2 py-1 text-[11px] font-semibold", legacyReason === r ? "bg-primary text-white" : "text-slate-500 hover:text-ink")}>{r}</button>
+              <button key={r} onClick={() => setLegacyReason(r)} className={cn("rounded px-2 py-1 t-xs font-semibold", legacyReason === r ? "bg-primary text-accent-on" : "text-t2 hover:text-ink")}>{r}</button>
             ))}
           </div>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inp} />
           <input value={challan} onChange={(e) => setChallan(e.target.value)} placeholder="challan #" className={`${inp} w-28`} />
-          <button onClick={saveLegacy} disabled={busy || !legacyQty} className="rounded-md bg-primary px-2.5 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-600 disabled:opacity-40">Log</button>
+          <button onClick={saveLegacy} disabled={busy || !legacyQty} className="rounded-md bg-primary px-2.5 py-1.5 t-sm font-semibold text-accent-on hover:opacity-90 disabled:opacity-40">Log</button>
         </div>
       </div>
     );
@@ -169,8 +169,8 @@ export function LayerDispatch({
   return (
     <div className="mt-3 rounded-lg border border-dashed border-border p-3">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-semibold text-slate-600">Log dispatch (vendor → warehouse)</span>
-        <button onClick={() => { setSale((s) => !s); }} className={cn("rounded-md border px-2 py-1 text-[11px] font-semibold", sale ? "border-amber-300 bg-amber-100 text-amber-700" : "border-border bg-surface text-slate-500")}>
+        <span className="t-xs font-semibold text-t1">Log dispatch (vendor → warehouse)</span>
+        <button onClick={() => { setSale((s) => !s); }} className={cn("rounded-md border px-2 py-1 t-xs font-semibold", sale ? "border-warn/30 bg-warn-soft text-warn" : "border-border bg-surface text-t2")}>
           {sale ? "Sale (defective)" : "Mark as Sale"}
         </button>
       </div>
@@ -180,10 +180,10 @@ export function LayerDispatch({
       {/* Change 17 Part I: card-wide table; vendor filter only when the card spans >1 vendor */}
       {multiVendor && (
         <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-faint">Vendor</span>
+          <span className="t-micro font-semibold uppercase tracking-wide text-faint">Vendor</span>
           <button
             onClick={() => setVendorFilter(null)}
-            className={cn("rounded-lg border px-2.5 py-1 text-[11px] font-semibold", vendorFilter === null ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-slate-600")}
+            className={cn("rounded-lg border px-2.5 py-1 t-xs font-semibold", vendorFilter === null ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-t1")}
           >
             All
           </button>
@@ -191,7 +191,7 @@ export function LayerDispatch({
             <button
               key={v}
               onClick={() => setVendorFilter(v)}
-              className={cn("rounded-lg border px-2.5 py-1 text-[11px] font-semibold", vendorFilter === v ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-slate-600")}
+              className={cn("rounded-lg border px-2.5 py-1 t-xs font-semibold", vendorFilter === v ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-t1")}
             >
               {v}
             </button>
@@ -200,45 +200,45 @@ export function LayerDispatch({
       )}
 
       {poolCut === 0 ? (
-        <p className="py-2 text-center text-[11px] text-muted">Nothing cut to dispatch{vendorFilter ? ` for ${vendorFilter}` : ""} yet.</p>
+        <p className="py-2 text-center t-xs text-muted">Nothing cut to dispatch{vendorFilter ? ` for ${vendorFilter}` : ""} yet.</p>
       ) : (
         <>
-          <div className="mb-2 text-[11px] text-muted">
+          <div className="mb-2 t-xs text-muted">
             {vendorFilter ? <>Vendor: <span className="font-semibold text-ink">{vendorFilter}</span> · </> : null}
             pool cut {num(poolCut)} · dispatched {num(priorDispatched)}
           </div>
 
           {sale ? (
             <div className="overflow-x-auto">
-              <table className="text-center text-[12px]">
-                <thead><tr className="text-[10px] font-bold text-faint">{saleSizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}</tr></thead>
+              <table className="text-center t-sm">
+                <thead><tr className="t-micro font-bold text-faint">{saleSizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}</tr></thead>
                 <tbody><tr>{saleSizes.map((s) => (
                   <td key={s} className="px-1 py-1">
-                    <input type="number" value={saleGrid[s] ?? ""} onChange={(e) => setSaleGrid((p) => ({ ...p, [s]: e.target.value }))} placeholder="0" className="w-14 rounded-md border border-border py-1 text-center text-[12px] tnum outline-none focus:border-primary" />
+                    <input type="number" value={saleGrid[s] ?? ""} onChange={(e) => setSaleGrid((p) => ({ ...p, [s]: e.target.value }))} placeholder="0" className="w-14 rounded-md border border-border py-1 text-center t-sm tnum outline-none focus:border-primary" />
                   </td>
                 ))}</tr></tbody>
               </table>
-              <p className="mt-1 text-[10px] text-faint">Sale is colour-less — any size, not clamped to the cut.</p>
+              <p className="mt-1 t-micro text-faint">Sale is colour-less — any size, not clamped to the cut.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-center text-[12px]">
+              <table className="w-full text-center t-sm">
                 <thead>
-                  <tr className="text-[10px] font-bold text-faint">
+                  <tr className="t-micro font-bold text-faint">
                     <th className="px-2 py-1 text-left">Colour \ Size</th>
                     {sizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {colours.map((c) => (
-                    <tr key={c} className="border-t border-slate-50">
-                      <td className="px-2 py-1 text-left font-semibold text-slate-600">{c || "—"}</td>
+                    <tr key={c} className="border-t border-hairline">
+                      <td className="px-2 py-1 text-left font-semibold text-t1">{c || "—"}</td>
                       {sizes.map((s) => {
                         const cut = cutCell(c, s);
                         if (cut <= 0) return <td key={s} className="px-1 py-1 text-faint">·</td>;
                         return (
                           <td key={s} className="px-1 py-1">
-                            <input type="number" value={grid[key(c, s)] ?? ""} onChange={(e) => setGrid((p) => ({ ...p, [key(c, s)]: e.target.value }))} placeholder={String(cut)} className="w-14 rounded-md border border-border py-1 text-center text-[12px] tnum outline-none focus:border-primary" />
+                            <input type="number" value={grid[key(c, s)] ?? ""} onChange={(e) => setGrid((p) => ({ ...p, [key(c, s)]: e.target.value }))} placeholder={String(cut)} className="w-14 rounded-md border border-border py-1 text-center t-sm tnum outline-none focus:border-primary" />
                           </td>
                         );
                       })}
@@ -252,8 +252,8 @@ export function LayerDispatch({
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inp} />
             <input value={challan} onChange={(e) => setChallan(e.target.value)} placeholder="challan #" className={`${inp} w-28`} />
-            <span className="text-[12px]">Entering <span className="font-bold tnum">{num(enteringNow)}</span> · balance <span className={cn("font-bold tnum", balance < 0 ? "text-emerald-600" : "text-amber-600")}>{num(balance)}</span></span>
-            <button onClick={save} disabled={busy || enteringNow === 0} className="ml-auto rounded-md bg-primary px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-600 disabled:opacity-40">
+            <span className="t-sm">Entering <span className="font-bold tnum">{num(enteringNow)}</span> · balance <span className={cn("font-bold tnum", balance < 0 ? "text-ok" : "text-warn")}>{num(balance)}</span></span>
+            <button onClick={save} disabled={busy || enteringNow === 0} className="ml-auto rounded-md bg-primary px-3 py-1.5 t-sm font-semibold text-accent-on hover:opacity-90 disabled:opacity-40">
               {busy ? "Saving…" : sale ? "Log sale" : "Log dispatch"}
             </button>
           </div>

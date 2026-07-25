@@ -26,7 +26,7 @@ export default async function DashboardPage() {
         actions={
           <Link
             href="/job-cards/new"
-            className="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-indigo-600"
+            className="rounded-lg bg-primary px-3.5 py-2 t-body font-semibold text-accent-on shadow-sm transition hover:opacity-90"
           >
             + New Job Card
           </Link>
@@ -37,11 +37,11 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-4 gap-3.5">
         {cards.map((c) => (
           <Card key={c.label} className="p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{c.label}</div>
-            <div className={`mt-2 text-[27px] font-extrabold leading-none ${c.tone === "danger" ? "text-danger" : "text-ink"}`}>
+            <div className="t-xs font-semibold uppercase tracking-wide text-muted">{c.label}</div>
+            <div className={`mt-2 t-stat font-extrabold leading-none ${c.tone === "danger" ? "text-danger" : "text-ink"}`}>
               <CountUp value={c.value} />
             </div>
-            <div className={`mt-2 text-[11px] ${c.tone === "danger" ? "text-danger" : "text-muted"}`}>{c.foot}</div>
+            <div className={`mt-2 t-xs ${c.tone === "danger" ? "text-danger" : "text-muted"}`}>{c.foot}</div>
           </Card>
         ))}
       </div>
@@ -49,14 +49,14 @@ export default async function DashboardPage() {
       {/* vendor + overdue */}
       <div className="mt-3.5 grid grid-cols-[1.4fr_1fr] gap-3.5">
         <Card className="p-5">
-          <h3 className="mb-4 text-[13px] font-bold">
+          <h3 className="mb-4 t-body font-bold">
             Vendor Dispatch Progress <span className="font-medium text-faint">· active jobs</span>
           </h3>
           <div className="space-y-3">
             {vendors.map((v) => {
               const low = v.fill < 0.65;
               return (
-                <div key={v.name} className="flex items-center gap-3 text-[12px]">
+                <div key={v.name} className="flex items-center gap-3 t-sm">
                   <span className="w-32 truncate font-semibold">{v.name}</span>
                   <div className="flex-1">
                     <Bar value={v.fill} tone={low ? "warn" : "primary"} />
@@ -70,20 +70,20 @@ export default async function DashboardPage() {
         </Card>
 
         <Card className="p-5">
-          <h3 className="mb-3 text-[13px] font-bold">
+          <h3 className="mb-3 t-body font-bold">
             Overdue — needs action <span className="font-medium text-faint">· top 5</span>
           </h3>
           <div>
-            {overdue.length === 0 && <p className="py-6 text-center text-[12px] text-muted">Nothing overdue 🎉</p>}
+            {overdue.length === 0 && <p className="py-6 text-center t-sm text-muted">Nothing overdue 🎉</p>}
             {overdue.map((o) => (
               <Link
                 key={o.slug}
                 href={`/job-cards/${o.slug}`}
-                className="flex items-center justify-between border-b border-slate-50 py-2.5 text-[12px] last:border-0 hover:opacity-80"
+                className="flex items-center justify-between border-b border-hairline py-2.5 t-sm last:border-0 hover:opacity-80"
               >
                 <span>
                   <span className="font-bold text-primary-ink">{o.siNo}</span>{" "}
-                  <span className="ml-1 text-slate-500">{o.item}</span>
+                  <span className="ml-1 text-t2">{o.item}</span>
                 </span>
                 <Badge tone="danger">{o.daysLate}d late</Badge>
               </Link>
@@ -94,9 +94,9 @@ export default async function DashboardPage() {
 
       {/* trend */}
       <Card className="mt-3.5 p-5">
-        <h3 className="mb-1 flex items-center gap-2 text-[13px] font-bold">
+        <h3 className="mb-1 flex items-center gap-2 t-body font-bold">
           Weekly Production Trend <span className="font-medium text-faint">· cut qty by order week</span>
-          <ArrowUpRight size={14} className="text-emerald-500" />
+          <ArrowUpRight size={14} className="text-ok" />
         </h3>
         <TrendChart data={trend} />
       </Card>

@@ -22,7 +22,7 @@ export function Card({
 
 /* ---------------------------------------------------------------- Panel --
    A Card with the header treatment that was being hand-rolled as
-   `<h3 className="text-[13px] font-bold">` on ~20 screens. */
+   `<h3 className="t-body font-bold">` on ~20 screens. */
 
 export function Panel({
   title,

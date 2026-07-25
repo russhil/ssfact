@@ -121,6 +121,36 @@
   color: var(--t1);
 }
 
+/* A deliberately dark "cockpit" surface used for live-summary panels. It
+   re-declares the tokens rather than hand-painting indigo/white-alpha classes,
+   so its contents use the ordinary utilities and it looks identical in light
+   and dark mode. */
+.panel-invert {
+  color-scheme: dark;
+  --surface: #23252f;
+  --surface-2: rgb(255 255 255 / 0.07);
+  --elevated: #2b2e3a;
+  --border: rgb(255 255 255 / 0.15);
+  --hairline: rgb(255 255 255 / 0.09);
+  --t1: #f3f3f6;
+  --t2: rgb(235 235 245 / 0.66);
+  --t3: rgb(235 235 245 / 0.42);
+  --accent: #f0917a;
+  --accent-soft: rgb(240 145 122 / 0.16);
+  --accent-ink: #f5b3a2;
+  --accent-on: #1a1a1e;
+  --ok: #4ade80;
+  --ok-soft: rgb(74 222 128 / 0.16);
+  --warn: #fbbf24;
+  --warn-soft: rgb(251 191 36 / 0.16);
+  --danger: #fb7185;
+  --danger-soft: rgb(251 113 133 / 0.16);
+  --sh-1: rgb(0 0 0 / 0.4);
+  --sh-2: rgb(0 0 0 / 0.6);
+  background: linear-gradient(180deg, #24262f 0%, #1a1c24 100%);
+  color: var(--t1);
+}
+
 [data-density="compact"] {
   --row-h: 32px;
   --row-px: 12px;

@@ -17,7 +17,7 @@ export default async function NewProductPage() {
 
   return (
     <div className="p-6">
-      <Link href="/catalog" className="mb-4 inline-flex items-center gap-1.5 text-[12px] font-medium text-muted hover:text-ink">
+      <Link href="/catalog" className="mb-4 inline-flex items-center gap-1.5 t-sm font-medium text-muted hover:text-ink">
         <ArrowLeft size={14} /> Product Master
       </Link>
       <PageHeader

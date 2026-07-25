@@ -38,20 +38,20 @@ export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier
     <>
       <Card className="mb-4 p-4">
         <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Supplier name" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
-          <LookupSelect kind="SUPPLIER_TYPE" options={types} value={type} onChange={setType} placeholder="Type…" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
-          <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="City" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
-          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (for PO)" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
-          <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Address (for PO)" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
-          <button onClick={add} disabled={busy || !name.trim()} className="inline-flex items-center justify-center gap-1 rounded-lg bg-primary px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-40 md:col-span-3"><Plus size={14} /> Add supplier</button>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Supplier name" className="rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
+          <LookupSelect kind="SUPPLIER_TYPE" options={types} value={type} onChange={setType} placeholder="Type…" className="rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
+          <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="City" className="rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email (for PO)" className="rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
+          <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Address (for PO)" className="rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
+          <button onClick={add} disabled={busy || !name.trim()} className="inline-flex items-center justify-center gap-1 rounded-lg bg-primary px-3 py-2 t-body font-semibold text-accent-on disabled:opacity-40 md:col-span-3"><Plus size={14} /> Add supplier</button>
         </div>
       </Card>
 
       <Card className="overflow-hidden p-0">
-        <table className="w-full text-[12px]">
+        <table className="w-full t-sm">
           <thead>
-            <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
               <th className="px-4 py-2.5 font-semibold">Supplier</th>
               <th className="px-4 py-2.5 font-semibold">Type</th>
               <th className="px-4 py-2.5 font-semibold">City</th>
@@ -63,13 +63,13 @@ export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier
           </thead>
           <tbody>
             {suppliers.map((s) => (
-              <tr key={s.id} className={`border-b border-slate-50 last:border-0 ${s.active ? "" : "opacity-50"}`}>
+              <tr key={s.id} className={`border-b border-hairline last:border-0 ${s.active ? "" : "opacity-50"}`}>
                 <td className="px-4 py-2.5 font-semibold">{s.name}</td>
-                <td className="px-4 py-2.5 text-slate-500">{s.type ?? "—"}</td>
-                <td className="px-4 py-2.5 text-slate-500">{s.city ?? "—"}</td>
-                <td className="px-4 py-2.5 text-slate-500">{s.phone ?? "—"}</td>
-                <td className="px-4 py-2.5 text-right tnum text-slate-500">{s.trims}</td>
-                <td className="px-4 py-2.5 text-right tnum text-slate-500">{s.orders}</td>
+                <td className="px-4 py-2.5 text-t2">{s.type ?? "—"}</td>
+                <td className="px-4 py-2.5 text-t2">{s.city ?? "—"}</td>
+                <td className="px-4 py-2.5 text-t2">{s.phone ?? "—"}</td>
+                <td className="px-4 py-2.5 text-right tnum text-t2">{s.trims}</td>
+                <td className="px-4 py-2.5 text-right tnum text-t2">{s.orders}</td>
                 <td className="px-4 py-2.5">
                   <button onClick={() => toggle(s)} disabled={busy}>
                     {s.active ? <Badge tone="ok">Active</Badge> : <Badge tone="default">Inactive</Badge>}

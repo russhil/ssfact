@@ -62,8 +62,8 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
             <button
               key={x.key}
               onClick={() => setF(x.key)}
-              className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
-                f === x.key ? "bg-primary text-white" : "bg-surface text-slate-500 hover:bg-slate-50 border border-border"
+              className={`rounded-lg px-3 py-1.5 t-sm font-semibold transition ${
+                f === x.key ? "bg-primary text-accent-on" : "bg-surface text-t2 hover:bg-surface-2 border border-border"
               }`}
             >
               {x.label} <span className="opacity-60">{counts[x.key]}</span>
@@ -74,7 +74,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
           <select
             value={productId}
             onChange={(e) => setProductId(e.target.value === "all" ? "all" : Number(e.target.value))}
-            className="rounded-lg border border-border bg-surface py-2 pl-3 pr-7 text-[12px] outline-none focus:border-primary"
+            className="rounded-lg border border-border bg-surface py-2 pl-3 pr-7 t-sm outline-none focus:border-primary"
           >
             <option value="all">All products</option>
             {productOptions.map((p) => (
@@ -87,16 +87,16 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search SI, style, vendor…"
-              className="w-full rounded-lg border border-border bg-surface py-2 pl-8 pr-3 text-[12px] outline-none focus:border-primary focus:ring-2 focus:ring-indigo-100"
+              className="w-full rounded-lg border border-border bg-surface py-2 pl-8 pr-3 t-sm outline-none focus:border-primary focus:ring-2 focus:ring-accent/15"
             />
           </div>
         </div>
       </div>
 
       <div className="overflow-hidden rounded-card border border-border bg-surface">
-        <table className="w-full text-[12px]">
+        <table className="w-full t-sm">
           <thead>
-            <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
               <th className="px-4 py-2.5 font-semibold">SI</th>
               <th className="px-4 py-2.5 font-semibold">Item</th>
               <th className="px-4 py-2.5 font-semibold">Vendor</th>
@@ -109,7 +109,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
           </thead>
           <tbody>
             {shown.map((r, i) => (
-              <tr key={`${r.siNo}-${r.styleNo}-${i}`} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+              <tr key={`${r.siNo}-${r.styleNo}-${i}`} className="border-b border-hairline last:border-0 hover:bg-surface-2">
                 <td className="px-4 py-2.5">
                   <Link href={`/job-cards/${r.slug}`} className="font-bold text-primary-ink hover:underline">
                     {r.siNo}
@@ -117,9 +117,9 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
                 </td>
                 <td className="px-4 py-2.5">
                   <div className="font-medium">{r.item}</div>
-                  <div className="text-[11px] text-faint">{r.styleNo}</div>
+                  <div className="t-xs text-faint">{r.styleNo}</div>
                 </td>
-                <td className="px-4 py-2.5 text-slate-500">{r.vendor}</td>
+                <td className="px-4 py-2.5 text-t2">{r.vendor}</td>
                 <td className="px-4 py-2.5 text-right tnum">{num(r.cutQty)}</td>
                 <td className="px-4 py-2.5 text-right tnum">{num(r.dispatchedQty)}</td>
                 <td className="px-4 py-2.5">
@@ -127,10 +127,10 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
                     <div className="w-16">
                       <Bar value={r.fill} tone={r.fill < 0.65 ? "warn" : "primary"} />
                     </div>
-                    <span className="tnum text-[11px] font-semibold">{pct(r.fill)}</span>
+                    <span className="tnum t-xs font-semibold">{pct(r.fill)}</span>
                   </div>
                 </td>
-                <td className="px-4 py-2.5 text-slate-500 tnum">{fmtDate(r.plannedEtd)}</td>
+                <td className="px-4 py-2.5 text-t2 tnum">{fmtDate(r.plannedEtd)}</td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-wrap items-center gap-1">
                     {r.overdue ? (
@@ -155,7 +155,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-[11px] text-faint">{shown.length} of {rows.length} job cards</p>
+      <p className="mt-2 t-xs text-faint">{shown.length} of {rows.length} job cards</p>
     </div>
   );
 }

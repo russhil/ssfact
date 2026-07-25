@@ -91,7 +91,7 @@ export function ProductMasterForm({
 
   return (
     <Card className="p-5">
-      <h3 className="mb-3 text-[13px] font-bold">{isCreate ? "New Product" : "Edit Product"} <span className="font-medium text-faint">· admin / staff</span></h3>
+      <h3 className="mb-3 t-body font-bold">{isCreate ? "New Product" : "Edit Product"} <span className="font-medium text-faint">· admin / staff</span></h3>
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3">
         <Field label="Name"><input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder={isCreate ? "e.g. TRUMP LOWER" : ""} className={inp} /></Field>
         <Field label="SKU / article code"><input value={f.skuCode} onChange={(e) => set("skuCode", e.target.value)} placeholder="e.g. TP-TRUMP-824 (or blank)" className={inp} /></Field>
@@ -115,7 +115,7 @@ export function ProductMasterForm({
       </div>
 
       {linkedFabric && (
-        <div className="mt-2 flex flex-wrap gap-4 rounded-lg border border-border bg-slate-50 px-3 py-2 text-[11px] text-muted">
+        <div className="mt-2 flex flex-wrap gap-4 rounded-lg border border-border bg-surface-2 px-3 py-2 t-xs text-muted">
           <span>Linked fabric: <b className="text-ink">{linkedFabric.name}</b></span>
           <span>GSM {linkedFabric.gsm ?? "—"}</span>
           <span>Width {linkedFabric.rollWidth ?? "—"}</span>
@@ -124,40 +124,40 @@ export function ProductMasterForm({
       )}
 
       {isCreate ? (
-        <p className="mt-3 rounded-lg border border-dashed border-border bg-slate-50 px-3 py-2 text-[12px] text-muted">
+        <p className="mt-3 rounded-lg border border-dashed border-border bg-surface-2 px-3 py-2 t-sm text-muted">
           Save the product first, then add colours &amp; images on its page.
         </p>
       ) : (
         <div className="mt-3">
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-faint">Colours</div>
+          <div className="mb-1.5 t-micro font-semibold uppercase tracking-wide text-faint">Colours</div>
           <div className="flex flex-wrap items-center gap-1.5">
             {(product?.colors ?? []).map((c) => (
-              <span key={c.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-slate-50 px-2.5 py-1 text-[11px] font-semibold">
+              <span key={c.id} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-1 t-xs font-semibold">
                 {c.hex && <span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ background: c.hex }} />}
                 {c.name}
                 <button onClick={() => delColor(c.id)} className="text-faint hover:text-danger"><X size={11} /></button>
               </span>
             ))}
-            <input value={newColor} onChange={(e) => setNewColor(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addColor()} placeholder="+ colour" className="w-24 rounded-full border border-dashed border-border px-2.5 py-1 text-[11px] outline-none focus:border-primary" />
-            <button onClick={addColor} disabled={busy || !newColor.trim()} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1 text-[11px] font-semibold hover:bg-slate-50 disabled:opacity-40"><Plus size={11} /> Add</button>
+            <input value={newColor} onChange={(e) => setNewColor(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addColor()} placeholder="+ colour" className="w-24 rounded-full border border-dashed border-border px-2.5 py-1 t-xs outline-none focus:border-primary" />
+            <button onClick={addColor} disabled={busy || !newColor.trim()} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1 t-xs font-semibold hover:bg-surface-2 disabled:opacity-40"><Plus size={11} /> Add</button>
           </div>
         </div>
       )}
 
       <div className="mt-4 flex items-center gap-2">
-        <button onClick={save} disabled={busy || (isCreate && !f.name.trim())} className="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40">
+        <button onClick={save} disabled={busy || (isCreate && !f.name.trim())} className="rounded-lg bg-primary px-4 py-2 t-body font-semibold text-accent-on disabled:opacity-40">
           {isCreate ? "Create product" : "Save"}
         </button>
-        {saved && <span className="inline-flex items-center gap-1 text-[12px] font-medium text-emerald-600"><Check size={14} /> Saved</span>}
+        {saved && <span className="inline-flex items-center gap-1 t-sm font-medium text-ok"><Check size={14} /> Saved</span>}
         {!canSeeCost && <Badge tone="default">Cost fields hidden — owner only</Badge>}
       </div>
     </Card>
   );
 }
 
-const inp = "w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary";
+const inp = "w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary";
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-faint">{label}</label>{children}</div>;
+  return <div><label className="mb-1 block t-micro font-semibold uppercase tracking-wide text-faint">{label}</label>{children}</div>;
 }
 function Sel({ v, on, opts }: { v: string; on: (v: string) => void; opts: string[] }) {
   return <select value={v} onChange={(e) => on(e.target.value)} className={inp}>{opts.map((o) => <option key={o} value={o}>{o ? o.replace(/_/g, " ") : "—"}</option>)}</select>;

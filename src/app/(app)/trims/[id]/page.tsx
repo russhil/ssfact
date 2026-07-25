@@ -30,13 +30,13 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
 
   return (
     <div className="p-6">
-      <Link href="/trims" className="mb-4 inline-flex items-center gap-1.5 text-[12px] font-medium text-muted hover:text-ink">
+      <Link href="/trims" className="mb-4 inline-flex items-center gap-1.5 t-sm font-medium text-muted hover:text-ink">
         <ArrowLeft size={14} /> Trims Store
       </Link>
 
       <div className="mb-5 flex flex-wrap items-center gap-2.5">
-        <h1 className="text-[22px] font-bold tracking-tight">{stock.name}</h1>
-        {stock.family && <span className="text-[12px] text-faint">{stock.family}</span>}
+        <h1 className="t-display font-bold tracking-tight">{stock.name}</h1>
+        {stock.family && <span className="t-sm text-faint">{stock.family}</span>}
         {stock.status === "short" ? <Badge tone="danger">Indent</Badge> : stock.status === "low" ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}
       </div>
 
@@ -48,12 +48,12 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
           ["Stock Out", num(stock.outTotal)],
         ].map(([l, v]) => (
           <Card key={l} className="p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{l}</div>
-            <div className={`mt-1.5 text-[22px] font-extrabold tnum ${l === "Current" && stock.current <= 0 ? "text-danger" : ""}`}>{v}</div>
+            <div className="t-xs font-semibold uppercase tracking-wide text-muted">{l}</div>
+            <div className={`mt-1.5 t-display font-extrabold tnum ${l === "Current" && stock.current <= 0 ? "text-danger" : ""}`}>{v}</div>
           </Card>
         ))}
       </div>
-      <p className="mt-2 text-[11px] text-faint">Current is the latest physical count from the store register — opening ± movements may not fully reconcile.</p>
+      <p className="mt-2 t-xs text-faint">Current is the latest physical count from the store register — opening ± movements may not fully reconcile.</p>
 
       {sourcing && (
         <SourcingPanel pos={sourcing.pos} unit={trimMaster?.unit ?? ""} poHref="/pot" estimate={trimMaster?.ratePerUnit ?? null} />
@@ -75,12 +75,12 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
       )}
 
       <Card className="mt-3.5 overflow-hidden p-0">
-        <div className="border-b border-border px-5 py-3 text-[13px] font-bold">
+        <div className="border-b border-border px-5 py-3 t-body font-bold">
           Stock Ledger <span className="font-medium text-faint">· every recorded movement</span>
         </div>
-        <table className="w-full text-[12px]">
+        <table className="w-full t-sm">
           <thead>
-            <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
               <th className="px-5 py-2.5 font-semibold">Date</th>
               <th className="px-5 py-2.5 font-semibold">Type</th>
               <th className="px-5 py-2.5 font-semibold">Invoice</th>
@@ -90,14 +90,14 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
           </thead>
           <tbody>
             {ledger.map((m) => (
-              <tr key={m.id} className="border-b border-slate-50 last:border-0">
-                <td className="px-5 py-2.5 text-slate-500 tnum">{fmtDate(m.date)}</td>
+              <tr key={m.id} className="border-b border-hairline last:border-0">
+                <td className="px-5 py-2.5 text-t2 tnum">{fmtDate(m.date)}</td>
                 <td className="px-5 py-2.5">
                   <Badge tone={m.type === "ISSUE" ? "danger" : "ok"}>{m.type === "ISSUE" ? "OUT" : "IN"}</Badge>
                 </td>
-                <td className="px-5 py-2.5 text-slate-500">{m.invoice ?? "—"}</td>
-                <td className="px-5 py-2.5 text-slate-500">{m.vendor ?? "—"}</td>
-                <td className={`px-5 py-2.5 text-right font-bold tnum ${m.type === "ISSUE" ? "text-danger" : "text-emerald-600"}`}>
+                <td className="px-5 py-2.5 text-t2">{m.invoice ?? "—"}</td>
+                <td className="px-5 py-2.5 text-t2">{m.vendor ?? "—"}</td>
+                <td className={`px-5 py-2.5 text-right font-bold tnum ${m.type === "ISSUE" ? "text-danger" : "text-ok"}`}>
                   {m.type === "ISSUE" ? "−" : "+"}
                   {num(m.qty)}
                 </td>

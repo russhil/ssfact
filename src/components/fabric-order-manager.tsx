@@ -204,26 +204,26 @@ export function FabricOrderManager({
         {/* entry */}
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-[11px] font-bold uppercase tracking-wide text-muted">
+            <h3 className="t-xs font-bold uppercase tracking-wide text-muted">
               {editingId ? "Edit fabric order" : "New fabric order"}
             </h3>
             {editingId && (
-              <button onClick={resetForm} className="text-[11px] font-semibold text-slate-500 hover:text-danger">Cancel</button>
+              <button onClick={resetForm} className="t-xs font-semibold text-t2 hover:text-danger">Cancel</button>
             )}
           </div>
           <div className="grid grid-cols-2 gap-2.5">
             <div className="col-span-2">
-              <label className="mb-1 block text-[11px] font-semibold text-slate-600">Fabric</label>
+              <label className="mb-1 block t-xs font-semibold text-t1">Fabric</label>
               {addFabric ? (
                 <div className="flex gap-1.5">
                   <input autoFocus value={fabricDraft} onChange={(e) => setFabricDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmFabric()} placeholder="New fabric name" className={inp} />
-                  <button onClick={confirmFabric} disabled={busy} className="rounded-lg bg-primary px-3 text-[12px] font-semibold text-white"><Check size={14} /></button>
-                  <button onClick={() => setAddFabric(false)} className="rounded-lg border border-border px-3 text-slate-500"><X size={14} /></button>
+                  <button onClick={confirmFabric} disabled={busy} className="rounded-lg bg-primary px-3 t-sm font-semibold text-accent-on"><Check size={14} /></button>
+                  <button onClick={() => setAddFabric(false)} className="rounded-lg border border-border px-3 text-t2"><X size={14} /></button>
                 </div>
               ) : (
                 // The material is frozen while editing — updateFabricOrder takes no fabricId,
                 // and swapping it would need the sourcing-rate bookkeeping redone.
-                <select value={fabricId} disabled={!!editingId} onChange={(e) => (e.target.value === ADD ? setAddFabric(true) : pickFabric(e.target.value))} className={`${inp} disabled:bg-slate-50 disabled:text-slate-500`}>
+                <select value={fabricId} disabled={!!editingId} onChange={(e) => (e.target.value === ADD ? setAddFabric(true) : pickFabric(e.target.value))} className={`${inp} disabled:bg-surface-2 disabled:text-t2`}>
                   <option value="">Fabric…</option>
                   {fabricList.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                   {!editingId && <option value={ADD}>➕ Add new fabric…</option>}
@@ -231,26 +231,26 @@ export function FabricOrderManager({
               )}
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-600">Supplier</label>
+              <label className="mb-1 block t-xs font-semibold text-t1">Supplier</label>
               <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className={inp}>
                 <option value="">Supplier…</option>
                 {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-600">Expected date</label>
+              <label className="mb-1 block t-xs font-semibold text-t1">Expected date</label>
               <input type="date" value={expected} onChange={(e) => setExpected(e.target.value)} className={inp} />
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-600">Rate (₹/unit, optional)</label>
+              <label className="mb-1 block t-xs font-semibold text-t1">Rate (₹/unit, optional)</label>
               <input type="number" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="—" className={inp} />
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-600">GSM (optional)</label>
+              <label className="mb-1 block t-xs font-semibold text-t1">GSM (optional)</label>
               <input type="number" value={gsm} onChange={(e) => setGsm(e.target.value)} placeholder="—" className={inp} />
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-600">Unit</label>
+              <label className="mb-1 block t-xs font-semibold text-t1">Unit</label>
               <select value={unit} onChange={(e) => setUnit(e.target.value)} className={inp}>
                 <option value="MTR">MTR</option>
                 <option value="KG">KG</option>
@@ -260,15 +260,15 @@ export function FabricOrderManager({
 
           {/* colour × qty */}
           <div className="mt-4">
-            <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Colours &amp; quantities</label>
+            <label className="mb-1.5 block t-xs font-semibold text-t1">Colours &amp; quantities</label>
             <div className="space-y-1.5">
               {lines.map((l, i) => (
                 <div key={i} className="flex items-center gap-1.5">
                   {addColourRow === i ? (
                     <>
                       <input autoFocus value={colourDraft} onChange={(e) => setColourDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmColour(i)} placeholder="New colour" className={`${inp} flex-1`} />
-                      <button onClick={() => confirmColour(i)} disabled={busy} className="rounded-lg bg-primary px-2.5 py-2 text-white"><Check size={14} /></button>
-                      <button onClick={() => setAddColourRow(null)} className="rounded-lg border border-border px-2.5 py-2 text-slate-500"><X size={14} /></button>
+                      <button onClick={() => confirmColour(i)} disabled={busy} className="rounded-lg bg-primary px-2.5 py-2 text-accent-on"><Check size={14} /></button>
+                      <button onClick={() => setAddColourRow(null)} className="rounded-lg border border-border px-2.5 py-2 text-t2"><X size={14} /></button>
                     </>
                   ) : (
                     <>
@@ -277,7 +277,7 @@ export function FabricOrderManager({
                         {colourOptions.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
                         <option value={ADD}>➕ Add new colour…</option>
                       </select>
-                      <input type="number" value={l.qty || ""} placeholder="0" onChange={(e) => setLine(i, { qty: Math.max(0, +e.target.value) })} className="w-24 rounded-lg border border-border px-2.5 py-2 text-right text-[13px] tnum outline-none focus:border-primary" />
+                      <input type="number" value={l.qty || ""} placeholder="0" onChange={(e) => setLine(i, { qty: Math.max(0, +e.target.value) })} className="w-24 rounded-lg border border-border px-2.5 py-2 text-right t-body tnum outline-none focus:border-primary" />
                       <button onClick={() => removeLine(i)} className="text-faint hover:text-danger"><X size={14} /></button>
                     </>
                   )}
@@ -288,28 +288,28 @@ export function FabricOrderManager({
         </Card>
 
         {/* live summary */}
-        <Card className="border-slate-800 bg-gradient-to-b from-[#0f1226] to-[#1b1f3b] p-5 text-indigo-50">
-          <h3 className="mb-4 text-[11px] font-bold uppercase tracking-wide text-indigo-300">Order summary</h3>
+        <Card className="panel-invert p-5">
+          <h3 className="mb-4 t-xs font-bold uppercase tracking-wide text-t3">Order summary</h3>
           {!fabricId ? (
-            <div className="flex h-40 items-center justify-center text-center text-[12px] text-indigo-300/70">Pick a fabric and add colours.</div>
+            <div className="flex h-40 items-center justify-center text-center t-sm text-t3">Pick a fabric and add colours.</div>
           ) : (
             <>
-              <div className="text-[13px] font-semibold text-white">{fabricList.find((f) => String(f.id) === fabricId)?.name}</div>
+              <div className="t-body font-semibold text-t1">{fabricList.find((f) => String(f.id) === fabricId)?.name}</div>
               <div className="mt-3 space-y-1.5">
                 {filled.map((l, i) => (
-                  <div key={i} className="flex justify-between border-b border-white/10 pb-1 text-[12px]">
-                    <span className="text-indigo-200">{l.colour}</span>
+                  <div key={i} className="flex justify-between border-b border-hairline pb-1 t-sm">
+                    <span className="text-t2">{l.colour}</span>
                     <span className="font-bold tnum">{num(l.qty)}</span>
                   </div>
                 ))}
-                {filled.length === 0 && <div className="text-[12px] text-indigo-300/60">No colours yet.</div>}
+                {filled.length === 0 && <div className="t-sm text-t3">No colours yet.</div>}
               </div>
-              <div className="mt-3 flex items-end justify-between border-t border-white/10 pt-3">
-                <span className="text-[12px] text-indigo-200">{filled.length} colour{filled.length === 1 ? "" : "s"} · total</span>
-                <span className="text-[24px] font-extrabold text-white tnum">{num(totalQty)}</span>
+              <div className="mt-3 flex items-end justify-between border-t border-hairline pt-3">
+                <span className="t-sm text-t2">{filled.length} colour{filled.length === 1 ? "" : "s"} · total</span>
+                <span className="t-display font-extrabold text-t1 tnum">{num(totalQty)}</span>
               </div>
-              {totalValue != null && <div className="mt-1 text-right text-[12px] text-indigo-200">≈ {inr(totalValue)}</div>}
-              <button onClick={editingId ? save : create} disabled={busy || !fabricId || filled.length === 0} className="mt-4 w-full rounded-lg bg-primary px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:opacity-40">
+              {totalValue != null && <div className="mt-1 text-right t-sm text-t2">≈ {inr(totalValue)}</div>}
+              <button onClick={editingId ? save : create} disabled={busy || !fabricId || filled.length === 0} className="mt-4 w-full rounded-lg bg-primary px-4 py-2.5 t-body font-semibold text-accent-on shadow-sm transition hover:opacity-90 disabled:opacity-40">
                 {busy ? "Saving…" : editingId ? "Save changes" : "Create order"}
               </button>
             </>
@@ -319,9 +319,9 @@ export function FabricOrderManager({
 
       {/* order list */}
       <Card className="mt-4 overflow-hidden p-0">
-        <table className="w-full text-[12px]">
+        <table className="w-full t-sm">
           <thead>
-            <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
               <th className="px-4 py-2.5 font-semibold">Fabric</th>
               <th className="px-4 py-2.5 font-semibold">Colours</th>
               <th className="px-4 py-2.5 text-right font-semibold">Total</th>
@@ -334,15 +334,15 @@ export function FabricOrderManager({
           </thead>
           <tbody>
             {orders.map((o) => (
-              <tr key={o.id} className={`border-b border-slate-50 last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
+              <tr key={o.id} className={`border-b border-hairline last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
                 <td className="px-4 py-2.5 font-semibold">{o.fabric}</td>
-                <td className="px-4 py-2.5 text-slate-500">
+                <td className="px-4 py-2.5 text-t2">
                   <div className="flex flex-wrap gap-1">
-                    {o.lines.map((l, i) => <span key={i} className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px]">{l.colour} {num(l.qty)}</span>)}
+                    {o.lines.map((l, i) => <span key={i} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs">{l.colour} {num(l.qty)}</span>)}
                   </div>
                 </td>
                 <td className="px-4 py-2.5 text-right tnum font-semibold">{num(o.totalQty)} {o.unit.toLowerCase()}</td>
-                <td className="px-4 py-2.5 text-slate-500">{o.supplier ?? "—"}</td>
+                <td className="px-4 py-2.5 text-t2">{o.supplier ?? "—"}</td>
                 <td className="px-4 py-2.5"><Badge tone={STAGE_TONE[o.poStage] ?? "default"}>{o.poNumber ?? o.poStage}</Badge></td>
                 <td className="px-4 py-2.5">
                   {o.challans.length === 0 ? (
@@ -350,7 +350,7 @@ export function FabricOrderManager({
                   ) : (
                     <div className="flex flex-wrap gap-1">
                       {o.challans.map((c) => (
-                        <Link key={c.id} href={`/challan-doc/${c.id}`} className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-primary-ink hover:underline tnum">
+                        <Link key={c.id} href={`/challan-doc/${c.id}`} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs font-semibold text-primary-ink hover:underline tnum">
                           {c.challanNo ?? `Draft #${c.id}`}
                         </Link>
                       ))}
@@ -360,11 +360,11 @@ export function FabricOrderManager({
                 <td className="px-4 py-2.5"><Badge tone={STATUS_TONE[o.status] ?? "default"}>{o.status.replace("_", " ")}</Badge></td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-wrap justify-end gap-1.5">
-                    {!o.poNumber && <button onClick={() => act(() => generatePO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-primary-ink hover:bg-slate-50"><FileText size={12} /> Generate PO</button>}
-                    {o.poNumber && <Link href={`/po/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-primary-ink hover:bg-slate-50"><FileText size={12} /> Open PO</Link>}
-                    {o.status !== "DISCARDED" && <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"><Truck size={12} /> Log Inward Challan</button>}
-                    {canEdit(o) && <button onClick={() => startEdit(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"><Pencil size={12} /> Edit</button>}
-                    {canDelete(o) && <button onClick={() => remove(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger-soft"><Trash2 size={12} /> Delete</button>}
+                    {!o.poNumber && <button onClick={() => act(() => generatePO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Generate PO</button>}
+                    {o.poNumber && <Link href={`/po/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Open PO</Link>}
+                    {o.status !== "DISCARDED" && <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-ok hover:bg-ok-soft"><Truck size={12} /> Log Inward Challan</button>}
+                    {canEdit(o) && <button onClick={() => startEdit(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2"><Pencil size={12} /> Edit</button>}
+                    {canDelete(o) && <button onClick={() => remove(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-danger hover:bg-danger-soft"><Trash2 size={12} /> Delete</button>}
                   </div>
                 </td>
               </tr>
@@ -377,6 +377,6 @@ export function FabricOrderManager({
   );
 }
 
-const inp = "w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary";
+const inp = "w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary";
 /** A stored date rendered for an <input type="date">. */
 const dateInput = (d: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");

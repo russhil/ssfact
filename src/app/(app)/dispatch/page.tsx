@@ -42,10 +42,10 @@ export default async function DispatchPage() {
         <DispatchForm jobs={openJobs} defaultArrangedBy={me?.displayName ?? ""} />
 
         <Card className="overflow-hidden p-0">
-          <div className="border-b border-border px-5 py-3 text-[13px] font-bold">Recent Dispatches</div>
-          <table className="w-full text-[12px]">
+          <div className="border-b border-border px-5 py-3 t-body font-bold">Recent Dispatches</div>
+          <table className="w-full t-sm">
             <thead>
-              <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
                 <th className="px-5 py-2.5 font-semibold">Date</th>
                 <th className="px-5 py-2.5 font-semibold">Challan</th>
                 <th className="px-5 py-2.5 font-semibold">Job</th>
@@ -55,16 +55,16 @@ export default async function DispatchPage() {
             </thead>
             <tbody>
               {recent.map((e) => (
-                <tr key={e.id} className="border-b border-slate-50 last:border-0">
-                  <td className="px-5 py-2.5 text-slate-500 tnum">{fmtDate(e.date)}</td>
+                <tr key={e.id} className="border-b border-hairline last:border-0">
+                  <td className="px-5 py-2.5 text-t2 tnum">{fmtDate(e.date)}</td>
                   <td className="px-5 py-2.5">
                     <Link href={`/dispatch-doc/${e.id}`} className="font-semibold text-primary-ink hover:underline tnum">{e.dispatchNo ?? e.challan ?? `#${e.id}`}</Link>
                   </td>
                   <td className="px-5 py-2.5">
                     <Link href={`/job-cards/${e.jobCard.id}`} className="font-bold text-primary-ink hover:underline">{e.jobCard.siNo}</Link>
                   </td>
-                  <td className="px-5 py-2.5 text-slate-500">{jobItem(e.jobCard)}</td>
-                  <td className="px-5 py-2.5 text-right font-bold text-emerald-600 tnum">+{num(e.qty)}</td>
+                  <td className="px-5 py-2.5 text-t2">{jobItem(e.jobCard)}</td>
+                  <td className="px-5 py-2.5 text-right font-bold text-ok tnum">+{num(e.qty)}</td>
                 </tr>
               ))}
             </tbody>

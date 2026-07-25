@@ -19,7 +19,7 @@ export default async function ProductionOrdersPage() {
         actions={
           <Link
             href="/production-orders/new"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-[12px] font-semibold text-white hover:bg-primary-ink"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 t-sm font-semibold text-accent-on hover:bg-primary-ink"
           >
             <Plus size={15} /> New order
           </Link>
@@ -28,27 +28,27 @@ export default async function ProductionOrdersPage() {
 
       <div className="mb-4 grid grid-cols-4 gap-3.5">
         <Card className="p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Orders</div>
-          <div className="mt-1.5 text-[22px] font-extrabold tnum">{num(summary.total)}</div>
+          <div className="t-xs font-semibold uppercase tracking-wide text-muted">Orders</div>
+          <div className="mt-1.5 t-display font-extrabold tnum">{num(summary.total)}</div>
         </Card>
         <Card className="p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">In Production</div>
-          <div className="mt-1.5 text-[22px] font-extrabold text-amber-500 tnum">{num(summary.inProduction)}</div>
+          <div className="t-xs font-semibold uppercase tracking-wide text-muted">In Production</div>
+          <div className="mt-1.5 t-display font-extrabold text-warn tnum">{num(summary.inProduction)}</div>
         </Card>
         <Card className="p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Completed</div>
-          <div className="mt-1.5 text-[22px] font-extrabold text-emerald-600 tnum">{num(summary.completed)}</div>
+          <div className="t-xs font-semibold uppercase tracking-wide text-muted">Completed</div>
+          <div className="mt-1.5 t-display font-extrabold text-ok tnum">{num(summary.completed)}</div>
         </Card>
         <Card className="p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Target Units</div>
-          <div className="mt-1.5 text-[22px] font-extrabold tnum">{num(summary.targetUnits)}</div>
+          <div className="t-xs font-semibold uppercase tracking-wide text-muted">Target Units</div>
+          <div className="mt-1.5 t-display font-extrabold tnum">{num(summary.targetUnits)}</div>
         </Card>
       </div>
 
       <Card className="overflow-hidden p-0">
-        <table className="w-full text-[12px]">
+        <table className="w-full t-sm">
           <thead>
-            <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
               <th className="px-4 py-2.5 font-semibold">Order</th>
               <th className="px-4 py-2.5 font-semibold">Product</th>
               <th className="px-4 py-2.5 font-semibold">Date</th>
@@ -60,16 +60,16 @@ export default async function ProductionOrdersPage() {
           </thead>
           <tbody>
             {orders.map((o) => (
-              <tr key={o.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+              <tr key={o.id} className="border-b border-hairline last:border-0 hover:bg-surface-2">
                 <td className="px-4 py-2.5 font-bold text-primary-ink">{o.orderNo}</td>
                 <td className="px-4 py-2.5">
                   <Link href={`/catalog/${encodeURIComponent(o.skuCode)}`} className="font-medium hover:underline">
                     {o.productName}
                   </Link>
-                  <span className="ml-1.5 text-[10px] text-faint">{o.skuCode}</span>
+                  <span className="ml-1.5 t-micro text-faint">{o.skuCode}</span>
                 </td>
-                <td className="px-4 py-2.5 text-slate-500 tnum">{fmtDate(o.orderDate)}</td>
-                <td className="px-4 py-2.5 text-right tnum text-slate-500">{num(o.avgMonthlySale)}</td>
+                <td className="px-4 py-2.5 text-t2 tnum">{fmtDate(o.orderDate)}</td>
+                <td className="px-4 py-2.5 text-right tnum text-t2">{num(o.avgMonthlySale)}</td>
                 <td className="px-4 py-2.5 text-right font-bold tnum">{num(o.targetQty)}</td>
                 <td className="px-4 py-2.5">{o.urgency ? <Badge tone={urgencyTone(o.urgency)}>{o.urgency}</Badge> : "—"}</td>
                 <td className="px-4 py-2.5"><Badge tone={poStatusTone(o.status)}>{PO_STATUS_LABEL[o.status] ?? o.status}</Badge></td>

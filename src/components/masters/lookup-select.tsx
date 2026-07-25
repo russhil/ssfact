@@ -23,7 +23,7 @@ export function LookupSelect({
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const cls = className ?? "w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary";
+  const cls = className ?? "w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary";
 
   async function confirm() {
     if (!draft.trim()) { setAdding(false); return; }
@@ -39,8 +39,8 @@ export function LookupSelect({
     return (
       <div className="flex gap-1.5">
         <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirm()} placeholder="New value" className={cls} />
-        <button type="button" onClick={confirm} disabled={busy} className="rounded-lg bg-primary px-2.5 text-white"><Check size={14} /></button>
-        <button type="button" onClick={() => setAdding(false)} className="rounded-lg border border-border px-2.5 text-slate-500"><X size={14} /></button>
+        <button type="button" onClick={confirm} disabled={busy} className="rounded-lg bg-primary px-2.5 text-accent-on"><Check size={14} /></button>
+        <button type="button" onClick={() => setAdding(false)} className="rounded-lg border border-border px-2.5 text-t2"><X size={14} /></button>
       </div>
     );
   }

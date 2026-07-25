@@ -40,26 +40,26 @@ export function VendorDispatchLog({
   return (
     <div>
       <div className="mb-3 flex items-center gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-faint">Filter</span>
+        <span className="t-xs font-semibold uppercase tracking-wide text-faint">Filter</span>
         <select
           value={layerId}
           onChange={(e) => setLayerId(e.target.value === "all" ? "all" : Number(e.target.value))}
-          className="rounded-lg border border-border bg-surface px-2.5 py-1.5 text-[12px] outline-none focus:border-primary"
+          className="rounded-lg border border-border bg-surface px-2.5 py-1.5 t-sm outline-none focus:border-primary"
         >
           <option value="all">All layers</option>
           {layers.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
         </select>
-        <span className="ml-auto text-[12px] text-muted">{shown.length} of {events.length}</span>
+        <span className="ml-auto t-sm text-muted">{shown.length} of {events.length}</span>
       </div>
 
       {shown.length === 0 ? (
-        <p className="py-4 text-center text-[12px] text-muted">No dispatches{layerId !== "all" ? " for this layer" : " yet"}.</p>
+        <p className="py-4 text-center t-sm text-muted">No dispatches{layerId !== "all" ? " for this layer" : " yet"}.</p>
       ) : (
         <div className="space-y-1.5">
           {shown.map((e) => (
-            <div key={e.id} className="border-b border-slate-50 py-2 text-[12px] last:border-0">
+            <div key={e.id} className="border-b border-hairline py-2 t-sm last:border-0">
               <div className="flex items-center justify-between">
-                <span className="flex flex-wrap items-center gap-2 text-slate-500 tnum">
+                <span className="flex flex-wrap items-center gap-2 text-t2 tnum">
                   {fmtDate(e.date)}
                   <Link href={`/job-cards/${e.jobCardId}`} className="font-bold text-primary-ink hover:underline">{e.siNo}</Link>
                   <Badge tone={e.reason === "SALE" ? "warn" : e.reason === "OTHER" ? "default" : "primary"}>{e.reason}</Badge>
@@ -68,10 +68,10 @@ export function VendorDispatchLog({
                 </span>
                 <span className="flex items-center gap-2">
                   <span className="font-bold tnum">+{num(e.qty)}</span>
-                  <Link href={`/dispatch-doc/${e.id}`} className="text-[11px] font-semibold text-primary-ink hover:underline">doc →</Link>
+                  <Link href={`/dispatch-doc/${e.id}`} className="t-xs font-semibold text-primary-ink hover:underline">doc →</Link>
                 </span>
               </div>
-              {e.cells.length > 0 && <div className={cn("mt-0.5 text-[11px] text-faint")}>{e.cells.join(" · ")}</div>}
+              {e.cells.length > 0 && <div className={cn("mt-0.5 t-xs text-faint")}>{e.cells.join(" · ")}</div>}
             </div>
           ))}
         </div>

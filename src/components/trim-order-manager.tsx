@@ -188,17 +188,17 @@ export function TrimOrderManager({
         {/* entry */}
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-[11px] font-bold uppercase tracking-wide text-muted">
+            <h3 className="t-xs font-bold uppercase tracking-wide text-muted">
               {editingId ? "Edit trim order" : "New trim order"}
             </h3>
             {editingId && (
-              <button onClick={resetForm} className="text-[11px] font-semibold text-slate-500 hover:text-danger">Cancel</button>
+              <button onClick={resetForm} className="t-xs font-semibold text-t2 hover:text-danger">Cancel</button>
             )}
           </div>
           <div className="grid grid-cols-2 gap-2.5">
             <Labelled label="Trim">
               {/* frozen while editing — updateTrimOrder takes no trimItemId */}
-              <select value={trimId} disabled={!!editingId} onChange={(e) => pickTrim(e.target.value)} className={`${inp} disabled:bg-slate-50 disabled:text-slate-500`}>
+              <select value={trimId} disabled={!!editingId} onChange={(e) => pickTrim(e.target.value)} className={`${inp} disabled:bg-surface-2 disabled:text-t2`}>
                 <option value="">— pick trim —</option>
                 {trims.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
@@ -213,7 +213,7 @@ export function TrimOrderManager({
               <input type="number" value={splitOpen && filledSplit.length > 0 ? splitTotal : qty}
                 onChange={(e) => setQty(e.target.value)}
                 disabled={splitOpen && filledSplit.length > 0}
-                placeholder="0" className={`${inp} text-right tnum disabled:bg-slate-50`} />
+                placeholder="0" className={`${inp} text-right tnum disabled:bg-surface-2`} />
             </Labelled>
             <Labelled label="Unit">
               <select value={unit} onChange={(e) => setUnit(e.target.value)} className={inp}>
@@ -235,13 +235,13 @@ export function TrimOrderManager({
           </div>
 
           {/* optional colour/size split */}
-          <div className="mt-3 border-t border-slate-100 pt-3">
-            <button onClick={() => setSplitOpen((v) => !v)} className="text-[11px] font-semibold text-primary-ink hover:underline">
+          <div className="mt-3 border-t border-hairline pt-3">
+            <button onClick={() => setSplitOpen((v) => !v)} className="t-xs font-semibold text-primary-ink hover:underline">
               {splitOpen ? "− Hide split" : "+ Split by colour / size"}
             </button>
             {splitOpen && (
               <div className="mt-2 space-y-1.5">
-                <p className="text-[11px] text-faint">For trims ordered colour- or size-wise. Leave blank for a flat order — the total above then drives the order.</p>
+                <p className="t-xs text-faint">For trims ordered colour- or size-wise. Leave blank for a flat order — the total above then drives the order.</p>
                 {split.map((l, i) => (
                   <div key={i} className="flex items-center gap-1.5">
                     <input list="trim-order-colours" value={l.colour} onChange={(e) => setSplitRow(i, { colour: e.target.value })} placeholder="colour" className={`${inp} w-32`} />
@@ -257,28 +257,28 @@ export function TrimOrderManager({
         </Card>
 
         {/* live summary */}
-        <Card className="flex flex-col justify-between bg-ink p-5 text-white">
+        <Card className="panel-invert flex flex-col justify-between p-5">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-white/50">Order summary</div>
-            <div className="mt-2 text-[16px] font-bold">{trim?.name ?? "— pick a trim —"}</div>
-            {trim && <div className="mt-0.5 text-[11px] text-white/50">in stock: {num(trim.stock)} {trim.unit ?? ""}</div>}
+            <div className="t-xs font-semibold uppercase tracking-wide text-t3">Order summary</div>
+            <div className="mt-2 t-head font-bold">{trim?.name ?? "— pick a trim —"}</div>
+            {trim && <div className="mt-0.5 t-xs text-t3">in stock: {num(trim.stock)} {trim.unit ?? ""}</div>}
             {splitOpen && filledSplit.length > 0 && (
               <div className="mt-3 space-y-1">
                 {filledSplit.map((l, i) => (
-                  <div key={i} className="flex justify-between text-[12px] text-white/70">
+                  <div key={i} className="flex justify-between t-sm text-t2">
                     <span>{[l.colour, l.size].filter(Boolean).join(" · ") || "—"}</span>
                     <span className="tnum">{num(l.qty)}</span>
                   </div>
                 ))}
               </div>
             )}
-            <div className="mt-3 border-t border-white/10 pt-3 text-[13px]">
-              <div className="flex justify-between"><span className="text-white/60">Total</span><b className="tnum">{num(effectiveQty)} {unit.toLowerCase()}</b></div>
-              {totalValue != null && <div className="mt-1 flex justify-between"><span className="text-white/60">Value</span><b className="tnum">≈ {inr(totalValue)}</b></div>}
+            <div className="mt-3 border-t border-hairline pt-3 t-body">
+              <div className="flex justify-between"><span className="text-t2">Total</span><b className="tnum">{num(effectiveQty)} {unit.toLowerCase()}</b></div>
+              {totalValue != null && <div className="mt-1 flex justify-between"><span className="text-t2">Value</span><b className="tnum">≈ {inr(totalValue)}</b></div>}
             </div>
           </div>
           <button onClick={editingId ? save : create} disabled={busy || !trimId || effectiveQty <= 0}
-            className="mt-4 w-full rounded-lg bg-white px-3 py-2.5 text-[13px] font-bold text-ink transition hover:bg-white/90 disabled:opacity-40">
+            className="mt-4 w-full rounded-lg bg-t1 px-3 py-2.5 t-body font-bold text-surface transition hover:opacity-90 disabled:opacity-40">
             {busy ? "Saving…" : editingId ? "Save changes" : "Create order"}
           </button>
         </Card>
@@ -286,9 +286,9 @@ export function TrimOrderManager({
 
       {/* order list */}
       <Card className="mt-4 overflow-hidden p-0">
-        <table className="w-full text-[12px]">
+        <table className="w-full t-sm">
           <thead>
-            <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
               <th className="px-4 py-2.5 font-semibold">Trim</th>
               <th className="px-4 py-2.5 font-semibold">Split</th>
               <th className="px-4 py-2.5 text-right font-semibold">Total</th>
@@ -301,13 +301,13 @@ export function TrimOrderManager({
           </thead>
           <tbody>
             {orders.map((o) => (
-              <tr key={o.id} className={`border-b border-slate-50 last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
+              <tr key={o.id} className={`border-b border-hairline last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
                 <td className="px-4 py-2.5 font-semibold">{o.trim}</td>
-                <td className="px-4 py-2.5 text-slate-500">
+                <td className="px-4 py-2.5 text-t2">
                   {o.lines.length === 0 ? <span className="text-faint">flat</span> : (
                     <div className="flex flex-wrap gap-1">
                       {o.lines.map((l, i) => (
-                        <span key={i} className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px]">
+                        <span key={i} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs">
                           {[l.colour, l.size].filter(Boolean).join(" ") || "—"} {num(l.qty)}
                         </span>
                       ))}
@@ -315,13 +315,13 @@ export function TrimOrderManager({
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-right tnum font-semibold">{num(o.totalQty)} {(o.unit ?? "").toLowerCase()}</td>
-                <td className="px-4 py-2.5 text-slate-500">{o.supplier ?? "—"}</td>
+                <td className="px-4 py-2.5 text-t2">{o.supplier ?? "—"}</td>
                 <td className="px-4 py-2.5"><Badge tone={STAGE_TONE[o.poStage] ?? "default"}>{o.poNumber ?? o.poStage}</Badge></td>
                 <td className="px-4 py-2.5">
                   {o.challans.length === 0 ? <span className="text-faint">—</span> : (
                     <div className="flex flex-wrap gap-1">
                       {o.challans.map((c) => (
-                        <Link key={c.id} href={`/challan-doc/${c.id}`} className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-primary-ink hover:underline tnum">
+                        <Link key={c.id} href={`/challan-doc/${c.id}`} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs font-semibold text-primary-ink hover:underline tnum">
                           {c.challanNo ?? `Draft #${c.id}`}
                         </Link>
                       ))}
@@ -331,11 +331,11 @@ export function TrimOrderManager({
                 <td className="px-4 py-2.5"><Badge tone={STATUS_TONE[o.status] ?? "default"}>{o.status.replace("_", " ")}</Badge></td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-wrap justify-end gap-1.5">
-                    {!o.poNumber && <button onClick={() => act(() => generateTrimPO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-primary-ink hover:bg-slate-50"><FileText size={12} /> Generate PO</button>}
-                    {o.poNumber && <Link href={`/pot/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-primary-ink hover:bg-slate-50"><FileText size={12} /> Open PO</Link>}
-                    {o.status !== "DISCARDED" && <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"><Truck size={12} /> Log Inward Challan</button>}
-                    {canEdit(o) && <button onClick={() => startEdit(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"><Pencil size={12} /> Edit</button>}
-                    {canDelete(o) && <button onClick={() => remove(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger-soft"><Trash2 size={12} /> Delete</button>}
+                    {!o.poNumber && <button onClick={() => act(() => generateTrimPO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Generate PO</button>}
+                    {o.poNumber && <Link href={`/pot/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Open PO</Link>}
+                    {o.status !== "DISCARDED" && <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-ok hover:bg-ok-soft"><Truck size={12} /> Log Inward Challan</button>}
+                    {canEdit(o) && <button onClick={() => startEdit(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2"><Pencil size={12} /> Edit</button>}
+                    {canDelete(o) && <button onClick={() => remove(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-danger hover:bg-danger-soft"><Trash2 size={12} /> Delete</button>}
                   </div>
                 </td>
               </tr>
@@ -348,14 +348,14 @@ export function TrimOrderManager({
   );
 }
 
-const inp = "w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary";
+const inp = "w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary";
 /** A stored date rendered for an <input type="date">. */
 const dateInput = (d: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
 
 function Labelled({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-faint">{label}</span>
+      <span className="mb-1 block t-micro font-semibold uppercase tracking-wide text-faint">{label}</span>
       {children}
     </label>
   );

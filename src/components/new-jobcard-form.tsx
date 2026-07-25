@@ -478,21 +478,21 @@ export function NewJobCardForm({
 
   return (
     <div>
-      <Link href="/job-cards" className="mb-4 inline-flex items-center gap-1.5 text-[12px] font-medium text-muted hover:text-ink">
+      <Link href="/job-cards" className="mb-4 inline-flex items-center gap-1.5 t-sm font-medium text-muted hover:text-ink">
         <ArrowLeft size={14} /> Job Cards
       </Link>
 
       <div className="mb-5 flex items-center justify-between">
         <div>
-          <h1 className="text-[19px] font-bold tracking-tight">New Job Card</h1>
-          <p className="mt-0.5 text-[12px] text-muted">
+          <h1 className="t-title font-bold tracking-tight">New Job Card</h1>
+          <p className="mt-0.5 t-sm text-muted">
             {defaultSi ? `Adding split / re-cut under ${defaultSi}` : "Auto-assigned SI"} · {new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
           </p>
         </div>
         <button
           onClick={save}
           disabled={!canSave || saving}
-          className="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:opacity-40"
+          className="rounded-lg bg-primary px-4 py-2 t-body font-semibold text-accent-on shadow-sm transition hover:opacity-90 disabled:opacity-40"
         >
           {saving ? "Saving…" : "Save Job Card"}
         </button>
@@ -501,16 +501,16 @@ export function NewJobCardForm({
       <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
         {/* form */}
         <div className="rounded-card border border-border bg-surface p-5">
-          <h3 className="mb-4 text-[11px] font-bold uppercase tracking-wide text-muted">Order details</h3>
+          <h3 className="mb-4 t-xs font-bold uppercase tracking-wide text-muted">Order details</h3>
 
           {/* product autocomplete (hidden in made-to-order mode) */}
           {!mto && (
             <div className="relative mb-3.5">
               <div className="mb-1.5 flex items-center justify-between">
-                <label className="block text-[11px] font-semibold text-slate-600">
+                <label className="block t-xs font-semibold text-t1">
                   Product <span className="text-primary">— start typing SKU, style or item</span>
                 </label>
-                <button type="button" onClick={enableMto} className="text-[11px] font-semibold text-primary-ink hover:underline">
+                <button type="button" onClick={enableMto} className="t-xs font-semibold text-primary-ink hover:underline">
                   No catalogue product? Log made-to-order →
                 </button>
               </div>
@@ -524,7 +524,7 @@ export function NewJobCardForm({
                 onFocus={() => setOpen(true)}
                 onKeyDown={prodKeyDown}
                 placeholder="e.g. TP-TRUMP"
-                className="w-full rounded-lg border border-primary px-3 py-2.5 text-[13px] font-semibold outline-none ring-2 ring-indigo-100"
+                className="w-full rounded-lg border border-primary px-3 py-2.5 t-body font-semibold outline-none ring-2 ring-accent/15"
               />
               {open && matches.length > 0 && (
                 <div className="absolute left-0 right-0 top-[68px] z-10 overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
@@ -532,13 +532,13 @@ export function NewJobCardForm({
                     <button
                       key={m.id}
                       onClick={() => pick(m)}
-                      className={`flex w-full items-center justify-between px-3 py-2.5 text-left text-[12px] hover:bg-primary-soft ${i === prodActive ? "bg-primary-soft" : ""}`}
+                      className={`flex w-full items-center justify-between px-3 py-2.5 text-left t-sm hover:bg-primary-soft ${i === prodActive ? "bg-primary-soft" : ""}`}
                     >
                       <span>
                         <span className="font-bold">{m.styleNo}</span>
                         <span className="ml-2 text-faint">{m.itemDesc}</span>
                       </span>
-                      {canSeeCost && <span className="font-bold text-emerald-600">{inr(m.mrp)}</span>}
+                      {canSeeCost && <span className="font-bold text-ok">{inr(m.mrp)}</span>}
                     </button>
                   ))}
                 </div>
@@ -548,25 +548,25 @@ export function NewJobCardForm({
 
           {/* made-to-order free-text item (Change 12, Part D) */}
           {mto && (
-            <div className="mb-3.5 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+            <div className="mb-3.5 rounded-lg border border-warn/30 bg-warn-soft p-3">
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-amber-700">Made-to-order item</span>
-                <button type="button" onClick={() => { setMto(false); setCustomItem(""); setCustomSku(""); setCustomStyle(""); }} className="text-[11px] font-semibold text-primary-ink hover:underline">
+                <span className="t-xs font-bold uppercase tracking-wide text-warn">Made-to-order item</span>
+                <button type="button" onClick={() => { setMto(false); setCustomItem(""); setCustomSku(""); setCustomStyle(""); }} className="t-xs font-semibold text-primary-ink hover:underline">
                   ← Pick a catalogue product
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-2.5">
                 <label className="col-span-2 flex flex-col gap-1">
-                  <span className="text-[11px] font-semibold text-slate-600">Item <span className="text-danger">*</span></span>
-                  <input value={customItem} onChange={(e) => setCustomItem(e.target.value)} placeholder="e.g. JHARKHAND TRACKSUIT" className="rounded-lg border border-border px-3 py-2 text-[13px] font-semibold outline-none focus:border-primary" />
+                  <span className="t-xs font-semibold text-t1">Item <span className="text-danger">*</span></span>
+                  <input value={customItem} onChange={(e) => setCustomItem(e.target.value)} placeholder="e.g. JHARKHAND TRACKSUIT" className="rounded-lg border border-border px-3 py-2 t-body font-semibold outline-none focus:border-primary" />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-semibold text-slate-600">SKU / code</span>
-                  <input value={customSku} onChange={(e) => setCustomSku(e.target.value)} placeholder="ORDER / TBC" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
+                  <span className="t-xs font-semibold text-t1">SKU / code</span>
+                  <input value={customSku} onChange={(e) => setCustomSku(e.target.value)} placeholder="ORDER / TBC" className="rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-semibold text-slate-600">Style no</span>
-                  <input value={customStyle} onChange={(e) => setCustomStyle(e.target.value)} placeholder="#1202" className="rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
+                  <span className="t-xs font-semibold text-t1">Style no</span>
+                  <input value={customStyle} onChange={(e) => setCustomStyle(e.target.value)} placeholder="#1202" className="rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
                 </label>
               </div>
             </div>
@@ -583,8 +583,8 @@ export function NewJobCardForm({
             />
             {canSeeCost ? (
               <div>
-                <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">MRP <span className="font-normal text-faint">(owner)</span></label>
-                <input type="number" value={mrpInput} onChange={(e) => setMrpInput(e.target.value)} placeholder="—" className="w-full rounded-lg border border-border px-3 py-2.5 text-[13px] font-semibold outline-none focus:border-primary" />
+                <label className="mb-1.5 block t-xs font-semibold text-t1">MRP <span className="font-normal text-faint">(owner)</span></label>
+                <input type="number" value={mrpInput} onChange={(e) => setMrpInput(e.target.value)} placeholder="—" className="w-full rounded-lg border border-border px-3 py-2.5 t-body font-semibold outline-none focus:border-primary" />
               </div>
             ) : (
               <div />
@@ -594,36 +594,36 @@ export function NewJobCardForm({
           {/* manual fields */}
           <div className="mt-2.5 grid grid-cols-2 gap-2.5">
             <div>
-              <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Vendor</label>
-              <select value={vendor} onChange={(e) => setVendor(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2.5 text-[13px] outline-none focus:border-primary">
+              <label className="mb-1.5 block t-xs font-semibold text-t1">Vendor</label>
+              <select value={vendor} onChange={(e) => setVendor(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2.5 t-body outline-none focus:border-primary">
                 {vendors.map((v) => <option key={v}>{v}</option>)}
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Cutting Master <span className="font-normal text-faint">(default)</span></label>
-              <select value={master} onChange={(e) => setMaster(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2.5 text-[13px] outline-none focus:border-primary">
+              <label className="mb-1.5 block t-xs font-semibold text-t1">Cutting Master <span className="font-normal text-faint">(default)</span></label>
+              <select value={master} onChange={(e) => setMaster(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2.5 t-body outline-none focus:border-primary">
                 {masters.map((m) => <option key={m}>{m}</option>)}
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Merchandiser</label>
-              <input value={merchandiser} onChange={(e) => setMerchandiser(e.target.value)} placeholder="e.g. Jyotika" className="w-full rounded-lg border border-border px-3 py-2.5 text-[13px] outline-none focus:border-primary" />
+              <label className="mb-1.5 block t-xs font-semibold text-t1">Merchandiser</label>
+              <input value={merchandiser} onChange={(e) => setMerchandiser(e.target.value)} placeholder="e.g. Jyotika" className="w-full rounded-lg border border-border px-3 py-2.5 t-body outline-none focus:border-primary" />
             </div>
             <div>
-              <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Planned ETD</label>
-              <input type="date" value={etd} onChange={(e) => setEtd(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2.5 text-[13px] outline-none focus:border-primary" />
+              <label className="mb-1.5 block t-xs font-semibold text-t1">Planned ETD</label>
+              <input type="date" value={etd} onChange={(e) => setEtd(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2.5 t-body outline-none focus:border-primary" />
             </div>
           </div>
 
           {/* process flags + stage */}
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-semibold text-slate-600">Process:</span>
+            <span className="t-xs font-semibold text-t1">Process:</span>
             <FlagToggle label="PRINT" on={needsPrint} onToggle={() => setNeedsPrint((v) => !v)} />
             <FlagToggle label="LASER" on={needsLaser} onToggle={() => setNeedsLaser((v) => !v)} />
             <FlagToggle label="EMB" on={needsEmb} onToggle={() => setNeedsEmb((v) => !v)} />
             <span className="ml-auto flex rounded-lg border border-border p-0.5">
               {STAGES.map((s) => (
-                <button key={s} type="button" onClick={() => setStage(s)} className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${stage === s ? "bg-primary text-white shadow-sm" : "text-slate-500 hover:text-ink"}`}>
+                <button key={s} type="button" onClick={() => setStage(s)} className={`rounded-md px-2 py-1 t-xs font-semibold transition ${stage === s ? "bg-primary text-accent-on shadow-sm" : "text-t2 hover:text-ink"}`}>
                   {STAGE_LABEL[s]}
                 </button>
               ))}
@@ -632,29 +632,29 @@ export function NewJobCardForm({
 
           {/* remark (optional — fast capture) */}
           <div className="mt-2.5">
-            <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Remark <span className="font-normal text-faint">(optional)</span></label>
-            <input value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="e.g. urgent, colour pending from party…" className="w-full rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
+            <label className="mb-1.5 block t-xs font-semibold text-t1">Remark <span className="font-normal text-faint">(optional)</span></label>
+            <input value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="e.g. urgent, colour pending from party…" className="w-full rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
           </div>
 
           {picked && (
             <>
               {/* ── Layer 1 (primary grid) ── */}
-              <div className="mt-5 rounded-xl border border-border bg-slate-50/40 p-3.5">
+              <div className="mt-5 rounded-xl border border-border bg-surface-2 p-3.5">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-primary-ink"><Layers size={13} /> Layer 1</span>
-                  <span className="text-[11px] text-muted">{num(layer1Total)} pcs</span>
+                  <span className="inline-flex items-center gap-1.5 t-xs font-bold uppercase tracking-wide text-primary-ink"><Layers size={13} /> Layer 1</span>
+                  <span className="t-xs text-muted">{num(layer1Total)} pcs</span>
                 </div>
 
                 {/* cut sizing */}
                 <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-semibold text-slate-600">Cut sizing</label>
+                  <label className="t-xs font-semibold text-t1">Cut sizing</label>
                   <Toggle value={cutMode} onChange={setCutMode} options={[["ratio", "By ratio"], ["manual", "Manual"]]} />
                 </div>
 
                 {/* flexible size set — add/remove a size column for this card only */}
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   {sizes.map((s) => (
-                    <span key={s} className="inline-flex items-center gap-1 rounded-full border border-border bg-white px-2 py-0.5 text-[11px] font-semibold">
+                    <span key={s} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-0.5 t-xs font-semibold">
                       {s}
                       <button type="button" onClick={() => setSizeRatio((r) => r.filter(([n]) => n !== s))} className="text-faint hover:text-danger"><X size={11} /></button>
                     </span>
@@ -670,22 +670,22 @@ export function NewJobCardForm({
                       }
                     }}
                     placeholder="+ size"
-                    className="w-16 rounded-full border border-dashed border-border px-2 py-0.5 text-[11px] outline-none focus:border-primary"
+                    className="w-16 rounded-full border border-dashed border-border px-2 py-0.5 t-xs outline-none focus:border-primary"
                   />
                 </div>
 
                 {cutMode === "ratio" && (
                   <div className="mt-2 flex items-center gap-2">
-                    <span className="text-[11px] font-semibold text-slate-600">Cut Qty</span>
+                    <span className="t-xs font-semibold text-t1">Cut Qty</span>
                     <input
                       type="number"
                       value={cutQtyInput || ""}
                       placeholder="0"
                       onChange={(e) => setCutQtyInput(Math.max(0, +e.target.value))}
-                      className="w-28 rounded-lg border border-border px-3 py-2 text-[13px] font-semibold outline-none focus:border-primary"
+                      className="w-28 rounded-lg border border-border px-3 py-2 t-body font-semibold outline-none focus:border-primary"
                     />
                     {sizeRatio.length > 0 && (
-                      <span className="text-[10px] text-faint">edit per-size ratio below (e.g. 1 : 1.5 : 2 : 2 : 1)</span>
+                      <span className="t-micro text-faint">edit per-size ratio below (e.g. 1 : 1.5 : 2 : 2 : 1)</span>
                     )}
                   </div>
                 )}
@@ -694,14 +694,14 @@ export function NewJobCardForm({
                 <div className="mt-3 grid gap-1.5 text-center" style={{ gridTemplateColumns: `repeat(${sizes.length + 1}, minmax(0, 1fr))` }}>
                   {sizes.map((s, i) => (
                     <div key={s}>
-                      <div className="text-[10px] font-bold text-faint">{s}</div>
+                      <div className="t-micro font-bold text-faint">{s}</div>
                       {cutMode === "manual" ? (
                         <input
                           type="number"
                           value={manualSizeQty[s] || ""}
                           placeholder="0"
                           onChange={(e) => setManualSizeQty((p) => ({ ...p, [s]: Math.max(0, +e.target.value) }))}
-                          className="mt-1 w-full rounded-md border border-border bg-white py-1.5 text-center text-[12px] font-bold tnum outline-none focus:border-primary"
+                          className="mt-1 w-full rounded-md border border-border bg-surface py-1.5 text-center t-sm font-bold tnum outline-none focus:border-primary"
                         />
                       ) : (
                         // Change 14 Part D: ratio weight editable for ANY number of sizes; pcs shown below.
@@ -713,16 +713,16 @@ export function NewJobCardForm({
                             onChange={(e) =>
                               setSizeRatio((prev) => prev.map((row, idx) => (idx === i ? [row[0], Math.max(0, +e.target.value)] : row)))
                             }
-                            className="mt-1 w-full rounded-md border border-border bg-white py-1.5 text-center text-[12px] font-bold tnum outline-none focus:border-primary"
+                            className="mt-1 w-full rounded-md border border-border bg-surface py-1.5 text-center t-sm font-bold tnum outline-none focus:border-primary"
                           />
-                          <div className="mt-0.5 text-[10px] text-faint tnum">{num(sizeQty[s] ?? 0)} pc</div>
+                          <div className="mt-0.5 t-micro text-faint tnum">{num(sizeQty[s] ?? 0)} pc</div>
                         </>
                       )}
                     </div>
                   ))}
                   <div>
-                    <div className="text-[10px] font-bold text-primary-ink">Total</div>
-                    <div className="mt-1 rounded-md bg-primary-soft py-1.5 text-[12px] font-bold text-primary-ink tnum">{num(layer1Total)}</div>
+                    <div className="t-micro font-bold text-primary-ink">Total</div>
+                    <div className="mt-1 rounded-md bg-primary-soft py-1.5 t-sm font-bold text-primary-ink tnum">{num(layer1Total)}</div>
                   </div>
                 </div>
 
@@ -730,7 +730,7 @@ export function NewJobCardForm({
                 {colors.length > 0 && (
                   <>
                     <div className="mt-4 flex items-center justify-between">
-                      <label className="text-[11px] font-semibold text-slate-600">Colours</label>
+                      <label className="t-xs font-semibold text-t1">Colours</label>
                       <Toggle value={colorMode} onChange={setColorMode} options={[["ratio", "By ratio"], ["manual", "Manual grid"]]} />
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -741,8 +741,8 @@ export function NewJobCardForm({
                             key={c.name}
                             type="button"
                             onClick={() => toggleColor(c.name)}
-                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
-                              on ? "border-primary bg-primary-soft text-primary-ink" : "border-border text-slate-500 hover:text-ink"
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 t-xs font-semibold transition ${
+                              on ? "border-primary bg-primary-soft text-primary-ink" : "border-border text-t2 hover:text-ink"
                             }`}
                           >
                             {c.hex && <span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ background: c.hex }} />}
@@ -755,9 +755,9 @@ export function NewJobCardForm({
                     {/* size×color matrix */}
                     {hasColors && (
                       <div className="mt-3 overflow-x-auto">
-                        <table className="w-full text-center text-[12px]">
+                        <table className="w-full text-center t-sm">
                           <thead>
-                            <tr className="text-[10px] font-bold text-faint">
+                            <tr className="t-micro font-bold text-faint">
                               <th className="px-2 py-1 text-left">Colour \ Size</th>
                               {sizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
                               <th className="px-2 py-1 text-primary-ink">Total</th>
@@ -768,7 +768,7 @@ export function NewJobCardForm({
                               const rowTotal = sizes.reduce((a, s) => a + (matrixByCell.get(cellKey(s, c)) ?? 0), 0);
                               return (
                                 <tr key={c}>
-                                  <td className="px-2 py-1 text-left font-semibold text-slate-600">{c}</td>
+                                  <td className="px-2 py-1 text-left font-semibold text-t1">{c}</td>
                                   {sizes.map((s) => (
                                     <td key={s} className="px-1 py-1">
                                       {colorMode === "manual" ? (
@@ -777,10 +777,10 @@ export function NewJobCardForm({
                                           value={manualCell[cellKey(s, c)] || ""}
                                           placeholder="0"
                                           onChange={(e) => setManualCell((p) => ({ ...p, [cellKey(s, c)]: Math.max(0, +e.target.value) }))}
-                                          className="w-full min-w-[44px] rounded-md border border-border bg-white py-1 text-center text-[11px] font-bold tnum outline-none focus:border-primary"
+                                          className="w-full min-w-[44px] rounded-md border border-border bg-surface py-1 text-center t-xs font-bold tnum outline-none focus:border-primary"
                                         />
                                       ) : (
-                                        <div className="rounded-md bg-white py-1 text-[11px] font-bold tnum">{num(matrixByCell.get(cellKey(s, c)) ?? 0)}</div>
+                                        <div className="rounded-md bg-surface py-1 t-xs font-bold tnum">{num(matrixByCell.get(cellKey(s, c)) ?? 0)}</div>
                                       )}
                                     </td>
                                   ))}
@@ -789,7 +789,7 @@ export function NewJobCardForm({
                               );
                             })}
                             <tr className="border-t border-border">
-                              <td className="px-2 py-1 text-left text-[10px] font-bold text-primary-ink">Total</td>
+                              <td className="px-2 py-1 text-left t-micro font-bold text-primary-ink">Total</td>
                               {sizes.map((s) => <td key={s} className="px-2 py-1 font-bold tnum">{num(colTotals[s] ?? 0)}</td>)}
                               <td className="px-2 py-1 font-extrabold text-primary-ink tnum">{num(layer1Total)}</td>
                             </tr>
@@ -806,36 +806,36 @@ export function NewJobCardForm({
 
               {/* ── extra layers ── */}
               {extraLayers.map((L, idx) => (
-                <div key={L.id} className="mt-3 rounded-xl border border-border bg-slate-50/40 p-3.5">
+                <div key={L.id} className="mt-3 rounded-xl border border-border bg-surface-2 p-3.5">
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-primary-ink"><Layers size={13} /> Layer {idx + 2}</span>
-                    <button type="button" onClick={() => setExtraLayers((rows) => rows.filter((x) => x.id !== L.id))} className="inline-flex items-center gap-1 text-[11px] font-semibold text-faint hover:text-danger"><X size={12} /> remove</button>
+                    <span className="inline-flex items-center gap-1.5 t-xs font-bold uppercase tracking-wide text-primary-ink"><Layers size={13} /> Layer {idx + 2}</span>
+                    <button type="button" onClick={() => setExtraLayers((rows) => rows.filter((x) => x.id !== L.id))} className="inline-flex items-center gap-1 t-xs font-semibold text-faint hover:text-danger"><X size={12} /> remove</button>
                   </div>
 
                   {/* ratio-per-ply quick fill */}
-                  <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-                    <span className="text-slate-500">Fill</span>
-                    <select value={L.fillColour} onChange={(e) => patchLayer(L.id, { fillColour: e.target.value })} className="rounded-md border border-border bg-white px-1.5 py-1 outline-none focus:border-primary">
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5 t-xs">
+                    <span className="text-t2">Fill</span>
+                    <select value={L.fillColour} onChange={(e) => patchLayer(L.id, { fillColour: e.target.value })} className="rounded-md border border-border bg-surface px-1.5 py-1 outline-none focus:border-primary">
                       {gridColours.map((c) => <option key={c || COLORLESS} value={c}>{c || COLORLESS}</option>)}
                     </select>
-                    <span className="text-slate-500">with</span>
+                    <span className="text-t2">with</span>
                     <input type="number" value={L.fillQty} placeholder="pcs" onChange={(e) => patchLayer(L.id, { fillQty: e.target.value })} className="w-20 rounded-md border border-border px-1.5 py-1 text-right tnum outline-none focus:border-primary" />
-                    <button type="button" onClick={() => fillLayerFromRatio(L.id)} className="rounded-md border border-border bg-white px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50">apply size ratio</button>
+                    <button type="button" onClick={() => fillLayerFromRatio(L.id)} className="rounded-md border border-border bg-surface px-2 py-1 font-semibold text-t1 hover:bg-surface-2">apply size ratio</button>
                   </div>
 
                   {/* Change 17 B: this lay's own size ratio (defaults from the card, editable) */}
-                  <div className="mb-2 rounded-md border border-dashed border-border bg-white/60 p-2">
-                    <div className="mb-1 text-[9px] font-semibold uppercase tracking-wide text-faint">This lay&apos;s size ratio</div>
+                  <div className="mb-2 rounded-md border border-dashed border-border bg-surface/60 p-2">
+                    <div className="mb-1 t-micro font-semibold uppercase tracking-wide text-faint">This lay&apos;s size ratio</div>
                     <div className="grid gap-1 text-center" style={{ gridTemplateColumns: `repeat(${sizes.length}, minmax(0, 1fr))` }}>
                       {sizes.map((s, i) => (
                         <div key={s}>
-                          <div className="text-[9px] font-bold text-faint">{s}</div>
+                          <div className="t-micro font-bold text-faint">{s}</div>
                           <input
                             type="number"
                             step="0.01"
                             value={(L.maths.ratio ?? sizeRatio)[i]?.[1] ?? 0}
                             onChange={(e) => setLayerRatioWeight(L.id, i, +e.target.value)}
-                            className="mt-0.5 w-full rounded-md border border-border bg-white py-1 text-center text-[11px] font-bold tnum outline-none focus:border-primary"
+                            className="mt-0.5 w-full rounded-md border border-border bg-surface py-1 text-center t-xs font-bold tnum outline-none focus:border-primary"
                           />
                         </div>
                       ))}
@@ -844,9 +844,9 @@ export function NewJobCardForm({
 
                   {/* colour×size grid */}
                   <div className="overflow-x-auto">
-                    <table className="w-full text-center text-[12px]">
+                    <table className="w-full text-center t-sm">
                       <thead>
-                        <tr className="text-[10px] font-bold text-faint">
+                        <tr className="t-micro font-bold text-faint">
                           <th className="px-2 py-1 text-left">Colour \ Size</th>
                           {sizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
                           <th className="px-2 py-1 text-primary-ink">Total</th>
@@ -857,7 +857,7 @@ export function NewJobCardForm({
                           const rowTotal = sizes.reduce((a, s) => a + (L.cells[cellKey(s, c)] ?? 0), 0);
                           return (
                             <tr key={c || COLORLESS}>
-                              <td className="px-2 py-1 text-left font-semibold text-slate-600">{c || COLORLESS}</td>
+                              <td className="px-2 py-1 text-left font-semibold text-t1">{c || COLORLESS}</td>
                               {sizes.map((s) => (
                                 <td key={s} className="px-1 py-1">
                                   <input
@@ -865,7 +865,7 @@ export function NewJobCardForm({
                                     value={L.cells[cellKey(s, c)] || ""}
                                     placeholder="0"
                                     onChange={(e) => setLayerCell(L.id, s, c, +e.target.value)}
-                                    className="w-full min-w-[44px] rounded-md border border-border bg-white py-1 text-center text-[11px] font-bold tnum outline-none focus:border-primary"
+                                    className="w-full min-w-[44px] rounded-md border border-border bg-surface py-1 text-center t-xs font-bold tnum outline-none focus:border-primary"
                                   />
                                 </td>
                               ))}
@@ -881,30 +881,30 @@ export function NewJobCardForm({
                 </div>
               ))}
 
-              <button type="button" onClick={addLayer} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-2 text-[12px] font-semibold text-primary-ink hover:bg-primary-soft">
+              <button type="button" onClick={addLayer} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-2 t-sm font-semibold text-primary-ink hover:bg-primary-soft">
                 <Plus size={13} /> Add layer
               </button>
 
               {/* editable trim sheet (BOM) */}
               <div className="mt-4">
                 <div className="mb-2 flex items-center justify-between">
-                  <h4 className="text-[11px] font-bold uppercase tracking-wide text-muted">Trim sheet · ×{num(cutQty)} pcs</h4>
+                  <h4 className="t-xs font-bold uppercase tracking-wide text-muted">Trim sheet · ×{num(cutQty)} pcs</h4>
                   <div className="flex gap-1.5">
-                    <button type="button" onClick={() => setBomRows(presetRows(picked))} className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">
+                    <button type="button" onClick={() => setBomRows(presetRows(picked))} className="rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2">
                       Load preset
                     </button>
-                    <button type="button" onClick={() => setBomRows((r) => [...r, { trimItemId: null, material: "", color: "", dimension: "FLAT", perPieceQty: 0 }])} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">
+                    <button type="button" onClick={() => setBomRows((r) => [...r, { trimItemId: null, material: "", color: "", dimension: "FLAT", perPieceQty: 0 }])} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2">
                       <Plus size={12} /> Add row
                     </button>
                   </div>
                 </div>
                 {bomRows.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-border py-3 text-center text-[11px] text-faint">No trims — load the preset or add rows.</p>
+                  <p className="rounded-lg border border-dashed border-border py-3 text-center t-xs text-faint">No trims — load the preset or add rows.</p>
                 ) : (
                   <div className="overflow-x-auto rounded-lg border border-border">
-                    <table className="w-full text-[12px]">
+                    <table className="w-full t-sm">
                       <thead>
-                        <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
+                        <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
                           <th className="px-2 py-2 font-semibold">Trim (from master)</th>
                           <th className="px-2 py-2 font-semibold">Applies to</th>
                           <th className="px-2 py-2 font-semibold">Colour</th>
@@ -920,7 +920,7 @@ export function NewJobCardForm({
                           const stock = r.trimItemId != null ? trimById.get(r.trimItemId)?.currentStock ?? null : null;
                           const short = stock != null && required > stock;
                           return (
-                            <tr key={i} className="border-b border-slate-50 last:border-0">
+                            <tr key={i} className="border-b border-hairline last:border-0">
                               <td className="px-2 py-1">
                                 <select
                                   value={r.trimItemId ?? ""}
@@ -928,7 +928,7 @@ export function NewJobCardForm({
                                     const id = e.target.value ? +e.target.value : null;
                                     setBomRow(i, { trimItemId: id, material: id ? trimById.get(id)?.name ?? r.material : r.material });
                                   }}
-                                  className="w-full min-w-[150px] rounded-md border border-border bg-white px-1.5 py-1 text-[11px] outline-none focus:border-primary"
+                                  className="w-full min-w-[150px] rounded-md border border-border bg-surface px-1.5 py-1 t-xs outline-none focus:border-primary"
                                 >
                                   <option value="">{r.material || "— pick trim —"}</option>
                                   {(picked.trimMaster ?? []).map((g) => (
@@ -941,27 +941,27 @@ export function NewJobCardForm({
                                 </select>
                               </td>
                               <td className="px-2 py-1">
-                                <select value={r.dimension} onChange={(e) => setBomRow(i, { dimension: e.target.value as BomDim })} className="rounded-md border border-border bg-white px-1 py-1 text-[11px] outline-none focus:border-primary">
+                                <select value={r.dimension} onChange={(e) => setBomRow(i, { dimension: e.target.value as BomDim })} className="rounded-md border border-border bg-surface px-1 py-1 t-xs outline-none focus:border-primary">
                                   <option value="FLAT">Flat</option>
                                   <option value="COLOR">Colour</option>
                                   <option value="SIZE">Size</option>
                                 </select>
                               </td>
                               <td className="px-2 py-1">
-                                <input value={r.color} onChange={(e) => setBomRow(i, { color: e.target.value })} placeholder="—" className="w-20 rounded-md border border-border px-1.5 py-1 text-[11px] outline-none focus:border-primary" />
+                                <input value={r.color} onChange={(e) => setBomRow(i, { color: e.target.value })} placeholder="—" className="w-20 rounded-md border border-border px-1.5 py-1 t-xs outline-none focus:border-primary" />
                               </td>
                               <td className="px-1 py-1">
-                                <input type="number" step="0.001" value={r.perPieceQty || ""} placeholder="0" onChange={(e) => setBomRow(i, { perPieceQty: +e.target.value })} className="w-16 rounded-md border border-border px-1.5 py-1 text-right text-[11px] tnum outline-none focus:border-primary" />
+                                <input type="number" step="0.001" value={r.perPieceQty || ""} placeholder="0" onChange={(e) => setBomRow(i, { perPieceQty: +e.target.value })} className="w-16 rounded-md border border-border px-1.5 py-1 text-right t-xs tnum outline-none focus:border-primary" />
                               </td>
                               <td className={`px-2 py-1 text-right font-bold tnum ${short ? "text-danger" : ""}`}>{num(required)}</td>
                               <td className="px-2 py-1 text-right">
                                 {stock != null ? (
                                   <span className="inline-flex items-center gap-1">
-                                    <span className={`tnum ${short ? "text-danger font-semibold" : "text-slate-500"}`}>{num(stock)}</span>
+                                    <span className={`tnum ${short ? "text-danger font-semibold" : "text-t2"}`}>{num(stock)}</span>
                                     {short && <Badge tone="danger">Short</Badge>}
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] text-faint">untracked</span>
+                                  <span className="t-micro text-faint">untracked</span>
                                 )}
                               </td>
                               <td className="px-1 py-1 text-right">
@@ -975,7 +975,7 @@ export function NewJobCardForm({
                   </div>
                 )}
                 {bomRows.some((r) => { const s = r.trimItemId != null ? trimById.get(r.trimItemId)?.currentStock ?? null : null; return s != null && bomRequired(r) > s; }) && (
-                  <p className="mt-1.5 text-[11px] text-danger">Some trims are short — the card still saves and is flagged in Pending Trims.</p>
+                  <p className="mt-1.5 t-xs text-danger">Some trims are short — the card still saves and is flagged in Pending Trims.</p>
                 )}
               </div>
             </>
@@ -983,46 +983,46 @@ export function NewJobCardForm({
         </div>
 
         {/* live calc panel */}
-        <div className="rounded-card border border-slate-800 bg-gradient-to-b from-[#0f1226] to-[#1b1f3b] p-5 text-indigo-50">
+        <div className="rounded-card panel-invert p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-[11px] font-bold uppercase tracking-wide text-indigo-300">Live summary · {num(cutQty)} pcs</h3>
+            <h3 className="t-xs font-bold uppercase tracking-wide text-t3">Live summary · {num(cutQty)} pcs</h3>
             {picked && (
               <div className="flex items-center gap-2">
-                <div className="flex rounded-md border border-white/15 p-0.5 text-[10px] font-semibold">
+                <div className="flex rounded-md border border-border p-0.5 t-micro font-semibold">
                   {(["separate", "combined"] as const).map((v) => (
-                    <button key={v} type="button" onClick={() => setSummaryView(v)} className={`rounded px-2 py-0.5 capitalize ${summaryView === v ? "bg-white/20 text-white" : "text-indigo-200/70 hover:text-white"}`}>{v}</button>
+                    <button key={v} type="button" onClick={() => setSummaryView(v)} className={`rounded px-2 py-0.5 capitalize ${summaryView === v ? "bg-elevated text-t1" : "text-t2 hover:text-t1"}`}>{v}</button>
                   ))}
                 </div>
-                <label className="flex items-center gap-1.5 text-[10px] text-indigo-200/80">
+                <label className="flex items-center gap-1.5 t-micro text-t2">
                   avg {picked.unit.toLowerCase()}/pc
-                  <input type="number" step="0.001" value={cardAvg} placeholder={picked.avgConsumption != null ? String(picked.avgConsumption) : "—"} onChange={(e) => setCardAvg(e.target.value)} className="w-16 rounded-md border border-white/10 bg-white/5 px-1.5 py-1 text-center text-[11px] tnum text-white outline-none focus:border-indigo-300" />
+                  <input type="number" step="0.001" value={cardAvg} placeholder={picked.avgConsumption != null ? String(picked.avgConsumption) : "—"} onChange={(e) => setCardAvg(e.target.value)} className="w-16 rounded-md border border-hairline bg-surface-2 px-1.5 py-1 text-center t-xs tnum text-t1 outline-none focus:border-accent" />
                 </label>
               </div>
             )}
           </div>
 
           {!picked ? (
-            <div className="flex h-56 flex-col items-center justify-center text-center text-[12px] text-indigo-300/70">
+            <div className="flex h-56 flex-col items-center justify-center text-center t-sm text-t3">
               <Zap size={22} className="mb-2 opacity-60" />
               Pick a product — we&apos;ll split fabric per colour and check each colour&apos;s live stock.
             </div>
           ) : fabricRows.length === 0 ? (
-            <div className="flex h-40 flex-col items-center justify-center text-center text-[12px] text-indigo-300/70">
+            <div className="flex h-40 flex-col items-center justify-center text-center t-sm text-t3">
               Enter cut quantities to see the per-colour fabric requirement.
             </div>
           ) : (
             <>
-              <div className="flex items-end justify-between border-b border-white/10 pb-2.5">
-                <span className="text-[13px] text-indigo-200">Total fabric required</span>
-                <span className="text-[26px] font-extrabold text-white tnum">
-                  {num(totalRequired, 0)} <span className="text-[13px]">{picked.unit.toLowerCase()}</span>
+              <div className="flex items-end justify-between border-b border-hairline pb-2.5">
+                <span className="t-body text-t2">Total fabric required</span>
+                <span className="t-stat font-extrabold text-t1 tnum">
+                  {num(totalRequired, 0)} <span className="t-body">{picked.unit.toLowerCase()}</span>
                 </span>
               </div>
 
               {/* per-size roll-up */}
               <div className="mt-2.5 flex flex-wrap gap-1.5">
                 {bySize.filter((b) => b.qty > 0).map((b) => (
-                  <span key={b.size} className="rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] text-indigo-100"><b className="text-white">{b.size}</b> {num(b.qty)}</span>
+                  <span key={b.size} className="rounded-md bg-surface-2 px-1.5 py-0.5 t-micro text-t1"><b className="text-t1">{b.size}</b> {num(b.qty)}</span>
                 ))}
               </div>
 
@@ -1030,11 +1030,11 @@ export function NewJobCardForm({
               {summaryView === "separate" && (
                 <div className="mt-3 max-h-[420px] space-y-2.5 overflow-y-auto pr-0.5">
                   {layerSummaries.map((L, i) => (
-                    <div key={i} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
-                      <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-indigo-200">{L.label}</div>
-                      <table className="w-full text-[11px]">
+                    <div key={i} className="rounded-lg border border-hairline bg-surface-2 p-2.5">
+                      <div className="mb-1.5 t-xs font-bold uppercase tracking-wide text-t2">{L.label}</div>
+                      <table className="w-full t-xs">
                         <thead>
-                          <tr className="text-left text-[9px] uppercase tracking-wide text-indigo-300/70">
+                          <tr className="text-left t-micro uppercase tracking-wide text-t3">
                             <th className="py-0.5">Colour</th>
                             <th className="py-0.5 text-right">Cut</th>
                             <th className="py-0.5 text-right">Used {picked.unit.toLowerCase()}</th>
@@ -1043,18 +1043,18 @@ export function NewJobCardForm({
                         </thead>
                         <tbody>
                           {L.rows.map((r, ri) => (
-                            <tr key={ri} className="border-t border-white/5">
-                              <td className="py-1 font-semibold text-white">{r.display}</td>
-                              <td className="py-1 text-right tnum text-indigo-100">{num(r.qty)}</td>
-                              <td className="py-1 text-right tnum text-indigo-100">{r.used != null ? num(r.used) : "—"}</td>
-                              <td className={`py-1 text-right tnum font-semibold ${r.left != null && r.left < 0 ? "text-rose-300" : "text-emerald-300"}`}>{r.left != null ? num(r.left) : "—"}</td>
+                            <tr key={ri} className="border-t border-hairline">
+                              <td className="py-1 font-semibold text-t1">{r.display}</td>
+                              <td className="py-1 text-right tnum text-t1">{num(r.qty)}</td>
+                              <td className="py-1 text-right tnum text-t1">{r.used != null ? num(r.used) : "—"}</td>
+                              <td className={`py-1 text-right tnum font-semibold ${r.left != null && r.left < 0 ? "text-danger" : "text-ok"}`}>{r.left != null ? num(r.left) : "—"}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
                   ))}
-                  <p className="text-[9px] text-indigo-300/60">Left = current colour stock − this layer&apos;s use (shared snapshot; not sequential across layers). Negatives = over-cut.</p>
+                  <p className="t-micro text-t3">Left = current colour stock − this layer&apos;s use (shared snapshot; not sequential across layers). Negatives = over-cut.</p>
                 </div>
               )}
 
@@ -1065,10 +1065,10 @@ export function NewJobCardForm({
                   const usedAfter =
                     r.required != null && r.available != null && r.available > 0 ? r.required / r.available : null;
                   return (
-                    <div key={r.key} className="rounded-lg border border-white/10 bg-white/5 p-2.5">
+                    <div key={r.key} className="rounded-lg border border-hairline bg-surface-2 p-2.5">
                       <div className="flex items-center justify-between">
-                        <span className="text-[12px] font-bold text-white">{r.display}</span>
-                        <span className="text-[11px] text-indigo-200/80">{num(r.qty)} pc</span>
+                        <span className="t-sm font-bold text-t1">{r.display}</span>
+                        <span className="t-xs text-t2">{num(r.qty)} pc</span>
                       </div>
                       <div className="mt-2 grid grid-cols-2 gap-1.5">
                         <MiniInput label="gsm" value={colorGsm[r.key]} placeholder={picked.fabricGsm ?? undefined} onChange={(v) => setColorGsm((p) => upd(p, r.key, v))} />
@@ -1080,30 +1080,30 @@ export function NewJobCardForm({
                         <MiniInput label="req mtr" value={colorReqMtr[r.key]} placeholder={r.required ?? undefined} onChange={(v) => setColorReqMtr((p) => upd(p, r.key, v))} />
                         <MiniInput label="rolls" value={colorRolls[r.key]} onChange={(v) => setColorRolls((p) => upd(p, r.key, v))} />
                         <label className="block cursor-pointer">
-                          <span className="mb-0.5 block truncate text-[9px] uppercase tracking-wide text-indigo-300/70">swatch</span>
-                          <span className="flex h-[26px] items-center justify-center gap-1 rounded-md border border-white/15 bg-white/10 text-[10px] font-semibold text-indigo-100 hover:bg-white/20">
-                            {colorImage[r.key] ? <Check size={12} className="text-emerald-300" /> : <ImageIcon size={12} />}
+                          <span className="mb-0.5 block truncate t-micro uppercase tracking-wide text-t3">swatch</span>
+                          <span className="flex h-[26px] items-center justify-center gap-1 rounded-md border border-border bg-surface-2 t-micro font-semibold text-t1 hover:bg-elevated">
+                            {colorImage[r.key] ? <Check size={12} className="text-ok" /> : <ImageIcon size={12} />}
                             {colorImage[r.key] ? "set" : "add"}
                           </span>
                           <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadColourImage(r.key, f); }} />
                         </label>
                       </div>
-                      <div className="mt-2 flex items-center justify-between text-[11px]">
-                        <span className="text-indigo-200/80">
-                          need <b className="text-white tnum">{r.required != null ? num(r.required) : "—"}</b>
+                      <div className="mt-2 flex items-center justify-between t-xs">
+                        <span className="text-t2">
+                          need <b className="text-t1 tnum">{r.required != null ? num(r.required) : "—"}</b>
                           {" · "}stock <b className="tnum">{r.available != null ? num(r.available) : "—"}</b>
                         </span>
                         {r.enough == null ? (
-                          <span className="text-indigo-300">—</span>
+                          <span className="text-t3">—</span>
                         ) : r.enough ? (
-                          <span className="flex items-center gap-1 font-bold text-emerald-300"><Check size={13} /> ok</span>
+                          <span className="flex items-center gap-1 font-bold text-ok"><Check size={13} /> ok</span>
                         ) : (
-                          <span className="flex items-center gap-1 font-bold text-rose-300"><AlertTriangle size={13} /> short</span>
+                          <span className="flex items-center gap-1 font-bold text-danger"><AlertTriangle size={13} /> short</span>
                         )}
                       </div>
-                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/10">
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-2">
                         <div
-                          className={`h-full rounded-full ${r.enough === false ? "bg-gradient-to-r from-rose-400 to-rose-500" : "bg-gradient-to-r from-emerald-400 to-cyan-400"}`}
+                          className={`h-full rounded-full ${r.enough === false ? "bg-danger" : "bg-ok"}`}
                           style={{ width: `${Math.min(100, (usedAfter ?? 0) * 100)}%` }}
                         />
                       </div>
@@ -1113,12 +1113,12 @@ export function NewJobCardForm({
               </div>
               )}
 
-              <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-3 text-[13px]">
-                <span className="text-indigo-200">Stock check</span>
+              <div className="mt-4 flex items-center justify-between border-t border-hairline pt-3 t-body">
+                <span className="text-t2">Stock check</span>
                 {anyShort ? (
-                  <span className="flex items-center gap-1.5 font-bold text-rose-300"><AlertTriangle size={15} /> Some colours short — raise indent</span>
+                  <span className="flex items-center gap-1.5 font-bold text-danger"><AlertTriangle size={15} /> Some colours short — raise indent</span>
                 ) : (
-                  <span className="flex items-center gap-1.5 font-bold text-emerald-300"><Check size={15} /> All colours covered</span>
+                  <span className="flex items-center gap-1.5 font-bold text-ok"><Check size={15} /> All colours covered</span>
                 )}
               </div>
             </>
@@ -1127,8 +1127,8 @@ export function NewJobCardForm({
       </div>
 
       {/* magic callout */}
-      <div className="mt-3.5 flex items-center gap-3 rounded-card border border-emerald-200 bg-ok-soft px-4 py-3 text-[12.5px] text-emerald-800">
-        <Zap size={18} className="shrink-0 text-emerald-600" />
+      <div className="mt-3.5 flex items-center gap-3 rounded-card border border-ok/30 bg-ok-soft px-4 py-3 t-sm text-ok">
+        <Zap size={18} className="shrink-0 text-ok" />
         <span>
           The real job card is cut in several <b>layers</b> — each its own size mix and fabric maths — and the order total is
           the sum. Type each lay here; the grand total, per-colour and per-size roll-ups, and each colour&apos;s live stock all
@@ -1146,8 +1146,8 @@ function LayerMathsRow({ maths, masters, vendors, onChange }: { maths: LayerMath
   const issuedV = numOrNull(maths.issued);
   const usedV = numOrNull(maths.mtr);
   const extra = issuedV != null ? Math.round((issuedV - (usedV ?? 0)) * 100) / 100 : null;
-  const inp = "w-full rounded-md border border-border bg-white px-1.5 py-1 text-[11px] tnum outline-none focus:border-primary";
-  const faint = "w-full rounded-md border border-border bg-slate-50 px-1.5 py-1 text-[11px] tnum text-faint outline-none focus:border-primary focus:bg-white";
+  const inp = "w-full rounded-md border border-border bg-surface px-1.5 py-1 t-xs tnum outline-none focus:border-primary";
+  const faint = "w-full rounded-md border border-border bg-surface-2 px-1.5 py-1 t-xs tnum text-faint outline-none focus:border-primary focus:bg-surface";
   return (
     <div className="mt-3 border-t border-border/60 pt-2.5">
       <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6 lg:grid-cols-9">
@@ -1157,7 +1157,7 @@ function LayerMathsRow({ maths, masters, vendors, onChange }: { maths: LayerMath
         <MathField label="fabric issued"><input type="number" step="0.01" value={maths.issued} placeholder="—" onChange={(e) => onChange({ issued: e.target.value })} className={inp} /></MathField>
         <MathField label="fabric used"><input type="number" step="0.01" value={maths.mtr} placeholder="—" onChange={(e) => onChange({ mtr: e.target.value })} className={inp} /></MathField>
         <MathField label="extra">
-          <div className={`rounded-md border border-border bg-slate-50 px-1.5 py-1 text-[11px] font-semibold tnum ${extra != null && extra < 0 ? "text-rose-600" : "text-slate-600"}`}>
+          <div className={`rounded-md border border-border bg-surface-2 px-1.5 py-1 t-xs font-semibold tnum ${extra != null && extra < 0 ? "text-danger" : "text-t1"}`}>
             {extra != null ? num(extra) : "—"}
           </div>
         </MathField>
@@ -1172,7 +1172,7 @@ function LayerMathsRow({ maths, masters, vendors, onChange }: { maths: LayerMath
 function MathField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-0.5 block truncate text-[9px] uppercase tracking-wide text-faint">{label}</span>
+      <span className="mb-0.5 block truncate t-micro uppercase tracking-wide text-faint">{label}</span>
       {children}
     </label>
   );
@@ -1183,8 +1183,8 @@ function FlagToggle({ label, on, onToggle }: { label: string; on: boolean; onTog
     <button
       type="button"
       onClick={onToggle}
-      className={`rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${
-        on ? "border-primary bg-primary text-white" : "border-border bg-white text-slate-400 line-through decoration-slate-300"
+      className={`rounded-full border px-2.5 py-1 t-xs font-bold transition ${
+        on ? "border-primary bg-primary text-accent-on" : "border-border bg-surface text-t3 line-through decoration-t3"
       }`}
     >
       {label}
@@ -1208,8 +1208,8 @@ function Toggle<T extends string>({
           key={v}
           type="button"
           onClick={() => onChange(v)}
-          className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
-            value === v ? "bg-primary text-white shadow-sm" : "text-slate-500 hover:text-ink"
+          className={`rounded-md px-2.5 py-1 t-xs font-semibold transition ${
+            value === v ? "bg-primary text-accent-on shadow-sm" : "text-t2 hover:text-ink"
           }`}
         >
           {label}
@@ -1222,17 +1222,17 @@ function Toggle<T extends string>({
 function Field({ label, value, auto }: { label: string; value: string; auto: boolean }) {
   return (
     <div className="relative">
-      <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">{label}</label>
+      <label className="mb-1.5 block t-xs font-semibold text-t1">{label}</label>
       <input
         readOnly
         value={value}
         placeholder="—"
-        className={`w-full rounded-lg border px-3 py-2.5 text-[13px] font-semibold outline-none ${
-          auto ? "border-indigo-200 bg-primary-soft" : "border-border bg-slate-50 text-faint"
+        className={`w-full rounded-lg border px-3 py-2.5 t-body font-semibold outline-none ${
+          auto ? "border-accent-soft bg-primary-soft" : "border-border bg-surface-2 text-faint"
         }`}
       />
       {auto && (
-        <span className="absolute right-2.5 top-[31px] rounded-full bg-white px-1.5 py-0.5 text-[9px] font-bold text-primary-ink">auto</span>
+        <span className="absolute right-2.5 top-[31px] rounded-full bg-surface px-1.5 py-0.5 t-micro font-bold text-primary-ink">auto</span>
       )}
     </div>
   );
@@ -1259,14 +1259,14 @@ function MiniInput({
 }) {
   return (
     <label className="block">
-      <span className="mb-0.5 block truncate text-[9px] uppercase tracking-wide text-indigo-300/70">{label}</span>
+      <span className="mb-0.5 block truncate t-micro uppercase tracking-wide text-t3">{label}</span>
       <input
         type="number"
         step="0.01"
         value={value ?? ""}
         placeholder={placeholder != null ? String(placeholder) : "—"}
         onChange={(e) => onChange(e.target.value === "" ? null : +e.target.value)}
-        className="w-full rounded-md border border-white/15 bg-white/10 px-1.5 py-1 text-center text-[11px] font-semibold text-white tnum outline-none placeholder:text-indigo-300/40 focus:border-indigo-300"
+        className="w-full rounded-md border border-border bg-surface-2 px-1.5 py-1 text-center t-xs font-semibold text-t1 tnum outline-none placeholder:text-t3 focus:border-accent"
       />
     </label>
   );

@@ -51,20 +51,20 @@ export default async function VendorDetail({ params }: { params: Promise<{ name:
 
   return (
     <div className="p-6">
-      <Link href="/vendors" className="mb-4 inline-flex items-center gap-1.5 text-[12px] font-medium text-muted hover:text-ink">
+      <Link href="/vendors" className="mb-4 inline-flex items-center gap-1.5 t-sm font-medium text-muted hover:text-ink">
         <ArrowLeft size={14} /> Vendors
       </Link>
       <div className="mb-1 flex items-center gap-2.5">
-        <h1 className="text-[22px] font-bold tracking-tight">{vendor.name}</h1>
+        <h1 className="t-display font-bold tracking-tight">{vendor.name}</h1>
         <Badge tone={vendor.kind === "INHOUSE" ? "ok" : "default"}>{vendor.kind === "INHOUSE" ? "In-house" : "External"}</Badge>
       </div>
-      <p className="mb-5 text-[13px] text-muted">
+      <p className="mb-5 t-body text-muted">
         {layers.length} layer{layers.length === 1 ? "" : "s"} issued · {num(totalCut)} cut · {num(totalDispatched)} dispatched · {pct(totalCut ? totalDispatched / totalCut : 0)} returned
       </p>
 
       {/* layer-by-layer */}
       {layers.length === 0 ? (
-        <Card className="p-6 text-center text-[13px] text-muted">No cutting layers issued to this vendor yet.</Card>
+        <Card className="p-6 text-center t-body text-muted">No cutting layers issued to this vendor yet.</Card>
       ) : (
         <div className="space-y-3">
           {layers.map((l) => (
@@ -75,17 +75,17 @@ export default async function VendorDetail({ params }: { params: Promise<{ name:
 
       {/* dispatch log (filterable by layer) */}
       <Card className="mt-3.5 p-5">
-        <h3 className="mb-3 text-[13px] font-bold">Dispatch Log <span className="font-medium text-faint">· finished garments returned</span></h3>
+        <h3 className="mb-3 t-body font-bold">Dispatch Log <span className="font-medium text-faint">· finished garments returned</span></h3>
         <VendorDispatchLog events={events} layers={layerFilterOpts} />
       </Card>
 
       {/* materials challans (unchanged) */}
       {challans.length > 0 && (
         <Card className="mt-3.5 p-5">
-          <h3 className="mb-3 text-[13px] font-bold">Materials Challans <span className="font-medium text-faint">· {challans.length}</span></h3>
+          <h3 className="mb-3 t-body font-bold">Materials Challans <span className="font-medium text-faint">· {challans.length}</span></h3>
           <div className="space-y-0">
             {challans.map((c) => (
-              <Link key={c.id} href={`/challan-doc/${c.id}`} className="flex items-center justify-between border-b border-slate-50 py-2 text-[12px] last:border-0 hover:opacity-80">
+              <Link key={c.id} href={`/challan-doc/${c.id}`} className="flex items-center justify-between border-b border-hairline py-2 t-sm last:border-0 hover:opacity-80">
                 <span className="flex items-center gap-2">
                   <span className="font-semibold text-primary-ink">{c.challanNo ?? `Draft #${c.id}`}</span>
                   <Badge tone={c.status === "LOCKED" ? "ok" : c.status === "VOID" ? "danger" : "default"}>{c.status}</Badge>
@@ -117,10 +117,10 @@ function LayerCard({ l }: { l: VendorLayer }) {
 
   return (
     <Card className="p-4">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[12px]">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 t-sm">
         <span className="flex items-center gap-2">
           <Link href={`/job-cards/${l.jobCardId}`} className="font-bold text-primary-ink hover:underline">{l.jobCard.siNo}</Link>
-          <span className="text-slate-600">{jobItem(l.jobCard)}</span>
+          <span className="text-t1">{jobItem(l.jobCard)}</span>
           <span className="text-faint">{jobStyle(l.jobCard)}</span>
           <Badge tone="default">{l.label || `Layer ${l.layerNo}`}</Badge>
           {l.cuttingMaster && <span className="text-faint">cut: {l.cuttingMaster.name}</span>}
@@ -128,9 +128,9 @@ function LayerCard({ l }: { l: VendorLayer }) {
         <span className="text-faint">{issued}</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-center text-[12px]">
+        <table className="w-full text-center t-sm">
           <thead>
-            <tr className="text-[10px] font-bold text-faint">
+            <tr className="t-micro font-bold text-faint">
               <th className="px-2 py-1 text-left">Colour \ Size</th>
               {sizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
               <th className="px-2 py-1 text-primary-ink">Total</th>
@@ -138,8 +138,8 @@ function LayerCard({ l }: { l: VendorLayer }) {
           </thead>
           <tbody>
             {colours.map((c) => (
-              <tr key={c || "—"} className="border-t border-slate-50">
-                <td className="px-2 py-1 text-left font-semibold text-slate-600">{c || "—"}</td>
+              <tr key={c || "—"} className="border-t border-hairline">
+                <td className="px-2 py-1 text-left font-semibold text-t1">{c || "—"}</td>
                 {sizes.map((s) => <td key={s} className="px-2 py-1 tnum">{cell(s, c) || ""}</td>)}
                 <td className="px-2 py-1 font-bold text-primary-ink tnum">{num(sizes.reduce((a, s) => a + cell(s, c), 0))}</td>
               </tr>
@@ -147,10 +147,10 @@ function LayerCard({ l }: { l: VendorLayer }) {
           </tbody>
         </table>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-2 text-[12px]">
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-2 t-sm">
         <span>Cut <b className="tnum">{num(cut)}</b></span>
         <span>Dispatched <b className="tnum">{num(dispatched)}</b>{multi && <span className="text-faint"> (incl. multi-layer events)</span>}</span>
-        <span>Balance <b className={`tnum ${balance < 0 ? "text-emerald-600" : balance > 0 ? "text-amber-600" : ""}`}>{num(balance)}</b></span>
+        <span>Balance <b className={`tnum ${balance < 0 ? "text-ok" : balance > 0 ? "text-warn" : ""}`}>{num(balance)}</b></span>
       </div>
     </Card>
   );

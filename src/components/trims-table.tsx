@@ -29,13 +29,13 @@ export function TrimsTable({ rows, families }: { rows: TrimStock[]; families: st
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search trim, family…"
-            className="w-full rounded-lg border border-border bg-surface py-2 pl-8 pr-3 text-[12px] outline-none focus:border-primary focus:ring-2 focus:ring-indigo-100"
+            className="w-full rounded-lg border border-border bg-surface py-2 pl-8 pr-3 t-sm outline-none focus:border-primary focus:ring-2 focus:ring-accent/15"
           />
         </div>
         <select
           value={fam}
           onChange={(e) => setFam(e.target.value)}
-          className="rounded-lg border border-border bg-surface px-3 py-2 text-[12px] outline-none focus:border-primary focus:ring-2 focus:ring-indigo-100"
+          className="rounded-lg border border-border bg-surface px-3 py-2 t-sm outline-none focus:border-primary focus:ring-2 focus:ring-accent/15"
         >
           <option value="ALL">All families</option>
           {families.map((f) => (
@@ -45,9 +45,9 @@ export function TrimsTable({ rows, families }: { rows: TrimStock[]; families: st
       </div>
 
       <div className="overflow-hidden rounded-card border border-border bg-surface">
-        <table className="w-full text-[12px]">
+        <table className="w-full t-sm">
           <thead>
-            <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
               <th className="px-4 py-2.5 font-semibold">Trim Item</th>
               <th className="px-4 py-2.5 font-semibold">Family</th>
               <th className="px-4 py-2.5 text-right font-semibold">Opening</th>
@@ -60,24 +60,24 @@ export function TrimsTable({ rows, families }: { rows: TrimStock[]; families: st
             {shown.slice(0, 400).map((s) => {
               const w = Math.min(100, Math.max(0, s.usedPct * 100));
               return (
-                <tr key={s.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+                <tr key={s.id} className="border-b border-hairline last:border-0 hover:bg-surface-2">
                   <td className="px-4 py-2.5">
                     <Link href={`/trims/${s.id}`} className="font-semibold text-primary-ink hover:underline">
                       {s.name}
                     </Link>
                   </td>
-                  <td className="px-4 py-2.5 text-slate-500">{s.family ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-right text-slate-500 tnum">{num(s.opening)}</td>
+                  <td className="px-4 py-2.5 text-t2">{s.family ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-right text-t2 tnum">{num(s.opening)}</td>
                   <td className={`px-4 py-2.5 text-right font-bold tnum ${s.current <= 0 ? "text-danger" : ""}`}>{num(s.current)}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
-                      <div className="h-2 w-24 overflow-hidden rounded-full bg-slate-100">
+                      <div className="h-2 w-24 overflow-hidden rounded-full bg-surface-2">
                         <div
-                          className={`h-full rounded-full ${s.status === "short" ? "bg-rose-500" : s.status === "low" ? "bg-amber-400" : "bg-primary"}`}
+                          className={`h-full rounded-full ${s.status === "short" ? "bg-danger" : s.status === "low" ? "bg-warn" : "bg-primary"}`}
                           style={{ width: `${w}%` }}
                         />
                       </div>
-                      <span className="tnum text-[11px] font-semibold">{pct(s.usedPct)}</span>
+                      <span className="tnum t-xs font-semibold">{pct(s.usedPct)}</span>
                     </div>
                   </td>
                   <td className="px-4 py-2.5">
@@ -89,7 +89,7 @@ export function TrimsTable({ rows, families }: { rows: TrimStock[]; families: st
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-[11px] text-faint">
+      <p className="mt-2 t-xs text-faint">
         {Math.min(shown.length, 400)} of {shown.length} shown{shown.length > 400 ? " · refine your search to see more" : ""} · trims/accessories store
       </p>
     </div>

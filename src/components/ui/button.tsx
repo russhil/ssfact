@@ -12,7 +12,7 @@ const variants: Record<Variant, string> = {
   soft: "bg-surface-2 text-t1 hover:bg-hairline",
   ghost: "bg-transparent text-t2 hover:bg-surface-2 hover:text-t1",
   outline: "bg-surface text-t1 elev-sm hover:bg-surface-2",
-  danger: "bg-danger-soft text-danger hover:bg-danger hover:text-white",
+  danger: "bg-danger-soft text-danger hover:bg-danger hover:text-surface",
 };
 
 const sizes: Record<Size, string> = {

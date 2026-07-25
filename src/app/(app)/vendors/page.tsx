@@ -47,17 +47,17 @@ export default async function VendorsPage() {
           <Card key={v.name} className="p-5">
             <div className="mb-3 flex items-start justify-between">
               <div>
-                <Link href={`/vendors/${encodeURIComponent(v.name)}`} className="text-[14px] font-bold text-primary-ink hover:underline">
+                <Link href={`/vendors/${encodeURIComponent(v.name)}`} className="t-head font-bold text-primary-ink hover:underline">
                   {v.name}
                 </Link>
-                <div className="mt-0.5 text-[11px] text-faint">
+                <div className="mt-0.5 t-xs text-faint">
                   {v.active} active · {v.jobs} total{v.overdue > 0 && <span className="text-danger"> · {v.overdue} overdue</span>}
                 </div>
               </div>
-              <span className="text-[18px] font-extrabold tnum">{pct(v.fill)}</span>
+              <span className="t-title font-extrabold tnum">{pct(v.fill)}</span>
             </div>
             <Bar value={v.fill} tone={v.fill < 0.65 ? "warn" : "primary"} />
-            <div className="mt-3 flex justify-between text-[11px] text-muted">
+            <div className="mt-3 flex justify-between t-xs text-muted">
               <span>Cut <b className="text-ink tnum">{num(v.cut)}</b></span>
               <span>Received <b className="text-ink tnum">{num(v.disp)}</b></span>
               <span>Balance <b className="text-ink tnum">{num(v.cut - v.disp)}</b></span>

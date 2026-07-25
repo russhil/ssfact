@@ -88,13 +88,13 @@ export function FabricActualsForm({
 
   return (
     <div className="mt-3 border-t border-border pt-3">
-      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-faint">
+      <div className="mb-1.5 t-micro font-semibold uppercase tracking-wide text-faint">
         Record actuals {lines.length > 1 ? "· per colour" : ""}
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-[12px]">
+        <table className="w-full t-sm">
           <thead>
-            <tr className="text-left text-[10px] uppercase tracking-wide text-faint">
+            <tr className="text-left t-micro uppercase tracking-wide text-faint">
               <th className="px-2 py-1 font-semibold">Colour</th>
               <th className="px-2 py-1 text-right font-semibold">Actual avg</th>
               <th className="px-2 py-1 text-right font-semibold">Issued ({u})</th>
@@ -107,8 +107,8 @@ export function FabricActualsForm({
             {lines.map((l, i) => {
               const d = deltaOf(i);
               return (
-                <tr key={l.color || i} className="border-t border-slate-50">
-                  <td className="px-2 py-1 font-semibold text-slate-600">{l.color || "—"}</td>
+                <tr key={l.color || i} className="border-t border-hairline">
+                  <td className="px-2 py-1 font-semibold text-t1">{l.color || "—"}</td>
                   <td className="px-1 py-1">
                     <Cell value={drafts[i].avg} step="0.001" onChange={(v) => set(i, "avg", v)} />
                   </td>
@@ -118,8 +118,8 @@ export function FabricActualsForm({
                   <td className="px-1 py-1">
                     <Cell value={drafts[i].used} onChange={(v) => set(i, "used", v)} />
                   </td>
-                  <td className="px-2 py-1 text-right tnum text-slate-500">{num(l.posted)}</td>
-                  <td className={`px-2 py-1 text-right tnum ${d > 0 ? "text-rose-600" : d < 0 ? "text-emerald-600" : "text-faint"}`}>
+                  <td className="px-2 py-1 text-right tnum text-t2">{num(l.posted)}</td>
+                  <td className={`px-2 py-1 text-right tnum ${d > 0 ? "text-danger" : d < 0 ? "text-ok" : "text-faint"}`}>
                     {d > 0 ? `deduct ${num(d)}` : d < 0 ? `return ${num(-d)}` : "—"}
                   </td>
                 </tr>
@@ -129,30 +129,30 @@ export function FabricActualsForm({
         </table>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="arranged by" className="w-32 rounded-md border border-border px-2 py-1 text-[11px] outline-none focus:border-primary" />
-        <input value={challan} onChange={(e) => setChallan(e.target.value)} placeholder="challan #" className="w-28 rounded-md border border-border px-2 py-1 text-[11px] outline-none focus:border-primary" />
+        <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="arranged by" className="w-32 rounded-md border border-border px-2 py-1 t-xs outline-none focus:border-primary" />
+        <input value={challan} onChange={(e) => setChallan(e.target.value)} placeholder="challan #" className="w-28 rounded-md border border-border px-2 py-1 t-xs outline-none focus:border-primary" />
       </div>
       <div className="mt-2.5 flex items-center justify-between">
-        <span className="text-[12px] text-muted">
+        <span className="t-sm text-muted">
           {netDelta > 0 ? (
-            <>Will deduct: <b className="text-rose-600 tnum">{num(netDelta)} {u}</b></>
+            <>Will deduct: <b className="text-danger tnum">{num(netDelta)} {u}</b></>
           ) : netDelta < 0 ? (
-            <>Will return to stock: <b className="text-emerald-600 tnum">{num(-netDelta)} {u}</b></>
+            <>Will return to stock: <b className="text-ok tnum">{num(-netDelta)} {u}</b></>
           ) : (
             <>No stock movement</>
           )}
-          <span className="ml-2 text-[11px] text-faint">stock always settles at USED — re-saving the same figures moves nothing</span>
+          <span className="ml-2 t-xs text-faint">stock always settles at USED — re-saving the same figures moves nothing</span>
         </span>
         <button
           onClick={submit}
           disabled={saving}
-          className="rounded-lg bg-primary px-3.5 py-1.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:opacity-40"
+          className="rounded-lg bg-primary px-3.5 py-1.5 t-sm font-semibold text-accent-on shadow-sm transition hover:opacity-90 disabled:opacity-40"
         >
           {saving ? "Saving…" : "Record actuals"}
         </button>
       </div>
       {done && (
-        <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-ok-soft px-3 py-2 text-[12px] font-medium text-emerald-700">
+        <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-ok-soft px-3 py-2 t-sm font-medium text-ok">
           <Check size={14} /> {done}
         </div>
       )}
@@ -167,7 +167,7 @@ function Cell({ value, onChange, step }: { value: string; onChange: (v: string) 
       step={step}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full min-w-[64px] rounded-md border border-border bg-slate-50 px-2 py-1 text-right text-[12px] font-semibold tnum outline-none focus:border-primary"
+      className="w-full min-w-[64px] rounded-md border border-border bg-surface-2 px-2 py-1 text-right t-sm font-semibold tnum outline-none focus:border-primary"
     />
   );
 }

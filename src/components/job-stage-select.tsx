@@ -7,9 +7,9 @@ import { STAGES, STAGE_LABEL, stageTone, type Stage } from "@/lib/job-labels";
 
 const toneClass: Record<ReturnType<typeof stageTone>, string> = {
   danger: "border-danger/40 bg-danger-soft text-danger",
-  warn: "border-amber-300 bg-amber-100 text-amber-700",
+  warn: "border-warn/30 bg-warn-soft text-warn",
   primary: "border-primary/30 bg-primary-soft text-primary-ink",
-  ok: "border-emerald-300 bg-ok-soft text-emerald-700",
+  ok: "border-ok/30 bg-ok-soft text-ok",
 };
 
 /** Inline stage editor — a coloured pill that is a native <select> under the hood. */
@@ -37,7 +37,7 @@ export function JobStageSelect({ jobCardId, stage }: { jobCardId: number; stage:
       value={value}
       disabled={pending}
       onChange={(e) => change(e.target.value as Stage)}
-      className={`cursor-pointer rounded-full border px-2.5 py-1 text-[11px] font-bold outline-none disabled:opacity-50 ${toneClass[stageTone(value)]}`}
+      className={`cursor-pointer rounded-full border px-2.5 py-1 t-xs font-bold outline-none disabled:opacity-50 ${toneClass[stageTone(value)]}`}
       aria-label="Stage"
     >
       {STAGES.map((s) => (

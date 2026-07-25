@@ -37,17 +37,17 @@ export default async function ReportsPage() {
           ["Overall Fill", pct(kpis.fillRate, 1)],
         ].map(([l, v]) => (
           <Card key={l} className="p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{l}</div>
-            <div className="mt-1.5 text-[22px] font-extrabold tnum">{v}</div>
+            <div className="t-xs font-semibold uppercase tracking-wide text-muted">{l}</div>
+            <div className="mt-1.5 t-display font-extrabold tnum">{v}</div>
           </Card>
         ))}
       </div>
 
       <Card className="p-5">
-        <h3 className="mb-4 text-[13px] font-bold">Top Styles by Cut Quantity</h3>
+        <h3 className="mb-4 t-body font-bold">Top Styles by Cut Quantity</h3>
         <div className="space-y-3">
           {topItems.map((t) => (
-            <div key={t.item} className="flex items-center gap-3 text-[12px]">
+            <div key={t.item} className="flex items-center gap-3 t-sm">
               <span className="w-48 truncate font-semibold">{t.item}</span>
               <div className="flex-1">
                 <Bar value={t.cut / maxCut} />
@@ -61,15 +61,15 @@ export default async function ReportsPage() {
 
       {/* Vendor fabric variance — who over-consumes our fabric, and what it costs */}
       <Card className="mt-3.5 overflow-hidden p-0">
-        <div className="border-b border-border px-5 py-3 text-[13px] font-bold">
+        <div className="border-b border-border px-5 py-3 t-body font-bold">
           Vendor Fabric Variance <span className="font-medium text-faint">· extra fabric taken beyond assumed (cards with actuals)</span>
         </div>
         {variance.length === 0 ? (
-          <p className="px-5 py-8 text-center text-[12px] text-muted">No fabric actuals logged yet.</p>
+          <p className="px-5 py-8 text-center t-sm text-muted">No fabric actuals logged yet.</p>
         ) : (
-          <table className="w-full text-[12px]">
+          <table className="w-full t-sm">
             <thead>
-              <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
                 <th className="px-5 py-2.5 font-semibold">Vendor</th>
                 <th className="px-5 py-2.5 text-right font-semibold">Cards</th>
                 <th className="px-5 py-2.5 text-right font-semibold">Assumed</th>
@@ -80,10 +80,10 @@ export default async function ReportsPage() {
             </thead>
             <tbody>
               {variance.map((v) => (
-                <tr key={v.vendor} className="border-b border-slate-50 last:border-0">
+                <tr key={v.vendor} className="border-b border-hairline last:border-0">
                   <td className="px-5 py-2 font-semibold">{v.vendor}</td>
-                  <td className="px-5 py-2 text-right tnum text-slate-500">{v.cards}</td>
-                  <td className="px-5 py-2 text-right tnum text-slate-500">{num(v.assumed)}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{v.cards}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{num(v.assumed)}</td>
                   <td className="px-5 py-2 text-right tnum">{num(v.actual)}</td>
                   <td className="px-5 py-2 text-right tnum font-bold text-danger">+{num(v.extra)} {v.unit.toLowerCase()}</td>
                   <td className="px-5 py-2 text-right tnum font-bold">{inr(v.cost)}</td>
@@ -97,10 +97,10 @@ export default async function ReportsPage() {
       <div className="mt-3.5 grid grid-cols-1 gap-3.5 md:grid-cols-2">
         {/* Vendor pendency */}
         <Card className="overflow-hidden p-0">
-          <div className="border-b border-border px-5 py-3 text-[13px] font-bold">Vendor Pendency <span className="font-medium text-faint">· goods out now</span></div>
-          <table className="w-full text-[12px]">
+          <div className="border-b border-border px-5 py-3 t-body font-bold">Vendor Pendency <span className="font-medium text-faint">· goods out now</span></div>
+          <table className="w-full t-sm">
             <thead>
-              <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
                 <th className="px-5 py-2.5 font-semibold">Vendor</th>
                 <th className="px-5 py-2.5 text-right font-semibold">Open</th>
                 <th className="px-5 py-2.5 text-right font-semibold">Pieces out</th>
@@ -109,11 +109,11 @@ export default async function ReportsPage() {
             </thead>
             <tbody>
               {pendency.slice(0, 12).map((v) => (
-                <tr key={v.vendor} className="border-b border-slate-50 last:border-0">
+                <tr key={v.vendor} className="border-b border-hairline last:border-0">
                   <td className="px-5 py-2 font-semibold">{v.vendor}</td>
-                  <td className="px-5 py-2 text-right tnum text-slate-500">{v.openCards}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{v.openCards}</td>
                   <td className="px-5 py-2 text-right tnum font-bold">{num(v.piecesOut)}</td>
-                  <td className="px-5 py-2 text-right">{v.daysHeld > 25 ? <Badge tone="danger">{v.daysHeld}d</Badge> : <span className="tnum text-slate-500">{v.daysHeld}d</span>}</td>
+                  <td className="px-5 py-2 text-right">{v.daysHeld > 25 ? <Badge tone="danger">{v.daysHeld}d</Badge> : <span className="tnum text-t2">{v.daysHeld}d</span>}</td>
                 </tr>
               ))}
               {pendency.length === 0 && <tr><td colSpan={4} className="px-5 py-8 text-center text-muted">Nothing pending.</td></tr>}
@@ -123,10 +123,10 @@ export default async function ReportsPage() {
 
         {/* Monthly fabric pipeline */}
         <Card className="overflow-hidden p-0">
-          <div className="border-b border-border px-5 py-3 text-[13px] font-bold">Monthly Fabric Pipeline <span className="font-medium text-faint">· demand × consumption</span></div>
-          <table className="w-full text-[12px]">
+          <div className="border-b border-border px-5 py-3 t-body font-bold">Monthly Fabric Pipeline <span className="font-medium text-faint">· demand × consumption</span></div>
+          <table className="w-full t-sm">
             <thead>
-              <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
                 <th className="px-5 py-2.5 font-semibold">Fabric</th>
                 <th className="px-5 py-2.5 text-right font-semibold">Monthly req</th>
                 <th className="px-5 py-2.5 text-right font-semibold">Est. cost</th>
@@ -134,7 +134,7 @@ export default async function ReportsPage() {
             </thead>
             <tbody>
               {pipeline.slice(0, 12).map((f) => (
-                <tr key={f.fabric} className="border-b border-slate-50 last:border-0">
+                <tr key={f.fabric} className="border-b border-hairline last:border-0">
                   <td className="px-5 py-2 font-semibold">{f.fabric}</td>
                   <td className="px-5 py-2 text-right tnum">{num(f.monthlyReq)} {f.unit.toLowerCase()}</td>
                   <td className="px-5 py-2 text-right tnum font-bold">{inr(f.monthlyCost)}</td>
