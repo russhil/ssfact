@@ -31,6 +31,7 @@ export function Panel({
   pad = true,
   className,
   bodyClassName,
+  style,
   children,
 }: {
   title?: React.ReactNode;
@@ -40,10 +41,11 @@ export function Panel({
   pad?: boolean;
   className?: string;
   bodyClassName?: string;
+  style?: React.CSSProperties;
   children: React.ReactNode;
 }) {
   return (
-    <section className={cn("overflow-hidden rounded-card bg-surface elev", className)}>
+    <section className={cn("overflow-hidden rounded-card bg-surface elev", className)} style={style}>
       {(title || actions) && (
         <header className="flex items-baseline justify-between gap-3 px-5 pt-5">
           <h3 className="t-head font-semibold flex items-baseline gap-2">

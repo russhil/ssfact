@@ -1,5 +1,7 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createProduct, updateProduct, addProductColor, removeProductColor } from "@/lib/actions";
@@ -155,7 +157,7 @@ export function ProductMasterForm({
   );
 }
 
-const inp = "w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary";
+const inp = inputClass("md", "w-full");
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label className="mb-1 block t-micro font-semibold uppercase tracking-wide text-faint">{label}</label>{children}</div>;
 }

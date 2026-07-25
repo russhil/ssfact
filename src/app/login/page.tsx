@@ -10,23 +10,22 @@ export default async function LoginPage() {
   if (user) redirect("/");
 
   return (
-    <div className="grid min-h-screen place-items-center bg-bg px-4">
-      <div className="w-full max-w-sm">
+    <div className="grid min-h-screen place-items-center bg-app px-4 py-10">
+      <div className="w-full max-w-sm rise">
         <div className="mb-6 flex items-center justify-center gap-2.5">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-accent text-base font-black text-accent-on">
+          <span className="grid size-9 place-items-center rounded-xl bg-accent t-head font-black text-accent-on">
             S
           </span>
-          <span className="t-title font-extrabold tracking-tight">
-            Sportsun
+          <span className="leading-tight">
+            <span className="block t-title font-extrabold">Sportsun</span>
+            <span className="block t-xs text-t3">Production OS</span>
           </span>
         </div>
 
-        <Card className="px-6 py-7 shadow-sm">
+        <Card className="px-6 py-7">
           <div className="mb-5">
             <h1 className="t-title font-bold">Sign in</h1>
-            <p className="mt-0.5 t-sm text-muted">
-              Production OS — garment manufacturing ERP
-            </p>
+            <p className="mt-1 t-sm text-t2">Garment production &amp; inventory ERP</p>
           </div>
           <LoginForm />
         </Card>

@@ -1,5 +1,7 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { addChallanLine, removeChallanLine, updateChallanLine, lockChallan, voidChallan, editLockedChallan } from "@/lib/actions";
@@ -14,8 +16,8 @@ type DraftEdit = { qty: string; unit: string; rate: string; colour: string };
 type EditLine = { fabricId: number | null; trimItemId: number | null; colour: string | null; qty: number; unit: string | null; rate: number | null; note: string | null };
 type ELine = { kind: "fabric" | "trim"; refId: number | 0; colour: string; qty: string; unit: string; rate: string; note: string };
 
-const inp = "rounded-md border border-border px-2 py-1.5 text-[12px] outline-none focus:border-primary";
-const btn = "no-print inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold shadow-sm";
+const inp = inputClass("sm");
+const btn = "no-print inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 t-body font-semibold shadow-sm";
 const emptyELine = (): ELine => ({ kind: "fabric", refId: 0, colour: "", qty: "", unit: "", rate: "", note: "" });
 
 export function ChallanDocActions({
@@ -131,8 +133,8 @@ export function ChallanDocActions({
 
   if (status === "DRAFT") {
     return (
-      <div className="no-print mb-4 rounded-xl border border-dashed border-border bg-slate-50/50 p-3">
-        <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted">
+      <div className="no-print mb-4 rounded-xl border border-dashed border-border bg-surface-2/50 p-3">
+        <div className="mb-2 t-xs font-bold uppercase tracking-wide text-muted">
           Draft — editable <span className="font-medium normal-case tracking-normal text-faint">· correct the quantities to what physically arrived, then lock</span>
         </div>
         {lines.length > 0 && (
@@ -141,7 +143,7 @@ export function ChallanDocActions({
               const e = editOf(l);
               const dirty = isDirty(l);
               return (
-                <div key={l.id} className="flex flex-wrap items-center gap-1.5 text-[12px]">
+                <div key={l.id} className="flex flex-wrap items-center gap-1.5 t-sm">
                   <span className="min-w-[140px] font-semibold">{l.name}</span>
                   {l.kind === "fabric" && (
                     <input list="doc-colours" value={e.colour} onChange={(ev) => setEdit(l, { colour: ev.target.value })} placeholder="colour" className={`${inp} w-24`} />
@@ -152,7 +154,7 @@ export function ChallanDocActions({
                   </select>
                   <input type="number" step="any" value={e.rate} onChange={(ev) => setEdit(l, { rate: ev.target.value })} placeholder="₹ rate" className={`${inp} w-20 text-right tnum`} />
                   {dirty && (
-                    <button onClick={() => saveLine(l)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"><Check size={12} /> Save</button>
+                    <button onClick={() => saveLine(l)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-ok/30 bg-ok-soft px-2 py-1 t-xs font-semibold text-ok hover:bg-ok-soft disabled:opacity-40"><Check size={12} /> Save</button>
                   )}
                   <button onClick={() => del(l.id)} disabled={busy} className="ml-auto text-faint hover:text-danger"><X size={13} /></button>
                 </div>
@@ -171,9 +173,9 @@ export function ChallanDocActions({
           {kind === "fabric" && <input list="doc-colours" value={colour} onChange={(e) => setColour(e.target.value)} placeholder="colour" className={`${inp} w-24`} />}
           <input type="number" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="qty" className={`${inp} w-20 text-right tnum`} />
           <select value={unit} onChange={(e) => setUnit(e.target.value)} className={inp}><option value="">unit</option><option>MTR</option><option>KG</option><option>PCS</option><option>SET</option></select>
-          <button onClick={addLine} disabled={busy || !refId || !qty} className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2.5 py-1.5 text-[12px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"><Plus size={13} /> Add line</button>
+          <button onClick={addLine} disabled={busy || !refId || !qty} className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1.5 t-sm font-semibold text-t1 hover:bg-surface-2 disabled:opacity-40"><Plus size={13} /> Add line</button>
           <datalist id="doc-colours">{colours.map((c) => <option key={c.name} value={c.name} />)}</datalist>
-          <button onClick={lock} disabled={busy || lines.length === 0} className="ml-auto rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-indigo-600 disabled:opacity-40">Lock &amp; Post</button>
+          <button onClick={lock} disabled={busy || lines.length === 0} className="ml-auto rounded-lg bg-primary px-3.5 py-2 t-body font-semibold text-accent-on hover:opacity-90 disabled:opacity-40">Lock &amp; Post</button>
         </div>
       </div>
     );
@@ -183,20 +185,20 @@ export function ChallanDocActions({
   return (
     <div className="no-print mb-4">
       <div className="flex flex-wrap items-center gap-2">
-        <button onClick={() => window.print()} className={`${btn} bg-primary text-white hover:bg-indigo-600`}><Printer size={15} /> Print / PDF</button>
-        <button onClick={() => window.open(waLink(phone, summary), "_blank")} className={`${btn} border border-border bg-white hover:bg-slate-50`}><MessageCircle size={15} /> WhatsApp</button>
-        <button onClick={() => window.open(mailtoLink(email, subject, summary), "_blank")} className={`${btn} border border-border bg-white hover:bg-slate-50`}><Mail size={15} /> Email{email ? "" : " (no address)"}</button>
-        {status === "LOCKED" && <button onClick={() => (editing ? setEditing(false) : openEdit())} disabled={busy} className={`${btn} border border-border bg-white hover:bg-slate-50`}><Pencil size={15} /> {editing ? "Cancel edit" : "Edit"}</button>}
-        {status === "LOCKED" && <button onClick={doVoid} disabled={busy} className={`${btn} border border-rose-200 bg-white text-rose-600 hover:bg-rose-50`}>Void</button>}
+        <button onClick={() => window.print()} className={`${btn} bg-primary text-accent-on hover:opacity-90`}><Printer size={15} /> Print / PDF</button>
+        <button onClick={() => window.open(waLink(phone, summary), "_blank")} className={`${btn} border border-border bg-surface hover:bg-surface-2`}><MessageCircle size={15} /> WhatsApp</button>
+        <button onClick={() => window.open(mailtoLink(email, subject, summary), "_blank")} className={`${btn} border border-border bg-surface hover:bg-surface-2`}><Mail size={15} /> Email{email ? "" : " (no address)"}</button>
+        {status === "LOCKED" && <button onClick={() => (editing ? setEditing(false) : openEdit())} disabled={busy} className={`${btn} border border-border bg-surface hover:bg-surface-2`}><Pencil size={15} /> {editing ? "Cancel edit" : "Edit"}</button>}
+        {status === "LOCKED" && <button onClick={doVoid} disabled={busy} className={`${btn} border border-danger/30 bg-surface text-danger hover:bg-danger-soft`}>Void</button>}
       </div>
 
       {status === "LOCKED" && editing && (
-        <div className="mt-3 rounded-xl border border-dashed border-border bg-slate-50/50 p-3">
-          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted">Edit {challanNo} — reverses & re-posts on save</div>
-          <div className="overflow-x-auto rounded-lg border border-border bg-white">
-            <table className="w-full text-[12px]">
+        <div className="mt-3 rounded-xl border border-dashed border-border bg-surface-2/50 p-3">
+          <div className="mb-2 t-xs font-bold uppercase tracking-wide text-muted">Edit {challanNo} — reverses & re-posts on save</div>
+          <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+            <table className="w-full t-sm">
               <thead>
-                <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
+                <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
                   <th className="px-2 py-2 font-semibold">Type</th>
                   <th className="px-2 py-2 font-semibold">Item</th>
                   <th className="px-2 py-2 font-semibold">Colour</th>
@@ -208,7 +210,7 @@ export function ChallanDocActions({
               </thead>
               <tbody>
                 {elines.map((l, i) => (
-                  <tr key={i} className="border-b border-slate-50 last:border-0">
+                  <tr key={i} className="border-b border-hairline last:border-0">
                     <td className="px-2 py-1">
                       <select value={l.kind} onChange={(e) => setEL(i, { kind: e.target.value as "fabric" | "trim", refId: 0, colour: "" })} className={inp}>
                         <option value="fabric">Fabric</option><option value="trim">Trim/Acc</option>
@@ -238,8 +240,8 @@ export function ChallanDocActions({
             <datalist id="edit-colours">{colours.map((c) => <option key={c.name} value={c.name} />)}</datalist>
           </div>
           <div className="mt-2 flex items-center gap-2">
-            <button onClick={saveEdit} disabled={busy} className="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-indigo-600 disabled:opacity-40">{busy ? "Saving…" : "Save changes (re-post)"}</button>
-            <span className="text-[11px] text-faint">Old movements reverse and the new lines post — stock stays exact.</span>
+            <button onClick={saveEdit} disabled={busy} className="rounded-lg bg-primary px-3.5 py-2 t-body font-semibold text-accent-on hover:opacity-90 disabled:opacity-40">{busy ? "Saving…" : "Save changes (re-post)"}</button>
+            <span className="t-xs text-faint">Old movements reverse and the new lines post — stock stays exact.</span>
           </div>
         </div>
       )}

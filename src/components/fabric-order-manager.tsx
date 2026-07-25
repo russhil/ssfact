@@ -1,5 +1,7 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -377,6 +379,6 @@ export function FabricOrderManager({
   );
 }
 
-const inp = "w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary";
+const inp = inputClass("md", "w-full");
 /** A stored date rendered for an <input type="date">. */
 const dateInput = (d: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");

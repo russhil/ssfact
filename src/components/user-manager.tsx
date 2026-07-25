@@ -1,5 +1,7 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createUser, updateUser, resetUserPassword, setUserActive, deleteUser } from "@/lib/actions";
@@ -18,7 +20,7 @@ const ROLE_HINT: Record<Role, string> = {
   TRIMS: "Trims and pending trims only",
 };
 
-const inp = "rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary";
+const inp = inputClass("md");
 
 export function UserManager({
   users,

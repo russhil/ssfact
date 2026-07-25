@@ -1,5 +1,7 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { addCuttingLayer } from "@/lib/actions";
@@ -7,7 +9,7 @@ import { num } from "@/lib/format";
 import { splitByRatio } from "@/lib/job-labels";
 import { Plus } from "lucide-react";
 
-const inp = "rounded-md border border-border bg-surface px-1.5 py-1 t-xs tnum outline-none focus:border-primary";
+const inp = inputClass("sm", "px-1.5 py-1 t-xs tnum");
 const cellKey = (s: string, c: string) => `${s}|||${c}`;
 const numOrNull = (s: string): number | null => (s.trim() === "" || Number.isNaN(+s) ? null : +s);
 

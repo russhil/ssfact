@@ -2,19 +2,21 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Badge, Bar } from "@/components/ui";
+import {
+  Badge,
+  Bar,
+  DataTable,
+  EmptyState,
+  SearchInput,
+  SegmentedFilter,
+  Select,
+  Toolbar,
+  type Column,
+} from "@/components/ui";
 import { num, pct, fmtDate } from "@/lib/format";
 import type { JobRow } from "@/lib/jobs";
-import { Search } from "lucide-react";
 
 type Filter = "all" | "active" | "overdue" | "closed";
-
-const filters: { key: Filter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "active", label: "Active" },
-  { key: "overdue", label: "Overdue" },
-  { key: "closed", label: "Closed" },
-];
 
 export function JobsTable({ rows }: { rows: JobRow[] }) {
   const [q, setQ] = useState("");
@@ -54,108 +56,112 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
     [rows]
   );
 
+  const columns: Column<JobRow>[] = [
+    {
+      key: "si",
+      header: "SI",
+      cell: (r) => (
+        <Link href={`/job-cards/${r.slug}`} className="font-bold text-accent-ink hover:underline">
+          {r.siNo}
+        </Link>
+      ),
+    },
+    {
+      key: "item",
+      header: "Item",
+      cell: (r) => (
+        <>
+          <span className="block font-medium">{r.item}</span>
+          <span className="block t-xs text-t3">{r.styleNo}</span>
+        </>
+      ),
+    },
+    { key: "vendor", header: "Vendor", cell: (r) => r.vendor, className: "text-t2" },
+    { key: "cut", header: "Cut", align: "right", cell: (r) => num(r.cutQty) },
+    { key: "recd", header: "Recd.", align: "right", cell: (r) => num(r.dispatchedQty) },
+    {
+      key: "fill",
+      header: "Fill",
+      width: "7.5rem",
+      cell: (r) => (
+        <span className="flex items-center gap-2">
+          <Bar className="w-16" value={r.fill} tone={r.fill < 0.65 ? "warn" : r.fill >= 0.99 ? "ok" : "primary"} />
+          <span className="t-xs font-semibold tnum">{pct(r.fill)}</span>
+        </span>
+      ),
+    },
+    { key: "etd", header: "ETD", cell: (r) => fmtDate(r.plannedEtd), className: "text-t2 tnum" },
+    {
+      key: "status",
+      header: "Status",
+      cell: (r) => (
+        <span className="flex flex-wrap items-center gap-1">
+          {r.overdue ? (
+            <Badge tone="danger">Overdue</Badge>
+          ) : r.status === "CLOSED" ? (
+            <Badge tone="ok">Closed</Badge>
+          ) : (
+            <Badge tone="primary">Active</Badge>
+          )}
+          {r.trimsPending && <Badge tone="warn">Trims short</Badge>}
+        </span>
+      ),
+    },
+  ];
+
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex gap-1.5">
-          {filters.map((x) => (
-            <button
-              key={x.key}
-              onClick={() => setF(x.key)}
-              className={`rounded-lg px-3 py-1.5 t-sm font-semibold transition ${
-                f === x.key ? "bg-primary text-accent-on" : "bg-surface text-t2 hover:bg-surface-2 border border-border"
-              }`}
-            >
-              {x.label} <span className="opacity-60">{counts[x.key]}</span>
-            </button>
-          ))}
-        </div>
+      <Toolbar>
+        <SegmentedFilter
+          value={f}
+          onChange={setF}
+          options={[
+            { key: "all", label: "All", count: counts.all },
+            { key: "active", label: "Active", count: counts.active },
+            { key: "overdue", label: "Overdue", count: counts.overdue },
+            { key: "closed", label: "Closed", count: counts.closed },
+          ]}
+        />
         <div className="flex items-center gap-2">
-          <select
+          <Select
+            size="sm"
             value={productId}
             onChange={(e) => setProductId(e.target.value === "all" ? "all" : Number(e.target.value))}
-            className="rounded-lg border border-border bg-surface py-2 pl-3 pr-7 t-sm outline-none focus:border-primary"
+            className="w-auto"
           >
             <option value="all">All products</option>
             {productOptions.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
             ))}
-          </select>
-          <div className="relative w-64">
-            <Search size={14} className="absolute left-3 top-2.5 text-faint" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search SI, style, vendor…"
-              className="w-full rounded-lg border border-border bg-surface py-2 pl-8 pr-3 t-sm outline-none focus:border-primary focus:ring-2 focus:ring-accent/15"
-            />
-          </div>
+          </Select>
+          <SearchInput
+            size="sm"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search SI, style, vendor…"
+            wrapClassName="w-64"
+          />
         </div>
-      </div>
+      </Toolbar>
 
-      <div className="overflow-hidden rounded-card border border-border bg-surface">
-        <table className="w-full t-sm">
-          <thead>
-            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-4 py-2.5 font-semibold">SI</th>
-              <th className="px-4 py-2.5 font-semibold">Item</th>
-              <th className="px-4 py-2.5 font-semibold">Vendor</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Cut</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Recd.</th>
-              <th className="px-4 py-2.5 font-semibold">Fill</th>
-              <th className="px-4 py-2.5 font-semibold">ETD</th>
-              <th className="px-4 py-2.5 font-semibold">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((r, i) => (
-              <tr key={`${r.siNo}-${r.styleNo}-${i}`} className="border-b border-hairline last:border-0 hover:bg-surface-2">
-                <td className="px-4 py-2.5">
-                  <Link href={`/job-cards/${r.slug}`} className="font-bold text-primary-ink hover:underline">
-                    {r.siNo}
-                  </Link>
-                </td>
-                <td className="px-4 py-2.5">
-                  <div className="font-medium">{r.item}</div>
-                  <div className="t-xs text-faint">{r.styleNo}</div>
-                </td>
-                <td className="px-4 py-2.5 text-t2">{r.vendor}</td>
-                <td className="px-4 py-2.5 text-right tnum">{num(r.cutQty)}</td>
-                <td className="px-4 py-2.5 text-right tnum">{num(r.dispatchedQty)}</td>
-                <td className="px-4 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <div className="w-16">
-                      <Bar value={r.fill} tone={r.fill < 0.65 ? "warn" : "primary"} />
-                    </div>
-                    <span className="tnum t-xs font-semibold">{pct(r.fill)}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-2.5 text-t2 tnum">{fmtDate(r.plannedEtd)}</td>
-                <td className="px-4 py-2.5">
-                  <div className="flex flex-wrap items-center gap-1">
-                    {r.overdue ? (
-                      <Badge tone="danger">Overdue</Badge>
-                    ) : r.status === "CLOSED" ? (
-                      <Badge tone="ok">Closed</Badge>
-                    ) : (
-                      <Badge tone="primary">Active</Badge>
-                    )}
-                    {r.trimsPending && <Badge tone="warn">Trims short</Badge>}
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {shown.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-muted">
-                  No job cards match.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <p className="mt-2 t-xs text-faint">{shown.length} of {rows.length} job cards</p>
+      <DataTable
+        columns={columns}
+        rows={shown}
+        keyOf={(r, i) => `${r.siNo}-${r.styleNo}-${i}`}
+        footer={`${shown.length} of ${rows.length} job cards`}
+        empty={
+          rows.length === 0 ? (
+            <EmptyState
+              title="No job cards yet"
+              hint="A job card is created when fabric is issued for cutting. Start one to begin tracking cut, stitch and receipt."
+            />
+          ) : (
+            <EmptyState title="No job cards match" hint="Try clearing the search or switching back to All." />
+          )
+        }
+      />
     </div>
   );
 }

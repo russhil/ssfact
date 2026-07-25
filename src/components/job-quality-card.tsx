@@ -1,12 +1,14 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { setJobQuality } from "@/lib/actions";
 import { Card } from "@/components/ui";
 import { num } from "@/lib/format";
 
-const inp = "w-24 rounded-md border border-border px-2 py-1.5 text-right t-sm tnum outline-none focus:border-primary";
+const inp = inputClass("sm", "w-24 text-right tnum");
 const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
 
 type Props = {

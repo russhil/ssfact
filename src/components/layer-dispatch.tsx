@@ -1,12 +1,14 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { addDispatch } from "@/lib/actions";
 import { num } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
-const inp = "rounded-md border border-border px-2 py-1.5 t-sm outline-none focus:border-primary";
+const inp = inputClass("sm");
 const DEFAULT_SIZES = ["S", "M", "L", "XL", "2XL", "3XL"];
 const sizeRank = (s: string) => { const i = DEFAULT_SIZES.indexOf(s.toUpperCase()); return i === -1 ? 99 : i; };
 

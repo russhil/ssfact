@@ -1,5 +1,7 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createFabric } from "@/lib/actions";
@@ -94,7 +96,7 @@ export function AddFabricButton() {
   );
 }
 
-const inp = "w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary";
+const inp = inputClass("md", "w-full");
 
 function Labelled({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
   return (

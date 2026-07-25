@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { login, type LoginState } from "@/lib/auth-actions";
+import { Button, Field, Input } from "@/components/ui";
 
 const DEMO_LOGINS = [
   { user: "admin", role: "Admin — full access" },
@@ -11,67 +12,38 @@ const DEMO_LOGINS = [
 ];
 
 export function LoginForm() {
-  const [state, formAction, pending] = useActionState<LoginState, FormData>(
-    login,
-    {}
-  );
+  const [state, formAction, pending] = useActionState<LoginState, FormData>(login, {});
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <label
-          htmlFor="username"
-          className="t-sm font-semibold text-t1"
-        >
-          Username
-        </label>
-        <input
-          id="username"
-          name="username"
-          type="text"
-          autoComplete="username"
-          autoFocus
-          required
-          className="rounded-lg border border-border bg-surface px-3 py-2 t-head text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary-soft"
-          placeholder="admin"
-        />
-      </div>
+      <Field label="Username" htmlFor="username">
+        <Input id="username" name="username" type="text" autoComplete="username" autoFocus required placeholder="admin" />
+      </Field>
 
-      <div className="flex flex-col gap-1.5">
-        <label
-          htmlFor="password"
-          className="t-sm font-semibold text-t1"
-        >
-          Password
-        </label>
-        <input
+      <Field label="Password" htmlFor="password">
+        <Input
           id="password"
           name="password"
           type="password"
           autoComplete="current-password"
           required
-          className="rounded-lg border border-border bg-surface px-3 py-2 t-head text-ink outline-none transition focus:border-primary focus:ring-2 focus:ring-primary-soft"
           placeholder="••••••••••"
         />
-      </div>
+      </Field>
 
       {state.error && (
-        <p className="rounded-lg bg-danger-soft px-3 py-2 t-sm font-medium text-danger">
+        <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 t-sm font-medium text-danger">
           {state.error}
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={pending}
-        className="mt-1 rounded-lg bg-primary px-3.5 py-2.5 t-body font-semibold text-accent-on shadow-sm transition hover:opacity-90 disabled:opacity-60"
-      >
+      <Button type="submit" variant="primary" disabled={pending} className="mt-1 justify-center">
         {pending ? "Signing in…" : "Sign in"}
-      </button>
+      </Button>
 
-      <div className="mt-2 rounded-xl bg-surface-2 px-3 py-3 t-xs leading-relaxed text-muted">
-        <div className="mb-1 font-semibold text-t1">Demo logins</div>
-        <ul className="space-y-0.5">
+      <div className="mt-2 rounded-xl bg-surface-2 px-3 py-3 t-xs leading-relaxed text-t2">
+        <div className="mb-1.5 font-semibold text-t1">Demo logins</div>
+        <ul className="flex flex-col gap-0.5">
           {DEMO_LOGINS.map((d) => (
             <li key={d.user} className="flex justify-between gap-3">
               <span className="font-mono text-t1">{d.user}</span>
@@ -79,9 +51,8 @@ export function LoginForm() {
             </li>
           ))}
         </ul>
-        <div className="mt-1.5 text-faint">
-          Password for all:{" "}
-          <span className="font-mono text-t2">sportsun123</span>
+        <div className="mt-1.5 text-t3">
+          Password for all: <span className="font-mono text-t2">sportsun123</span>
         </div>
       </div>
     </form>

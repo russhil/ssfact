@@ -11,8 +11,11 @@ const sizes: Record<Size, string> = {
   md: "rounded-lg px-3 py-2 t-body",
 };
 
+/* Deliberately no `w-full` — plenty of these sit inline inside table cells.
+   The components below opt into it; `inputClass()` callers decide for
+   themselves. */
 const field =
-  "w-full bg-surface text-t1 border border-border outline-none transition-[border-color,box-shadow] duration-150 " +
+  "bg-surface text-t1 border border-border outline-none transition-[border-color,box-shadow] duration-150 " +
   "placeholder:text-t3 focus:border-accent focus:ring-2 focus:ring-accent/15 " +
   "disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -25,7 +28,7 @@ export function Input({
   className,
   ...rest
 }: Omit<React.InputHTMLAttributes<HTMLInputElement>, "size"> & { size?: Size }) {
-  return <input className={inputClass(size, className)} {...rest} />;
+  return <input className={inputClass(size, cn("w-full", className))} {...rest} />;
 }
 
 export function Textarea({
@@ -33,7 +36,7 @@ export function Textarea({
   className,
   ...rest
 }: Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "size"> & { size?: Size }) {
-  return <textarea className={inputClass(size, cn("resize-y", className))} {...rest} />;
+  return <textarea className={inputClass(size, cn("w-full resize-y", className))} {...rest} />;
 }
 
 export function Select({
@@ -43,7 +46,7 @@ export function Select({
   ...rest
 }: Omit<React.SelectHTMLAttributes<HTMLSelectElement>, "size"> & { size?: Size }) {
   return (
-    <select className={inputClass(size, cn("pr-7", className))} {...rest}>
+    <select className={inputClass(size, cn("w-full pr-7", className))} {...rest}>
       {children}
     </select>
   );

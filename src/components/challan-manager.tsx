@@ -1,5 +1,7 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -18,7 +20,7 @@ type ChallanRow = {
 type Line = { kind: "fabric" | "trim"; refId: number | 0; colour: string; qty: string; unit: string; rate: string; note: string };
 
 const emptyLine = (): Line => ({ kind: "fabric", refId: 0, colour: "", qty: "", unit: "", rate: "", note: "" });
-const inp = "rounded-md border border-border px-2 py-1.5 t-sm outline-none focus:border-primary";
+const inp = inputClass("sm");
 
 // Derive a challan's kind from the lines it holds (mirrors the server helper).
 function kindOf(hasFabric: boolean, hasTrim: boolean): "FABRIC" | "TRIM" | "COMBINED" | null {

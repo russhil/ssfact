@@ -1,5 +1,7 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -12,7 +14,7 @@ type Dim = "FLAT" | "COLOR" | "SIZE";
 type Line = { id: number; material: string; color: string | null; dimension: string; perPieceQty: number | null; trimItemId: number | null; trim: { name: string; current: number } | null };
 type TrimOpt = { id: number; name: string; current: number };
 
-const inp = "rounded-md border border-border px-2 py-1.5 t-sm outline-none focus:border-primary";
+const inp = inputClass("sm");
 
 /**
  * Change 15 Part C — author the product's master BOM (trim recipe) on the product.
