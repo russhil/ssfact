@@ -1,0 +1,118 @@
+name: Deploy to OVH
+
+# Every push to main is built in CI first; only a green build is allowed to
+# touch production. Manual runs are available from the Actions tab.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never let two deploys race each other onto the same box.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Typecheck and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+  deploy:
+    name: Ship to production
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load deploy key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      # --delete is required: a file removed in a commit would otherwise linger
+      # on the box and break the build. dev.db is the authoritative production
+      # database and must never be overwritten from the repo.
+      - name: Sync source
+        env:
+          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+          APP_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes" \
+            --rsync-path="sudo rsync" \
+            --exclude '.git' --exclude '.github' --exclude 'node_modules' --exclude '.next' \
+            --exclude '.env' --exclude '.env.*' \
+            --exclude 'dev.db' --exclude 'dev.db-wal' --exclude 'dev.db-shm' \
+            --exclude 'dev.db.bak*' --exclude 'prisma/dev.db' \
+            --exclude 'src/generated' --exclude 'tsconfig.tsbuildinfo' \
+            ./ "$TARGET:$APP_PATH/"
+
+      # The build must fail loudly — never pipe `npm run build`, a pipe masks the
+      # non-zero exit and you restart onto a broken build.
+      - name: Migrate, build and restart
+        env:
+          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+          APP_PATH: ${{ secrets.DEPLOY_PATH }}
+          SERVICE: ${{ secrets.DEPLOY_SERVICE }}
+        run: |
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes "$TARGET" bash -s <<REMOTE
+          set -euo pipefail
+          cd "$APP_PATH"
+          # write the log to \$HOME — /tmp is root-owned on this box and the
+          # redirect is opened by the unprivileged shell before sudo runs
+          LOG=\$HOME/ssbuild.log
+
+          sudo cp dev.db "dev.db.bak-\$(date +%Y%m%d-%H%M%S)"
+          ls -t dev.db.bak-* 2>/dev/null | tail -n +11 | xargs -r sudo rm --
+
+          sudo DATABASE_URL="file:./dev.db" npx prisma migrate deploy
+          sudo npm ci
+          if sudo NODE_OPTIONS=--max-old-space-size=2048 npm run build > "\$LOG" 2>&1; then
+            echo "BUILD OK"
+          else
+            echo "BUILD FAILED"; tail -40 "\$LOG"; exit 1
+          fi
+
+          sudo systemctl restart "$SERVICE"
+          REMOTE
+
+      - name: Health check
+        env:
+          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+          SERVICE: ${{ secrets.DEPLOY_SERVICE }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes "$TARGET" bash -s <<REMOTE
+          set -e
+          for i in \$(seq 1 12); do
+            code=\$(curl -s -o /dev/null -w '%{http_code}' "localhost:$PORT/login" || true)
+            if [ "\$code" = "200" ]; then
+              echo "healthy after \${i}s (login \$code)"
+              systemctl is-active "$SERVICE"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "UNHEALTHY — last code \$code"
+          sudo journalctl -u "$SERVICE" -n 40 --no-pager
+          exit 1
+          REMOTE
