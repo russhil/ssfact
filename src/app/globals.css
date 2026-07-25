@@ -45,8 +45,8 @@
   --danger-soft: #fef2f2;
 
   /* depth */
-  --sh-1: rgba(0, 0, 0, 0.04);
-  --sh-2: rgba(0, 0, 0, 0.08);
+  --sh-1: rgba(0, 0, 0, 0.055);
+  --sh-2: rgba(0, 0, 0, 0.10);
   --ring: rgba(26, 26, 30, 0.06);
 
   --scroll-thumb: #d4d4d4;
@@ -204,7 +204,7 @@
 @theme {
   --radius-sm: 7px;
   --radius-md: 9px;
-  --radius-lg: 12px;
+  --radius-lg: 14px;
   --radius-xl: 16px;
   --radius-card: 20px;
 }

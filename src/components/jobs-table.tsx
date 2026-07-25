@@ -61,7 +61,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
       key: "si",
       header: "SI",
       cell: (r) => (
-        <Link href={`/job-cards/${r.slug}`} className="font-bold text-accent-ink hover:underline">
+        <Link href={`/job-cards/${r.slug}`} className="font-bold text-accent hover:underline">
           {r.siNo}
         </Link>
       ),

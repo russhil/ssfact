@@ -6,8 +6,8 @@ import { cn } from "@/lib/cn";
 
 const badgeTone: Record<string, string> = {
   default: "bg-surface-2 text-t2",
-  primary: "bg-accent-soft text-accent-ink",
-  accent: "bg-accent-soft text-accent-ink",
+  primary: "bg-accent-soft text-accent",
+  accent: "bg-accent-soft text-accent",
   danger: "bg-danger-soft text-danger",
   warn: "bg-warn-soft text-warn",
   ok: "bg-ok-soft text-ok",

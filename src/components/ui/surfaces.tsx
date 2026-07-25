@@ -169,7 +169,7 @@ export function EmptyState({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center justify-center gap-2 px-6 py-14 text-center", className)}>
+    <div className={cn("flex flex-col items-center justify-center gap-1.5 px-6 py-9 text-center", className)}>
       {icon && <div className="mb-1 text-t3">{icon}</div>}
       <p className="t-head font-semibold text-t1">{title}</p>
       {hint && <p className="max-w-[46ch] t-sm text-t2">{hint}</p>}

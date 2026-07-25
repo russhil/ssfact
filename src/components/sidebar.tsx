@@ -147,7 +147,7 @@ export function Sidebar({
                     "transition-[background-color,color] duration-150",
                     "active:scale-[0.98] active:transition-transform active:duration-75",
                     active
-                      ? "bg-accent-soft font-semibold text-accent-ink"
+                      ? "bg-accent-soft font-semibold text-accent"
                       : "text-t2 hover:bg-surface-2 hover:text-t1"
                   )}
                 >

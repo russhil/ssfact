@@ -82,7 +82,7 @@ export default async function DashboardPage() {
                   className="flex items-center justify-between gap-3 border-b border-hairline py-2.5 t-sm transition-opacity duration-150 last:border-0 hover:opacity-70"
                 >
                   <span className="min-w-0 truncate">
-                    <span className="font-bold text-accent-ink">{o.siNo}</span>
+                    <span className="font-bold text-accent">{o.siNo}</span>
                     <span className="ml-2 text-t2">{o.item}</span>
                   </span>
                   <Badge tone="danger">{o.daysLate}d late</Badge>
