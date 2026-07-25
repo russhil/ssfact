@@ -22,7 +22,7 @@ export default async function ChallanPage({ params }: { params: Promise<{ si: st
   const issued = j.jobLines.filter((l) => (l.issuedQty ?? 0) > 0 || (l.requiredQty ?? 0) > 0);
 
   return (
-    <div className="mx-auto max-w-[800px] bg-white p-8 text-[12px] text-ink">
+    <div className="doc-light mx-auto max-w-[800px] bg-white p-8 text-[12px] text-ink">
       <style>{`@media print { .no-print { display: none !important; } body { background: #fff; } } @page { margin: 14mm; }`}</style>
 
       <div className="mb-4 flex items-center justify-between">
