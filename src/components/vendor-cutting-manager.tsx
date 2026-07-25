@@ -46,28 +46,28 @@ function MiniMaster({
 
   return (
     <Card className="p-4">
-      <h3 className="mb-3 text-[13px] font-bold">{title}</h3>
+      <h3 className="mb-3 t-body font-bold">{title}</h3>
       <div className="mb-3 flex gap-2">
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && draft.trim() && run(async () => { await onAdd(draft); setDraft(""); })} placeholder="Add…" className="flex-1 rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary" />
-        <button onClick={() => draft.trim() && run(async () => { await onAdd(draft); setDraft(""); })} disabled={busy || !draft.trim()} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-[12px] font-semibold text-white disabled:opacity-40"><Plus size={13} /> Add</button>
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && draft.trim() && run(async () => { await onAdd(draft); setDraft(""); })} placeholder="Add…" className="flex-1 rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
+        <button onClick={() => draft.trim() && run(async () => { await onAdd(draft); setDraft(""); })} disabled={busy || !draft.trim()} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 t-sm font-semibold text-accent-on disabled:opacity-40"><Plus size={13} /> Add</button>
       </div>
       <div className="max-h-[420px] overflow-y-auto">
         {rows.map((r) => {
           const val = edits[r.id] ?? r.name;
           const dirty = val !== r.name;
           return (
-            <div key={r.id} className={`flex items-center gap-2 border-b border-slate-50 py-1.5 last:border-0 ${r.active ? "" : "opacity-50"}`}>
-              <input value={val} onChange={(e) => setEdits((p) => ({ ...p, [r.id]: e.target.value }))} className="flex-1 rounded-md border border-transparent px-2 py-1 text-[13px] outline-none hover:border-border focus:border-primary" />
-              <span className="text-[10px] text-faint">{r.jobs} jobs</span>
+            <div key={r.id} className={`flex items-center gap-2 border-b border-hairline py-1.5 last:border-0 ${r.active ? "" : "opacity-50"}`}>
+              <input value={val} onChange={(e) => setEdits((p) => ({ ...p, [r.id]: e.target.value }))} className="flex-1 rounded-md border border-transparent px-2 py-1 t-body outline-none hover:border-border focus:border-primary" />
+              <span className="t-micro text-faint">{r.jobs} jobs</span>
               {dirty ? (
-                <button onClick={() => run(async () => { await onRename(r.id, val); setEdits((p) => { const n = { ...p }; delete n[r.id]; return n; }); })} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-semibold text-white"><Check size={11} /> Save</button>
+                <button onClick={() => run(async () => { await onRename(r.id, val); setEdits((p) => { const n = { ...p }; delete n[r.id]; return n; }); })} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 t-xs font-semibold text-accent-on"><Check size={11} /> Save</button>
               ) : (
                 <button onClick={() => run(() => onToggle(r.id, !r.active))} disabled={busy}>{r.active ? <Badge tone="ok">Active</Badge> : <Badge tone="default">Off</Badge>}</button>
               )}
             </div>
           );
         })}
-        {rows.length === 0 && <p className="py-4 text-center text-[12px] text-muted">None yet.</p>}
+        {rows.length === 0 && <p className="py-4 text-center t-sm text-muted">None yet.</p>}
       </div>
     </Card>
   );

@@ -22,7 +22,7 @@ export default async function BomDocPage({ params }: { params: Promise<{ sku: st
     lines.map((l) => `${(l.trim?.name ?? l.material)} · ${(l.dimension ?? "FLAT").toLowerCase()}${l.color ? " · " + l.color : ""} · ${l.perPieceQty != null ? num(l.perPieceQty, 3) : "—"}/pc`).join("\n");
 
   return (
-    <div className="mx-auto max-w-[800px] bg-white p-8 text-[12px] text-ink">
+    <div className="doc-light mx-auto max-w-[800px] bg-white p-8 text-[12px] text-ink">
       <style>{`@media print { .no-print { display: none !important; } body { background: #fff; } } @page { margin: 14mm; }`}</style>
 
       <div className="mb-4 flex items-center justify-between">

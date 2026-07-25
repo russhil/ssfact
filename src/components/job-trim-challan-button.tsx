@@ -30,14 +30,14 @@ export function JobTrimChallanButton({ jobCardId }: { jobCardId: number }) {
       <button
         onClick={() => raise(true)}
         disabled={busy}
-        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-primary-ink hover:bg-slate-50 disabled:opacity-40"
+        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2 disabled:opacity-40"
       >
         <Truck size={12} /> Raise outward trim challan
       </button>
       <button
         onClick={() => raise(false)}
         disabled={busy}
-        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t2 hover:bg-surface-2 disabled:opacity-40"
         title="Full BOM quantities, ignoring what has already been issued"
       >
         full BOM

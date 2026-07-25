@@ -31,8 +31,8 @@ function MultiFilter({
       <button
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[12px] font-semibold",
-          selected.size ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-slate-600"
+          "flex items-center gap-1 rounded-lg border px-2.5 py-1.5 t-sm font-semibold",
+          selected.size ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-t1"
         )}
       >
         {label}{selected.size > 0 && ` · ${selected.size}`}
@@ -43,7 +43,7 @@ function MultiFilter({
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute z-20 mt-1 max-h-64 w-52 overflow-y-auto rounded-lg border border-border bg-surface p-1 shadow-lg">
             {options.map((o) => (
-              <label key={o} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-slate-50">
+              <label key={o} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 t-sm hover:bg-surface-2">
                 <input type="checkbox" checked={selected.has(o)} onChange={() => onToggle(o)} className="accent-primary" />
                 <span className="truncate">{fmt ? fmt(o) : o}</span>
               </label>
@@ -57,26 +57,26 @@ function MultiFilter({
 
 // ── derived cell renderers ─────────────────────────────────────────────────────
 function StitchBalance({ v }: { v: number }) {
-  if (v === 0) return <span className="text-slate-400 tnum">0</span>;
-  if (v > 0) return <span className="font-semibold text-emerald-600 tnum">+{num(v)} extra</span>;
-  return <span className="font-semibold text-amber-600 tnum">{num(v)}</span>;
+  if (v === 0) return <span className="text-t3 tnum">0</span>;
+  if (v > 0) return <span className="font-semibold text-ok tnum">+{num(v)} extra</span>;
+  return <span className="font-semibold text-warn tnum">{num(v)}</span>;
 }
 
 function DaysToEtd({ d, closed }: { d: number | null; closed: boolean }) {
-  if (d == null) return <span className="text-slate-300">—</span>;
-  if (closed) return <span className="text-slate-400 tnum">{d}</span>;
+  if (d == null) return <span className="text-t3">—</span>;
+  if (closed) return <span className="text-t3 tnum">{d}</span>;
   if (d < 0) return <span className="font-bold text-danger tnum">{d}</span>;
-  if (d <= 3) return <span className="font-semibold text-amber-600 tnum">{d}</span>;
-  return <span className="text-slate-500 tnum">{d}</span>;
+  if (d <= 3) return <span className="font-semibold text-warn tnum">{d}</span>;
+  return <span className="text-t2 tnum">{d}</span>;
 }
 
 const rowTint = (r: BoardRow) =>
   r.status === "CLOSED"
-    ? "bg-slate-50/60 text-slate-400"
+    ? "bg-surface-2 text-t3"
     : r.overdue
       ? "bg-danger-soft/50 border-l-2 border-l-danger"
       : r.stage === "ON_MACHINE" || r.stage === "FINISHING"
-        ? "bg-amber-50 border-l-2 border-l-amber-300"
+        ? "bg-warn-soft border-l-2 border-l-amber-300"
         : r.stage === "DISPATCH"
           ? "bg-ok-soft/40"
           : "";
@@ -188,12 +188,12 @@ export function ProductionBoard({
       {/* filter bar */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative">
-          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+          <Search size={14} className="absolute left-2.5 top-2.5 text-t3" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search SI, SKU, item, vendor…"
-            className="w-60 rounded-lg border border-border bg-surface py-1.5 pl-8 pr-2.5 text-[12px] outline-none focus:border-primary"
+            className="w-60 rounded-lg border border-border bg-surface py-1.5 pl-8 pr-2.5 t-sm outline-none focus:border-primary"
           />
         </div>
         <MultiFilter label="Stage" options={filterOptions.stages} selected={stages} onToggle={toggler(setStages)} fmt={(s) => STAGE_LABEL[s as Stage]} />
@@ -204,23 +204,23 @@ export function ProductionBoard({
 
         <div className="flex rounded-lg border border-border p-0.5">
           {(["all", "active", "closed"] as const).map((s) => (
-            <button key={s} onClick={() => setStatus(s)} className={cn("rounded px-2.5 py-1 text-[12px] font-semibold capitalize", status === s ? "bg-primary text-white" : "text-slate-500 hover:text-ink")}>{s}</button>
+            <button key={s} onClick={() => setStatus(s)} className={cn("rounded px-2.5 py-1 t-sm font-semibold capitalize", status === s ? "bg-primary text-accent-on" : "text-t2 hover:text-ink")}>{s}</button>
           ))}
         </div>
-        <button onClick={() => setOverdueOnly((o) => !o)} className={cn("rounded-lg border px-2.5 py-1.5 text-[12px] font-semibold", overdueOnly ? "border-danger bg-danger-soft text-danger" : "border-border bg-surface text-slate-600")}>
+        <button onClick={() => setOverdueOnly((o) => !o)} className={cn("rounded-lg border px-2.5 py-1.5 t-sm font-semibold", overdueOnly ? "border-danger bg-danger-soft text-danger" : "border-border bg-surface text-t1")}>
           Overdue only
         </button>
-        <button onClick={() => setGroupBySI((g) => !g)} className={cn("rounded-lg border px-2.5 py-1.5 text-[12px] font-semibold", groupBySI ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-slate-600")}>
+        <button onClick={() => setGroupBySI((g) => !g)} className={cn("rounded-lg border px-2.5 py-1.5 t-sm font-semibold", groupBySI ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-t1")}>
           Group by SI
         </button>
-        <span className="ml-auto text-[12px] text-muted">{shown.length} of {rows.length}</span>
+        <span className="ml-auto t-sm text-muted">{shown.length} of {rows.length}</span>
       </div>
 
       {/* desktop table */}
       <div className="hidden overflow-x-auto rounded-card border border-border bg-surface md:block">
-        <table className="w-full text-[12px]">
+        <table className="w-full t-sm">
           <thead>
-            <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
+            <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
               <Th k="si">SI</Th>
               <Th k="order">Order</Th>
               <Th k="item">SKU / Item</Th>
@@ -258,7 +258,7 @@ export function ProductionBoard({
                   <Fragment key={si}>
                     <tr
                       onClick={() => setExpanded((p) => { const n = new Set(p); n.has(si) ? n.delete(si) : n.add(si); return n; })}
-                      className={cn("cursor-pointer border-b border-border font-semibold", anyOverdue ? "bg-danger-soft/40" : "bg-slate-50")}
+                      className={cn("cursor-pointer border-b border-border font-semibold", anyOverdue ? "bg-danger-soft/40" : "bg-surface-2")}
                     >
                       <td className="px-2 py-2 whitespace-nowrap">
                         <span className="inline-flex items-center gap-1">
@@ -267,14 +267,14 @@ export function ProductionBoard({
                         </span>
                       </td>
                       <td className="px-2 py-2" />
-                      <td className="px-2 py-2 text-slate-500">{members.length} vendor splits</td>
+                      <td className="px-2 py-2 text-t2">{members.length} vendor splits</td>
                       {canSeeCost && <td />}
                       <td className="px-2 py-2 text-right tnum">{num(cut)}</td>
                       <td className="px-2 py-2 text-right tnum">{num(disp)}</td>
                       <td className="px-2 py-2 text-right"><StitchBalance v={disp - cut} /></td>
                       <td className="px-2 py-2" />
                       <td className="px-2 py-2" />
-                      <td className="px-2 py-2 text-slate-500">{[...new Set(members.flatMap((m) => m.vendors))].length} vendors</td>
+                      <td className="px-2 py-2 text-t2">{[...new Set(members.flatMap((m) => m.vendors))].length} vendors</td>
                       <td className="px-2 py-2" />
                       <td className="px-2 py-2" />
                       <td className="px-2 py-2 text-right"><DaysToEtd d={worst} closed={false} /></td>
@@ -288,7 +288,7 @@ export function ProductionBoard({
               })}
 
             {shown.length === 0 && (
-              <tr><td colSpan={colCount} className="px-2 py-10 text-center text-[12px] text-muted">No job cards match these filters.</td></tr>
+              <tr><td colSpan={colCount} className="px-2 py-10 text-center t-sm text-muted">No job cards match these filters.</td></tr>
             )}
           </tbody>
         </table>
@@ -299,17 +299,17 @@ export function ProductionBoard({
         {sorted.map((r) => (
           <button key={r.id} onClick={() => router.push(`/job-cards/${r.slug}`)} className={cn("block w-full rounded-card border border-border bg-surface p-3 text-left", rowTint(r))}>
             <div className="flex items-center justify-between">
-              <span className="font-bold">{r.siNo} · <span className="font-medium text-slate-600">{r.item}</span></span>
+              <span className="font-bold">{r.siNo} · <span className="font-medium text-t1">{r.item}</span></span>
               <Badge tone={stageTone(r.stage)}>{STAGE_LABEL[r.stage]}</Badge>
             </div>
-            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted">
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 t-xs text-muted">
               <span>{r.vendor}</span>
               <span>Stitch bal: <StitchBalance v={r.stitchBalance} /></span>
               <span>ETD {fmtDate(r.plannedEtd)} · <DaysToEtd d={r.daysToEtd} closed={r.status === "CLOSED"} /> d</span>
             </div>
           </button>
         ))}
-        {shown.length === 0 && <p className="py-8 text-center text-[12px] text-muted">No job cards match these filters.</p>}
+        {shown.length === 0 && <p className="py-8 text-center t-sm text-muted">No job cards match these filters.</p>}
       </div>
     </div>
   );
@@ -317,22 +317,22 @@ export function ProductionBoard({
 
 function BoardTr({ r, canSeeCost, indent, onOpen }: { r: BoardRow; canSeeCost: boolean; indent?: boolean; onOpen: () => void }) {
   return (
-    <tr onClick={onOpen} className={cn("cursor-pointer border-b border-slate-50 last:border-0 hover:bg-slate-50/70", rowTint(r))}>
+    <tr onClick={onOpen} className={cn("cursor-pointer border-b border-hairline last:border-0 hover:bg-surface-2", rowTint(r))}>
       <td className={cn("px-2 py-1.5 font-bold text-primary-ink whitespace-nowrap", indent && "pl-6")}>{r.siNo}</td>
-      <td className="px-2 py-1.5 text-slate-500 tnum whitespace-nowrap">{fmtDate(r.orderDate)}</td>
+      <td className="px-2 py-1.5 text-t2 tnum whitespace-nowrap">{fmtDate(r.orderDate)}</td>
       <td className="px-2 py-1.5">
-        <div className="font-semibold text-slate-700">{r.item}</div>
-        <div className="text-[10px] text-faint">{r.sku !== "—" ? r.sku : ""}{r.styleNo !== "—" ? ` · ${r.styleNo}` : ""}{!r.hasProduct && <span className="ml-1 text-amber-600">·MTO</span>}</div>
+        <div className="font-semibold text-t1">{r.item}</div>
+        <div className="t-micro text-faint">{r.sku !== "—" ? r.sku : ""}{r.styleNo !== "—" ? ` · ${r.styleNo}` : ""}{!r.hasProduct && <span className="ml-1 text-warn">·MTO</span>}</div>
       </td>
-      {canSeeCost && <td className="px-2 py-1.5 text-right tnum text-slate-500">{inr(r.mrp)}</td>}
+      {canSeeCost && <td className="px-2 py-1.5 text-right tnum text-t2">{inr(r.mrp)}</td>}
       <td className="px-2 py-1.5 text-right tnum">{num(r.cutQty)}</td>
       <td className="px-2 py-1.5 text-right tnum">{num(r.dispatchedQty)}</td>
       <td className="px-2 py-1.5 text-right"><StitchBalance v={r.stitchBalance} /></td>
-      <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap">{r.fabricName ?? "—"}</td>
-      <td className="px-2 py-1.5 text-right tnum text-slate-500">{r.avg != null ? `${num(r.avg, 3)} ${r.unit === "KG" ? "kg" : "m"}` : "—"}</td>
-      <td className="px-2 py-1.5 text-slate-600 whitespace-nowrap">{r.vendor}</td>
-      <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap">{r.cutMaster ?? "—"}</td>
-      <td className="px-2 py-1.5 text-slate-500 tnum whitespace-nowrap">{fmtDate(r.plannedEtd)}</td>
+      <td className="px-2 py-1.5 text-t2 whitespace-nowrap">{r.fabricName ?? "—"}</td>
+      <td className="px-2 py-1.5 text-right tnum text-t2">{r.avg != null ? `${num(r.avg, 3)} ${r.unit === "KG" ? "kg" : "m"}` : "—"}</td>
+      <td className="px-2 py-1.5 text-t1 whitespace-nowrap">{r.vendor}</td>
+      <td className="px-2 py-1.5 text-t2 whitespace-nowrap">{r.cutMaster ?? "—"}</td>
+      <td className="px-2 py-1.5 text-t2 tnum whitespace-nowrap">{fmtDate(r.plannedEtd)}</td>
       <td className="px-2 py-1.5 text-right"><DaysToEtd d={r.daysToEtd} closed={r.status === "CLOSED"} /></td>
       <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
         <JobStageSelect jobCardId={r.id} stage={r.stage} />

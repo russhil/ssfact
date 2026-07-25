@@ -55,7 +55,7 @@ export function ImageUploader({
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-faint">{label}</span>
+        <span className="t-xs font-semibold uppercase tracking-wide text-faint">{label}</span>
         {busy && <Loader2 size={14} className="animate-spin text-primary" />}
       </div>
 
@@ -69,22 +69,22 @@ export function ImageUploader({
       >
         <div className="flex flex-wrap items-center gap-2">
           {images.map((img) => (
-            <div key={img.id} className="group relative h-20 w-20 overflow-hidden rounded-lg border border-border bg-slate-50">
+            <div key={img.id} className="group relative h-20 w-20 overflow-hidden rounded-lg border border-border bg-surface-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={img.thumbUrl ?? img.url} alt={img.caption ?? ""} loading="lazy" className="h-full w-full object-cover" />
               <button onClick={() => del(img.id)} className="absolute right-0.5 top-0.5 rounded-full bg-black/55 p-0.5 text-white opacity-0 transition group-hover:opacity-100"><X size={12} /></button>
             </div>
           ))}
 
-          <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-border text-[10px] font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-40">
+          <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-border t-micro font-medium text-t2 hover:bg-surface-2 disabled:opacity-40">
             <ImagePlus size={18} /> Add
           </button>
-          <button type="button" onClick={() => camRef.current?.click()} disabled={busy} className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-border text-[10px] font-medium text-slate-500 hover:bg-slate-50 disabled:opacity-40 md:hidden">
+          <button type="button" onClick={() => camRef.current?.click()} disabled={busy} className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-border t-micro font-medium text-t2 hover:bg-surface-2 disabled:opacity-40 md:hidden">
             <Camera size={18} /> Camera
           </button>
         </div>
-        <p className="mt-2 text-[10px] text-faint">Drag &amp; drop, paste, pick a file{multiple ? "s" : ""}, or use the camera on phone.</p>
-        {err && <p className="mt-1 text-[10px] text-danger">{err}</p>}
+        <p className="mt-2 t-micro text-faint">Drag &amp; drop, paste, pick a file{multiple ? "s" : ""}, or use the camera on phone.</p>
+        {err && <p className="mt-1 t-micro text-danger">{err}</p>}
       </div>
 
       <input ref={fileRef} type="file" accept="image/*" multiple={multiple} className="hidden" onChange={(e) => e.target.files && handleFiles(e.target.files)} />

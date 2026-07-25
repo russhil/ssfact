@@ -15,9 +15,9 @@ export default async function FabricOrdersPage() {
     <div className="p-6">
       <PageHeader title="Fabric Orders" subtitle="Procurement pipeline that feeds fabric into colour stock. Receiving an order lands its quantity in that colour's inventory." />
       <div className="mb-4 grid grid-cols-3 gap-3.5">
-        <Card className="p-4"><div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Planning</div><div className="mt-1.5 text-[22px] font-extrabold tnum">{num(planning)}</div></Card>
-        <Card className="p-4"><div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Pending Delivery</div><div className="mt-1.5 text-[22px] font-extrabold text-amber-500 tnum">{num(pending)}</div></Card>
-        <Card className="p-4"><div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Received</div><div className="mt-1.5 text-[22px] font-extrabold text-emerald-600 tnum">{num(received)}</div></Card>
+        <Card className="p-4"><div className="t-xs font-semibold uppercase tracking-wide text-muted">Planning</div><div className="mt-1.5 t-display font-extrabold tnum">{num(planning)}</div></Card>
+        <Card className="p-4"><div className="t-xs font-semibold uppercase tracking-wide text-muted">Pending Delivery</div><div className="mt-1.5 t-display font-extrabold text-warn tnum">{num(pending)}</div></Card>
+        <Card className="p-4"><div className="t-xs font-semibold uppercase tracking-wide text-muted">Received</div><div className="mt-1.5 t-display font-extrabold text-ok tnum">{num(received)}</div></Card>
       </div>
       <FabricOrderManager
         orders={orders}

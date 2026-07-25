@@ -1,5 +1,7 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createUser, updateUser, resetUserPassword, setUserActive, deleteUser } from "@/lib/actions";
@@ -18,7 +20,7 @@ const ROLE_HINT: Record<Role, string> = {
   TRIMS: "Trims and pending trims only",
 };
 
-const inp = "rounded-lg border border-border px-3 py-2 text-[13px] outline-none focus:border-primary";
+const inp = inputClass("md");
 
 export function UserManager({
   users,
@@ -107,7 +109,7 @@ export function UserManager({
   return (
     <>
       <Card className="mb-4 p-4">
-        <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wide text-muted">New login</h3>
+        <h3 className="mb-3 t-xs font-bold uppercase tracking-wide text-muted">New login</h3>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
           <input
             value={username}
@@ -148,7 +150,7 @@ export function UserManager({
           <button
             onClick={add}
             disabled={busy || !canAdd}
-            className="inline-flex items-center justify-center gap-1 rounded-lg bg-primary px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-40 md:col-span-3"
+            className="inline-flex items-center justify-center gap-1 rounded-lg bg-primary px-3 py-2 t-body font-semibold text-accent-on disabled:opacity-40 md:col-span-3"
           >
             <Plus size={14} /> Add login
           </button>
@@ -156,9 +158,9 @@ export function UserManager({
       </Card>
 
       <Card className="overflow-hidden p-0">
-        <table className="w-full text-[12px]">
+        <table className="w-full t-sm">
           <thead>
-            <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
               <th className="px-4 py-2.5 font-semibold">Name</th>
               <th className="px-4 py-2.5 font-semibold">Username</th>
               <th className="px-4 py-2.5 font-semibold">Role</th>
@@ -174,20 +176,20 @@ export function UserManager({
               const draft = edits[u.id] ?? u.displayName;
               const dirty = draft.trim() !== u.displayName;
               return (
-                <tr key={u.id} className={`border-b border-slate-50 last:border-0 ${u.active ? "" : "opacity-50"}`}>
+                <tr key={u.id} className={`border-b border-hairline last:border-0 ${u.active ? "" : "opacity-50"}`}>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
                       <input
                         value={draft}
                         onChange={(e) => setEdits((p) => ({ ...p, [u.id]: e.target.value }))}
                         onKeyDown={(e) => e.key === "Enter" && saveName(u)}
-                        className="w-40 rounded-md border border-transparent px-1.5 py-1 text-[12px] font-semibold outline-none hover:border-border focus:border-primary"
+                        className="w-40 rounded-md border border-transparent px-1.5 py-1 t-sm font-semibold outline-none hover:border-border focus:border-primary"
                       />
                       {dirty && (
                         <button
                           onClick={() => saveName(u)}
                           disabled={busy}
-                          className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+                          className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 t-xs font-semibold text-accent-on disabled:opacity-40"
                         >
                           <Check size={12} /> Save
                         </button>
@@ -195,7 +197,7 @@ export function UserManager({
                       {isMe && <Badge tone="primary">you</Badge>}
                     </div>
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-slate-500">{u.username}</td>
+                  <td className="px-4 py-2.5 font-mono text-t2">{u.username}</td>
                   <td className="px-4 py-2.5">
                     <select
                       value={u.role}
@@ -203,7 +205,7 @@ export function UserManager({
                       onChange={(e) =>
                         run(() => updateUser({ id: u.id, role: e.target.value as Role }))
                       }
-                      className="rounded-md border border-border px-2 py-1 text-[12px] outline-none focus:border-primary disabled:bg-slate-50 disabled:text-slate-400"
+                      className="rounded-md border border-border px-2 py-1 t-sm outline-none focus:border-primary disabled:bg-surface-2 disabled:text-t3"
                     >
                       {ROLES.map((r) => (
                         <option key={r} value={r}>
@@ -212,13 +214,13 @@ export function UserManager({
                       ))}
                     </select>
                   </td>
-                  <td className="px-4 py-2.5 text-slate-500">
+                  <td className="px-4 py-2.5 text-t2">
                     {u.role === "VENDOR" ? (
                       <select
                         value={u.vendorName ?? ""}
                         disabled={busy}
                         onChange={(e) => run(() => updateUser({ id: u.id, vendorName: e.target.value }))}
-                        className="rounded-md border border-border px-2 py-1 text-[12px] outline-none focus:border-primary"
+                        className="rounded-md border border-border px-2 py-1 t-sm outline-none focus:border-primary"
                       >
                         <option value="">—</option>
                         {[...new Set([...vendors, ...(u.vendorName ? [u.vendorName] : [])])].map((v) => (
@@ -231,7 +233,7 @@ export function UserManager({
                       "—"
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-slate-500">{fmtDate(u.createdAt)}</td>
+                  <td className="px-4 py-2.5 text-t2">{fmtDate(u.createdAt)}</td>
                   <td className="px-4 py-2.5">
                     <button
                       onClick={() => run(() => setUserActive({ id: u.id, active: !u.active }))}
@@ -251,12 +253,12 @@ export function UserManager({
                           onChange={(e) => setResetPw(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && confirmReset(u)}
                           placeholder="New password"
-                          className="w-32 rounded-md border border-border px-2 py-1 text-[12px] outline-none focus:border-primary"
+                          className="w-32 rounded-md border border-border px-2 py-1 t-sm outline-none focus:border-primary"
                         />
                         <button
                           onClick={() => confirmReset(u)}
                           disabled={busy || resetPw.length < 6}
-                          className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
+                          className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 t-xs font-semibold text-accent-on disabled:opacity-40"
                         >
                           <Check size={12} /> Set
                         </button>
@@ -265,7 +267,7 @@ export function UserManager({
                             setResetId(null);
                             setResetPw("");
                           }}
-                          className="rounded-md border border-border px-1.5 py-1 text-slate-500 hover:bg-slate-50"
+                          className="rounded-md border border-border px-1.5 py-1 text-t2 hover:bg-surface-2"
                         >
                           <X size={12} />
                         </button>
@@ -278,7 +280,7 @@ export function UserManager({
                             setResetPw("");
                           }}
                           disabled={busy}
-                          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2 disabled:opacity-40"
                         >
                           <KeyRound size={12} /> Password
                         </button>
@@ -286,7 +288,7 @@ export function UserManager({
                           <button
                             onClick={() => remove(u)}
                             disabled={busy}
-                            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger-soft disabled:opacity-40"
+                            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-danger hover:bg-danger-soft disabled:opacity-40"
                           >
                             <Trash2 size={12} /> Delete
                           </button>

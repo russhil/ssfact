@@ -1,5 +1,7 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createFabric } from "@/lib/actions";
@@ -48,7 +50,7 @@ export function AddFabricButton() {
   if (!open) {
     return (
       <div className="flex justify-end">
-        <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-[12px] font-semibold text-white shadow-sm transition hover:bg-indigo-600">
+        <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 t-sm font-semibold text-accent-on shadow-sm transition hover:opacity-90">
           <Plus size={14} /> Add Fabric
         </button>
       </div>
@@ -58,7 +60,7 @@ export function AddFabricButton() {
   return (
     <Card className="w-full p-4">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-[13px] font-bold">New Fabric</h3>
+        <h3 className="t-body font-bold">New Fabric</h3>
         <button onClick={() => setOpen(false)} className="text-faint hover:text-danger"><X size={15} /></button>
       </div>
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-6">
@@ -84,9 +86,9 @@ export function AddFabricButton() {
           <input type="number" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="—" className={inp} />
         </Labelled>
       </div>
-      {err && <p className="mt-2 text-[12px] text-danger">{err}</p>}
+      {err && <p className="mt-2 t-sm text-danger">{err}</p>}
       <div className="mt-3 flex justify-end">
-        <button onClick={save} disabled={busy || !name.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40">
+        <button onClick={save} disabled={busy || !name.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 t-body font-semibold text-accent-on disabled:opacity-40">
           <Check size={14} /> {busy ? "Saving…" : "Create fabric"}
         </button>
       </div>
@@ -94,12 +96,12 @@ export function AddFabricButton() {
   );
 }
 
-const inp = "w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary";
+const inp = inputClass("md", "w-full");
 
 function Labelled({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
   return (
     <div className={wide ? "col-span-2" : ""}>
-      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-faint">{label}</label>
+      <label className="mb-1 block t-micro font-semibold uppercase tracking-wide text-faint">{label}</label>
       {children}
     </div>
   );

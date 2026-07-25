@@ -1,5 +1,7 @@
 "use client";
 
+import { inputClass } from "@/components/ui";
+
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -18,7 +20,7 @@ type ChallanRow = {
 type Line = { kind: "fabric" | "trim"; refId: number | 0; colour: string; qty: string; unit: string; rate: string; note: string };
 
 const emptyLine = (): Line => ({ kind: "fabric", refId: 0, colour: "", qty: "", unit: "", rate: "", note: "" });
-const inp = "rounded-md border border-border px-2 py-1.5 text-[12px] outline-none focus:border-primary";
+const inp = inputClass("sm");
 
 // Derive a challan's kind from the lines it holds (mirrors the server helper).
 function kindOf(hasFabric: boolean, hasTrim: boolean): "FABRIC" | "TRIM" | "COMBINED" | null {
@@ -106,7 +108,7 @@ export function ChallanManager({
           <button
             key={t}
             onClick={() => { setTab(t); setCounterparty(0); }}
-            className={`rounded-lg px-3.5 py-1.5 text-[12px] font-semibold transition ${tab === t ? "bg-primary text-white" : "border border-border bg-surface text-slate-500 hover:bg-slate-50"}`}
+            className={`rounded-lg px-3.5 py-1.5 t-sm font-semibold transition ${tab === t ? "bg-primary text-accent-on" : "border border-border bg-surface text-t2 hover:bg-surface-2"}`}
           >
             {t === "OUTWARD" ? "Outward → Vendor" : "Inward ← Supplier"}
           </button>
@@ -116,25 +118,25 @@ export function ChallanManager({
       <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
         {/* entry */}
         <Card className="p-5">
-          <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wide text-muted">
+          <h3 className="mb-3 t-xs font-bold uppercase tracking-wide text-muted">
             New {tab === "OUTWARD" ? "delivery" : "inward"} challan
           </h3>
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">{tab === "INWARD" ? "Supplier" : "Vendor"}</label>
+              <label className="mb-1.5 block t-xs font-semibold text-t1">{tab === "INWARD" ? "Supplier" : "Vendor"}</label>
               <select value={counterparty} onChange={(e) => setCounterparty(+e.target.value)} className={`${inp} w-full`}>
                 <option value={0}>— pick {tab === "INWARD" ? "supplier" : "vendor"} —</option>
                 {partyOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Date</label>
+              <label className="mb-1.5 block t-xs font-semibold text-t1">Date</label>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`${inp} w-full`} />
             </div>
           </div>
           <div className="mt-2.5 grid grid-cols-2 gap-2.5">
             <div>
-              <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">
+              <label className="mb-1.5 block t-xs font-semibold text-t1">
                 Job card <span className="font-normal text-faint">(optional for fabric)</span>
               </label>
               <input
@@ -150,22 +152,22 @@ export function ChallanManager({
               <datalist id="challan-jobcards">{jobCards.map((j) => <option key={j.id} value={j.label} />)}</datalist>
             </div>
             <div>
-              <label className="mb-1.5 block text-[11px] font-semibold text-slate-600">Note <span className="font-normal text-faint">(optional)</span></label>
+              <label className="mb-1.5 block t-xs font-semibold text-t1">Note <span className="font-normal text-faint">(optional)</span></label>
               <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="remarks…" className={`${inp} w-full`} />
             </div>
           </div>
 
           {needsJobCard && (
-            <div className="mt-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-700">
+            <div className="mt-2.5 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 t-xs font-medium text-warn">
               No job card attached to this challan. Trim / combined challans should name their job card.
             </div>
           )}
 
           {/* line table */}
           <div className="mt-4 overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-[12px]">
+            <table className="w-full t-sm">
               <thead>
-                <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
+                <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
                   <th className="px-2 py-2 font-semibold">Type</th>
                   <th className="px-2 py-2 font-semibold">Item</th>
                   <th className="px-2 py-2 font-semibold">Colour</th>
@@ -177,7 +179,7 @@ export function ChallanManager({
               </thead>
               <tbody>
                 {lines.map((l, i) => (
-                  <tr key={i} className="border-b border-slate-50 last:border-0">
+                  <tr key={i} className="border-b border-hairline last:border-0">
                     <td className="px-2 py-1">
                       <select value={l.kind} onChange={(e) => setLine(i, { kind: e.target.value as "fabric" | "trim", refId: 0, colour: "" })} className={inp}>
                         <option value="fabric">Fabric</option>
@@ -216,8 +218,8 @@ export function ChallanManager({
 
         {/* live summary + actions */}
         <Card className="p-5">
-          <h3 className="mb-3 text-[11px] font-bold uppercase tracking-wide text-muted">Summary</h3>
-          <div className="space-y-2 text-[12px]">
+          <h3 className="mb-3 t-xs font-bold uppercase tracking-wide text-muted">Summary</h3>
+          <div className="space-y-2 t-sm">
             <div className="flex justify-between"><span className="text-muted">Direction</span><Badge tone={tab === "OUTWARD" ? "warn" : "ok"}>{tab === "OUTWARD" ? "Outward (−)" : "Inward (+)"}</Badge></div>
             <div className="flex justify-between"><span className="text-muted">Kind</span>{draftKind ? <Badge tone={KIND_TONE[draftKind]}>{draftKind}</Badge> : <span className="text-faint">—</span>}</div>
             {jobCardId > 0 && <div className="flex justify-between"><span className="text-muted">Job card</span><span className="font-semibold">{jobLabel(jobCardId)}</span></div>}
@@ -226,27 +228,27 @@ export function ChallanManager({
             {totalValue != null && <div className="flex justify-between"><span className="text-muted">Total value</span><span className="font-bold tnum">{inr(Math.round(totalValue))}</span></div>}
           </div>
           <div className="mt-4 flex flex-col gap-2">
-            <button onClick={() => save(true)} disabled={busy || !counterparty || filled.length === 0} className="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-white hover:bg-indigo-600 disabled:opacity-40">
+            <button onClick={() => save(true)} disabled={busy || !counterparty || filled.length === 0} className="rounded-lg bg-primary px-4 py-2 t-body font-semibold text-accent-on hover:opacity-90 disabled:opacity-40">
               {busy ? "Saving…" : "Lock & Post"}
             </button>
-            <button onClick={() => save(false)} disabled={busy || !counterparty || filled.length === 0} className="rounded-lg border border-border px-4 py-2 text-[13px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+            <button onClick={() => save(false)} disabled={busy || !counterparty || filled.length === 0} className="rounded-lg border border-border px-4 py-2 t-body font-semibold text-t1 hover:bg-surface-2 disabled:opacity-40">
               Save draft
             </button>
           </div>
-          <p className="mt-2 text-[11px] text-faint">Lock posts every line to the master inventory once ({tab === "OUTWARD" ? "subtracts" : "adds"}). Drafts touch nothing.</p>
+          <p className="mt-2 t-xs text-faint">Lock posts every line to the master inventory once ({tab === "OUTWARD" ? "subtracts" : "adds"}). Drafts touch nothing.</p>
         </Card>
       </div>
 
       {/* existing challans */}
       <Card className="mt-3.5 p-5">
-        <h3 className="mb-3 text-[13px] font-bold">{tab === "OUTWARD" ? "Outward" : "Inward"} challans <span className="font-medium text-faint">· {shownChallans.length}</span></h3>
+        <h3 className="mb-3 t-body font-bold">{tab === "OUTWARD" ? "Outward" : "Inward"} challans <span className="font-medium text-faint">· {shownChallans.length}</span></h3>
         {shownChallans.length === 0 ? (
-          <p className="py-6 text-center text-[12px] text-muted">No challans yet.</p>
+          <p className="py-6 text-center t-sm text-muted">No challans yet.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-[12px]">
+            <table className="w-full t-sm">
               <thead>
-                <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-faint">
+                <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
                   <th className="px-2 py-2 font-semibold">No / Status</th>
                   <th className="px-2 py-2 font-semibold">Kind</th>
                   <th className="px-2 py-2 font-semibold">Date</th>
@@ -277,23 +279,23 @@ function ChallanRowItem({ c }: { c: ChallanRow }) {
   async function doVoid() { if (!confirm(`Void ${c.challanNo} and reverse its stock?`)) return; setBusy(true); try { await voidChallan({ id: c.id }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
   const isDraft = c.status === "DRAFT";
   return (
-    <tr className={`border-b border-slate-50 last:border-0 ${isDraft ? "bg-amber-50/40" : ""}`}>
+    <tr className={`border-b border-hairline last:border-0 ${isDraft ? "bg-warn-soft" : ""}`}>
       <td className="px-2 py-2">
         <Link href={`/challan-doc/${c.id}`} className="font-bold text-primary-ink hover:underline">{c.challanNo ?? `Draft #${c.id}`}</Link>{" "}
         <Badge tone={c.status === "LOCKED" ? "ok" : c.status === "VOID" ? "danger" : "warn"}>{c.status}</Badge>
-        {isDraft && <div className="mt-0.5 text-[10px] text-faint">number assigned on lock</div>}
+        {isDraft && <div className="mt-0.5 t-micro text-faint">number assigned on lock</div>}
       </td>
       <td className="px-2 py-2">{c.kind ? <Badge tone={KIND_TONE[c.kind] ?? "default"}>{c.kind}</Badge> : <span className="text-faint">—</span>}</td>
-      <td className="px-2 py-2 text-slate-500 tnum">{fmtDate(c.date)}</td>
+      <td className="px-2 py-2 text-t2 tnum">{fmtDate(c.date)}</td>
       <td className="px-2 py-2">{c.counterparty}</td>
       <td className="px-2 py-2">{c.jobCardSiNo ? <Link href={`/job-cards/${c.jobCardId}`} className="text-primary-ink hover:underline">{c.jobCardSiNo}</Link> : <span className="text-faint">—</span>}</td>
       <td className="px-2 py-2 text-right tnum">{c.lineCount}</td>
       <td className="px-2 py-2 text-right font-semibold tnum">{num(c.totalQty)}</td>
       <td className="px-2 py-2 text-right">
         <div className="flex items-center justify-end gap-2">
-          {c.status === "DRAFT" && <button onClick={doLock} disabled={busy} className="text-[11px] font-semibold text-primary-ink hover:underline disabled:opacity-40">Lock & post</button>}
-          {c.status === "LOCKED" && <button onClick={doVoid} disabled={busy} className="text-[11px] font-semibold text-rose-600 hover:underline disabled:opacity-40">Void</button>}
-          <Link href={`/challan-doc/${c.id}`} className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-ink"><Printer size={12} /> open</Link>
+          {c.status === "DRAFT" && <button onClick={doLock} disabled={busy} className="t-xs font-semibold text-primary-ink hover:underline disabled:opacity-40">Lock & post</button>}
+          {c.status === "LOCKED" && <button onClick={doVoid} disabled={busy} className="t-xs font-semibold text-danger hover:underline disabled:opacity-40">Void</button>}
+          <Link href={`/challan-doc/${c.id}`} className="inline-flex items-center gap-1 t-xs font-medium text-t2 hover:text-ink"><Printer size={12} /> open</Link>
         </div>
       </td>
     </tr>

@@ -31,17 +31,17 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
 
   return (
     <div className="p-6">
-      <Link href="/catalog" className="mb-4 inline-flex items-center gap-1.5 text-[12px] font-medium text-muted hover:text-ink">
+      <Link href="/catalog" className="mb-4 inline-flex items-center gap-1.5 t-sm font-medium text-muted hover:text-ink">
         <ArrowLeft size={14} /> Product Master
       </Link>
 
       <div className="mb-5 flex flex-wrap items-center gap-2.5">
-        <h1 className="text-[22px] font-bold tracking-tight">{p.name}</h1>
-        <span className="text-[12px] font-semibold text-faint">{p.skuCode}</span>
+        <h1 className="t-display font-bold tracking-tight">{p.name}</h1>
+        <span className="t-sm font-semibold text-faint">{p.skuCode}</span>
         <Badge tone={statusTone(p.status)}>{STATUS_LABEL[p.status] ?? p.status}</Badge>
-        {p.styleNo && <span className="text-[12px] text-faint">Style #{p.styleNo}</span>}
+        {p.styleNo && <span className="t-sm text-faint">Style #{p.styleNo}</span>}
         {canEdit && (
-          <Link href={`/job-cards/new?productId=${p.id}`} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-indigo-600">
+          <Link href={`/job-cards/new?productId=${p.id}`} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 t-body font-semibold text-accent-on shadow-sm hover:opacity-90">
             <Plus size={14} /> New Job Card
           </Link>
         )}
@@ -53,8 +53,8 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
           ["Production lot", lbl(p.productionLot)],
         ] as [string, string][]).map(([l, v]) => (
           <Card key={l} className="p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{l}</div>
-            <div className="mt-1.5 text-[18px] font-extrabold">{v}</div>
+            <div className="t-xs font-semibold uppercase tracking-wide text-muted">{l}</div>
+            <div className="mt-1.5 t-title font-extrabold">{v}</div>
           </Card>
         ))}
       </div>
@@ -70,11 +70,11 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
                 // eslint-disable-next-line @next/next/no-img-element
                 <img key={i.id} src={i.thumbUrl ?? i.url} alt="" loading="lazy" className="h-24 w-24 rounded-lg border border-border object-cover" />
               ))}
-              {p.images.length === 0 && <p className="text-[12px] text-muted">No photos.</p>}
+              {p.images.length === 0 && <p className="t-sm text-muted">No photos.</p>}
             </div>
           )}
           {(p.fabricRemarks || p.otherRemarks) && (
-            <div className="mt-3 space-y-1 text-[12px]">
+            <div className="mt-3 space-y-1 t-sm">
               {p.fabricRemarks && <div><span className="text-faint">Fabric: </span>{p.fabricRemarks}</div>}
               {p.otherRemarks && <div><span className="text-faint">Remarks: </span>{p.otherRemarks}</div>}
             </div>
@@ -98,7 +98,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
       {/* Live production — from the linked workbook style's job cards */}
       {p.production && (
         <Card className="mt-3.5 p-5">
-          <div className="mb-3 flex items-center gap-2 text-[13px] font-bold">
+          <div className="mb-3 flex items-center gap-2 t-body font-bold">
             <Factory size={15} className="text-primary-ink" />
             In production
             <span className="font-medium text-faint">· linked style {p.production.styleNo}</span>
@@ -111,8 +111,8 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
               ["Received", num(p.production.received)],
             ].map(([l, v]) => (
               <div key={l}>
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{l}</div>
-                <div className="mt-1 text-[18px] font-extrabold tnum">{v}</div>
+                <div className="t-xs font-semibold uppercase tracking-wide text-muted">{l}</div>
+                <div className="mt-1 t-title font-extrabold tnum">{v}</div>
               </div>
             ))}
           </div>
@@ -122,7 +122,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
                 <Link
                   key={j.slug}
                   href={`/job-cards/${j.slug}`}
-                  className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-primary hover:text-primary-ink"
+                  className="rounded-md border border-border px-2 py-1 t-xs font-medium text-t1 hover:border-primary hover:text-primary-ink"
                 >
                   {j.siNo} · {num(j.received)}/{num(j.cutQty)}
                 </Link>
@@ -149,14 +149,14 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
       {p.boms.map((b) => (
         <Card key={b.id} className="mt-3.5 overflow-hidden p-0">
           <div className="flex items-center justify-between border-b border-border px-5 py-3">
-            <div className="text-[13px] font-bold">
+            <div className="t-body font-bold">
               Bill of Materials <span className="font-medium text-faint">· {b.code} {b.styleName}</span>
             </div>
-            <span className="text-[11px] text-faint">{b.matched} of {b.total} materials matched to Trims Store</span>
+            <span className="t-xs text-faint">{b.matched} of {b.total} materials matched to Trims Store</span>
           </div>
-          <table className="w-full text-[12px]">
+          <table className="w-full t-sm">
             <thead>
-              <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
                 <th className="px-5 py-2.5 font-semibold">#</th>
                 <th className="px-5 py-2.5 font-semibold">Material</th>
                 <th className="px-5 py-2.5 font-semibold">Colour</th>
@@ -166,11 +166,11 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
             </thead>
             <tbody>
               {b.lines.map((l) => (
-                <tr key={l.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+                <tr key={l.id} className="border-b border-hairline last:border-0 hover:bg-surface-2">
                   <td className="px-5 py-2 text-faint tnum">{l.sNo ?? ""}</td>
                   <td className="px-5 py-2 font-medium">{l.material}</td>
-                  <td className="px-5 py-2 text-slate-500">{l.color ?? "—"}</td>
-                  <td className="px-5 py-2 text-slate-500 tnum">
+                  <td className="px-5 py-2 text-t2">{l.color ?? "—"}</td>
+                  <td className="px-5 py-2 text-t2 tnum">
                     {l.qty != null ? num(l.qty) : ""}
                     {l.avg ? <span className="text-faint"> {l.avg}</span> : ""}
                     {l.qty == null && !l.avg ? "—" : ""}
@@ -182,7 +182,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
                         <Badge tone={trimTone(l.trim.status)}>{trimLabel(l.trim.status)}</Badge>
                       </Link>
                     ) : (
-                      <span className="text-[11px] text-faint">not tracked</span>
+                      <span className="t-xs text-faint">not tracked</span>
                     )}
                   </td>
                 </tr>
@@ -195,17 +195,17 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
       {/* Change 15 Part D: BOM job-card-wise (each card's actual trim consumption, separate) */}
       {p.jobBoms.length > 0 && (
         <Card className="mt-3.5 p-5">
-          <h3 className="mb-3 text-[13px] font-bold">BOM by Job Card <span className="font-medium text-faint">· actual consumption per card</span></h3>
+          <h3 className="mb-3 t-body font-bold">BOM by Job Card <span className="font-medium text-faint">· actual consumption per card</span></h3>
           <div className="space-y-3">
             {p.jobBoms.map((jb) => (
               <div key={jb.slug} className="rounded-xl border border-border p-3">
-                <div className="mb-1.5 flex items-center justify-between text-[12px]">
+                <div className="mb-1.5 flex items-center justify-between t-sm">
                   <Link href={`/job-cards/${jb.slug}`} className="font-bold text-primary-ink hover:underline">{jb.siNo}</Link>
                   <span className="text-faint">{num(jb.cutQty)} pcs cut</span>
                 </div>
-                <table className="w-full text-[12px]">
+                <table className="w-full t-sm">
                   <thead>
-                    <tr className="border-b border-slate-100 text-left text-[10px] uppercase tracking-wide text-faint">
+                    <tr className="border-b border-hairline text-left t-micro uppercase tracking-wide text-faint">
                       <th className="px-2 py-1 font-semibold">Trim</th>
                       <th className="px-2 py-1 font-semibold">Applies to</th>
                       <th className="px-2 py-1 font-semibold">Colour</th>
@@ -215,12 +215,12 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
                   </thead>
                   <tbody>
                     {jb.lines.map((l) => (
-                      <tr key={l.id} className="border-b border-slate-50 last:border-0">
-                        <td className="px-2 py-1 font-medium text-slate-700">{l.trimName ?? l.material}</td>
-                        <td className="px-2 py-1 capitalize text-slate-500">{(l.dimension ?? "FLAT").toLowerCase()}</td>
-                        <td className="px-2 py-1 text-slate-500">{l.color ?? "—"}</td>
+                      <tr key={l.id} className="border-b border-hairline last:border-0">
+                        <td className="px-2 py-1 font-medium text-t1">{l.trimName ?? l.material}</td>
+                        <td className="px-2 py-1 capitalize text-t2">{(l.dimension ?? "FLAT").toLowerCase()}</td>
+                        <td className="px-2 py-1 text-t2">{l.color ?? "—"}</td>
                         <td className="px-2 py-1 text-right tnum">{l.requiredQty != null ? num(l.requiredQty) : "—"}</td>
-                        <td className="px-2 py-1 text-right tnum text-slate-500">{l.issuedQty != null ? num(l.issuedQty) : "—"}</td>
+                        <td className="px-2 py-1 text-right tnum text-t2">{l.issuedQty != null ? num(l.issuedQty) : "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -234,12 +234,12 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
       {/* Production orders */}
       {p.orders.length > 0 && (
         <Card className="mt-3.5 overflow-hidden p-0">
-          <div className="border-b border-border px-5 py-3 text-[13px] font-bold">
+          <div className="border-b border-border px-5 py-3 t-body font-bold">
             Production Orders <span className="font-medium text-faint">· target = 2× monthly sale</span>
           </div>
-          <table className="w-full text-[12px]">
+          <table className="w-full t-sm">
             <thead>
-              <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
                 <th className="px-5 py-2.5 font-semibold">Order</th>
                 <th className="px-5 py-2.5 font-semibold">Date</th>
                 <th className="px-5 py-2.5 text-right font-semibold">Monthly Sale</th>
@@ -249,10 +249,10 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
             </thead>
             <tbody>
               {p.orders.map((o) => (
-                <tr key={o.orderNo} className="border-b border-slate-50 last:border-0">
+                <tr key={o.orderNo} className="border-b border-hairline last:border-0">
                   <td className="px-5 py-2 font-semibold text-primary-ink">{o.orderNo}</td>
-                  <td className="px-5 py-2 text-slate-500 tnum">{fmtDate(o.orderDate)}</td>
-                  <td className="px-5 py-2 text-right tnum text-slate-500">{num(o.avgMonthlySale)}</td>
+                  <td className="px-5 py-2 text-t2 tnum">{fmtDate(o.orderDate)}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{num(o.avgMonthlySale)}</td>
                   <td className="px-5 py-2 text-right font-bold tnum">{num(o.targetQty)}</td>
                   <td className="px-5 py-2"><Badge tone={poStatusTone(o.status)}>{PO_STATUS_LABEL[o.status] ?? o.status}</Badge></td>
                 </tr>
@@ -263,7 +263,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
       )}
 
       {!p.production && p.boms.length === 0 && p.orders.length === 0 && (
-        <Card className="mt-3.5 p-8 text-center text-[12px] text-muted">
+        <Card className="mt-3.5 p-8 text-center t-sm text-muted">
           This SKU isn’t linked to the production workbook and has no BOM or live orders yet.
         </Card>
       )}

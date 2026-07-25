@@ -24,7 +24,7 @@ export default async function JobCardsPage() {
           isVendor ? undefined : (
             <Link
               href="/job-cards/new"
-              className="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-indigo-600"
+              className="rounded-lg bg-primary px-3.5 py-2 t-body font-semibold text-accent-on shadow-sm transition hover:opacity-90"
             >
               + New Job Card
             </Link>

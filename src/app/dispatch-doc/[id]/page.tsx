@@ -46,7 +46,7 @@ export default async function DispatchDocPage({ params }: { params: Promise<{ id
     `\nTotal: ${num(ev.qty)} pcs`;
 
   return (
-    <div className="mx-auto max-w-[800px] bg-white p-8 text-[12px] text-ink">
+    <div className="doc-light mx-auto max-w-[800px] bg-white p-8 text-[12px] text-ink">
       <style>{`@media print { .no-print { display: none !important; } body { background: #fff; } } @page { margin: 14mm; }`}</style>
 
       <div className="mb-4 flex items-center justify-between">

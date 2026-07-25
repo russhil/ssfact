@@ -85,36 +85,36 @@ export function TrimMasterManager({
     <>
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
         {["ALL", ...CATEGORIES].map((c) => (
-          <button key={c} onClick={() => setTab(c)} className={`rounded-full px-3 py-1 text-[12px] font-semibold transition ${tab === c ? "bg-primary text-white" : "border border-border text-slate-500 hover:bg-slate-50"}`}>
+          <button key={c} onClick={() => setTab(c)} className={`rounded-full px-3 py-1 t-sm font-semibold transition ${tab === c ? "bg-primary text-accent-on" : "border border-border text-t2 hover:bg-surface-2"}`}>
             {c === "ALL" ? "All" : c.charAt(0) + c.slice(1).toLowerCase()}
-            <span className="ml-1 text-[10px] opacity-70">{c === "ALL" ? trims.length : counts.get(c) ?? 0}</span>
+            <span className="ml-1 t-micro opacity-70">{c === "ALL" ? trims.length : counts.get(c) ?? 0}</span>
           </button>
         ))}
-        <button onClick={() => setTab("REORDER")} className={`rounded-full px-3 py-1 text-[12px] font-semibold transition ${tab === "REORDER" ? "bg-amber-500 text-white" : "border border-amber-300 text-amber-600 hover:bg-amber-50"}`}>
-          Reorder list<span className="ml-1 text-[10px] opacity-80">{lowCount}</span>
+        <button onClick={() => setTab("REORDER")} className={`rounded-full px-3 py-1 t-sm font-semibold transition ${tab === "REORDER" ? "bg-warn text-surface" : "border border-warn/30 text-warn hover:bg-warn-soft"}`}>
+          Reorder list<span className="ml-1 t-micro opacity-80">{lowCount}</span>
         </button>
-        <button onClick={() => setAdding((v) => !v)} className="ml-auto inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-[12px] font-semibold text-white"><Plus size={13} /> Add trim</button>
+        <button onClick={() => setAdding((v) => !v)} className="ml-auto inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 t-sm font-semibold text-accent-on"><Plus size={13} /> Add trim</button>
       </div>
 
       {adding && (
         <Card className="mb-4 p-4">
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             <Labelled label="Category">
-              <LookupSelect kind="TRIM_CATEGORY" options={categories} value={f.category ?? ""} onChange={(v) => set("category", v)} placeholder="Category…" className="w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary" />
+              <LookupSelect kind="TRIM_CATEGORY" options={categories} value={f.category ?? ""} onChange={(v) => set("category", v)} placeholder="Category…" className="w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary" />
             </Labelled>
             <Labelled label="Name"><In v={f.name} on={(v) => set("name", v)} /></Labelled>
             <Labelled label="Supplier">
-              <select value={f.supplierId ?? ""} onChange={(e) => set("supplierId", e.target.value)} className="w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary">
+              <select value={f.supplierId ?? ""} onChange={(e) => set("supplierId", e.target.value)} className="w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary">
                 <option value="">—</option>
                 {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </Labelled>
             <Labelled label="Rate (₹)"><In v={f.rate} on={(v) => set("rate", v)} type="number" /></Labelled>
             <Labelled label="Unit">
-              <LookupSelect kind="UNIT" options={units} value={f.unit ?? ""} onChange={(v) => set("unit", v)} placeholder="Unit…" className="w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary" />
+              <LookupSelect kind="UNIT" options={units} value={f.unit ?? ""} onChange={(v) => set("unit", v)} placeholder="Unit…" className="w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary" />
             </Labelled>
             <Labelled label="Applies to">
-              <select value={f.dimension ?? "FLAT"} onChange={(e) => set("dimension", e.target.value)} className="w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary">
+              <select value={f.dimension ?? "FLAT"} onChange={(e) => set("dimension", e.target.value)} className="w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary">
                 {DIMS.map((d) => <option key={d} value={d}>{DIM_LABEL[d]}</option>)}
               </select>
             </Labelled>
@@ -126,15 +126,15 @@ export function TrimMasterManager({
             ))}
           </div>
           <div className="mt-3 flex justify-end">
-            <button onClick={add} disabled={busy || !f.name?.trim()} className="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-40">Save trim</button>
+            <button onClick={add} disabled={busy || !f.name?.trim()} className="rounded-lg bg-primary px-4 py-2 t-body font-semibold text-accent-on disabled:opacity-40">Save trim</button>
           </div>
         </Card>
       )}
 
       <Card className="overflow-hidden p-0">
-        <table className="w-full text-[12px]">
+        <table className="w-full t-sm">
           <thead>
-            <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
               <th className="px-4 py-2.5 font-semibold">Trim</th>
               <th className="px-4 py-2.5 font-semibold">Category</th>
               <th className="px-4 py-2.5 font-semibold">Supplier</th>
@@ -182,38 +182,38 @@ function TrimRow({ t, units, onSaved }: { t: TrimMasterRow; units: LookupRow[]; 
 
   return (
     <>
-      <tr className={`border-b border-slate-50 last:border-0 ${t.status === "DISCONTINUED" ? "opacity-50" : ""}`}>
+      <tr className={`border-b border-hairline last:border-0 ${t.status === "DISCONTINUED" ? "opacity-50" : ""}`}>
         <td className="px-4 py-2.5"><Link href={`/trims/${t.id}`} className="font-semibold text-primary-ink hover:underline">{t.name}</Link></td>
-        <td className="px-4 py-2.5 text-slate-500">{t.category ?? t.family ?? "—"}</td>
-        <td className="px-4 py-2.5 text-slate-500">{t.supplier ?? "—"}</td>
-        <td className="px-4 py-2.5 text-right tnum text-slate-500">{t.ratePerUnit != null ? `₹${num(t.ratePerUnit, 2)}` : "—"}</td>
-        <td className="px-4 py-2.5 text-right tnum text-slate-500">{t.reorderLevel != null ? num(t.reorderLevel) : "—"}</td>
-        <td className={`px-4 py-2.5 text-right tnum font-semibold ${t.current <= 0 ? "text-danger" : low ? "text-amber-600" : ""}`}>{num(t.current)}</td>
+        <td className="px-4 py-2.5 text-t2">{t.category ?? t.family ?? "—"}</td>
+        <td className="px-4 py-2.5 text-t2">{t.supplier ?? "—"}</td>
+        <td className="px-4 py-2.5 text-right tnum text-t2">{t.ratePerUnit != null ? `₹${num(t.ratePerUnit, 2)}` : "—"}</td>
+        <td className="px-4 py-2.5 text-right tnum text-t2">{t.reorderLevel != null ? num(t.reorderLevel) : "—"}</td>
+        <td className={`px-4 py-2.5 text-right tnum font-semibold ${t.current <= 0 ? "text-danger" : low ? "text-warn" : ""}`}>{num(t.current)}</td>
         <td className="px-4 py-2.5">{t.current <= 0 ? <Badge tone="danger">Indent</Badge> : low ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}</td>
         <td className="px-4 py-2.5 text-right">
-          <button onClick={() => setEditing((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"><Settings2 size={12} /> Edit</button>
+          <button onClick={() => setEditing((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2"><Settings2 size={12} /> Edit</button>
         </td>
       </tr>
       {editing && (
-        <tr className="border-b border-slate-100 bg-slate-50/60">
+        <tr className="border-b border-hairline bg-surface-2">
           <td colSpan={8} className="px-4 py-3">
             <div className="flex flex-wrap items-end gap-3">
               <Labelled label="Applies to">
-                <select value={dimension} onChange={(e) => setDimension(e.target.value)} className="rounded-lg border border-border px-2.5 py-1.5 text-[12px] outline-none focus:border-primary">
+                <select value={dimension} onChange={(e) => setDimension(e.target.value)} className="rounded-lg border border-border px-2.5 py-1.5 t-sm outline-none focus:border-primary">
                   {DIMS.map((d) => <option key={d} value={d}>{DIM_LABEL[d]}</option>)}
                 </select>
               </Labelled>
               <Labelled label="Per-piece avg">
-                <input type="number" value={perPiece} onChange={(e) => setPerPiece(e.target.value)} placeholder="—" className="w-28 rounded-lg border border-border px-2.5 py-1.5 text-[12px] tnum outline-none focus:border-primary" />
+                <input type="number" value={perPiece} onChange={(e) => setPerPiece(e.target.value)} placeholder="—" className="w-28 rounded-lg border border-border px-2.5 py-1.5 t-sm tnum outline-none focus:border-primary" />
               </Labelled>
               <Labelled label="Reorder level">
-                <input type="number" value={reorder} onChange={(e) => setReorder(e.target.value)} placeholder="—" className="w-28 rounded-lg border border-border px-2.5 py-1.5 text-[12px] tnum outline-none focus:border-primary" />
+                <input type="number" value={reorder} onChange={(e) => setReorder(e.target.value)} placeholder="—" className="w-28 rounded-lg border border-border px-2.5 py-1.5 t-sm tnum outline-none focus:border-primary" />
               </Labelled>
               <Labelled label="Unit">
-                <LookupSelect kind="UNIT" options={units} value={unit} onChange={setUnit} placeholder="Unit…" className="w-32 rounded-lg border border-border px-2.5 py-1.5 text-[12px] outline-none focus:border-primary" />
+                <LookupSelect kind="UNIT" options={units} value={unit} onChange={setUnit} placeholder="Unit…" className="w-32 rounded-lg border border-border px-2.5 py-1.5 t-sm outline-none focus:border-primary" />
               </Labelled>
-              <button onClick={save} disabled={busy} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-40"><Check size={13} /> Save</button>
-              <button onClick={() => setEditing(false)} className="rounded-lg border border-border px-3 py-1.5 text-[12px] text-slate-500">Cancel</button>
+              <button onClick={save} disabled={busy} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 t-sm font-semibold text-accent-on disabled:opacity-40"><Check size={13} /> Save</button>
+              <button onClick={() => setEditing(false)} className="rounded-lg border border-border px-3 py-1.5 t-sm text-t2">Cancel</button>
             </div>
           </td>
         </tr>
@@ -223,8 +223,8 @@ function TrimRow({ t, units, onSaved }: { t: TrimMasterRow; units: LookupRow[]; 
 }
 
 function Labelled({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-faint">{label}</label>{children}</div>;
+  return <div><label className="mb-1 block t-micro font-semibold uppercase tracking-wide text-faint">{label}</label>{children}</div>;
 }
 function In({ v, on, type = "text" }: { v?: string; on: (v: string) => void; type?: string }) {
-  return <input type={type} value={v ?? ""} onChange={(e) => on(e.target.value)} className="w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary" />;
+  return <input type={type} value={v ?? ""} onChange={(e) => on(e.target.value)} className="w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary" />;
 }

@@ -1,46 +1,341 @@
 @import "tailwindcss";
 
-@theme {
-  --color-bg: #f6f7f9;
-  --color-surface: #ffffff;
-  --color-border: #eceef1;
-  --color-ink: #1e2330;
-  --color-muted: #8a93a2;
-  --color-faint: #9aa3b2;
-  --color-primary: #6366f1;
-  --color-primary-soft: #eef2ff;
-  --color-primary-ink: #4f46e5;
-  --color-danger: #e11d48;
-  --color-danger-soft: #fee2e2;
-  --color-warn: #f59e0b;
-  --color-ok: #16a34a;
-  --color-ok-soft: #ecfdf5;
+/* Class-based dark mode: a `.dark` class on <html> (stamped by the blocking script
+   in layout.tsx) drives every `dark:` utility, instead of the OS media query. */
+@custom-variant dark (&:where(.dark, .dark *));
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-
-  --radius-card: 0.85rem;
-}
+/* ============================================================================
+   RAW TOKENS
+   Only these change between themes. The @theme bridge below is `inline`, so
+   every utility resolves through var() and inverts automatically.
+   ============================================================================ */
 
 :root {
   color-scheme: light;
+
+  /* surfaces — warm gradient field, white cards floating on it */
+  --grad-a: #fdf6f4;
+  --grad-b: #faf5f3;
+  --bg: #f8f8f8;
+  --surface: #ffffff;
+  --surface-2: #f5f5f5;
+  --elevated: #ffffff;
+
+  /* separation — a hairline, never a hard rule */
+  --border: #e8e8e8;
+  --hairline: #f0f0f0;
+
+  /* text, three tiers */
+  --t1: #1a1a1e;
+  --t2: #6b6b6b;
+  --t3: #9a9a9a;
+
+  /* accent — terracotta */
+  --accent: #cb5a40;
+  --accent-soft: #fdf6f4;
+  --accent-ink: #a8462f;
+  --accent-on: #ffffff;
+
+  /* status */
+  --ok: #059669;
+  --ok-soft: #ecfdf5;
+  --warn: #b45309;
+  --warn-soft: #fffbeb;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+
+  /* depth */
+  --sh-1: rgba(0, 0, 0, 0.04);
+  --sh-2: rgba(0, 0, 0, 0.08);
+  --ring: rgba(26, 26, 30, 0.06);
+
+  --scroll-thumb: #d4d4d4;
+  --scroll-thumb-hover: #a3a3a3;
+
+  /* density — driven by data-density on <html> */
+  --row-h: 40px;
+  --row-px: 16px;
 }
 
-html, body {
+.dark {
+  color-scheme: dark;
+
+  --grad-a: #1b1418;
+  --grad-b: #191519;
+  --bg: #17171a;
+  --surface: #1f1f23;
+  --surface-2: #26262b;
+  --elevated: #2a2a30;
+
+  --border: #2e2e33;
+  --hairline: #26262b;
+
+  --t1: #ededf0;
+  --t2: #a8a8b0;
+  --t3: #6d6d76;
+
+  --accent: #e07054;
+  --accent-soft: #2a1a15;
+  --accent-ink: #f0917a;
+  --accent-on: #1a1a1e;
+
+  --ok: #34d399;
+  --ok-soft: #10281f;
+  --warn: #fbbf24;
+  --warn-soft: #2a2113;
+  --danger: #f87171;
+  --danger-soft: #2c1618;
+
+  --sh-1: rgba(0, 0, 0, 0.35);
+  --sh-2: rgba(0, 0, 0, 0.55);
+  --ring: rgba(237, 237, 240, 0.1);
+
+  --scroll-thumb: #3a3a40;
+  --scroll-thumb-hover: #55555d;
+}
+
+/* Printed documents are paper. They must never invert, so they re-declare the
+   light tokens locally — `.dark` on <html> cannot reach past this. */
+.doc-light {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f5f5f5;
+  --elevated: #ffffff;
+  --border: #e8e8e8;
+  --hairline: #f0f0f0;
+  --t1: #1a1a1e;
+  --t2: #6b6b6b;
+  --t3: #9a9a9a;
+  --accent: #cb5a40;
+  --accent-soft: #fdf6f4;
+  --accent-ink: #a8462f;
+  --accent-on: #ffffff;
+  --ok: #059669;
+  --ok-soft: #ecfdf5;
+  --warn: #b45309;
+  --warn-soft: #fffbeb;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  background: #ffffff;
+  color: var(--t1);
+}
+
+/* A deliberately dark "cockpit" surface used for live-summary panels. It
+   re-declares the tokens rather than hand-painting indigo/white-alpha classes,
+   so its contents use the ordinary utilities and it looks identical in light
+   and dark mode. */
+.panel-invert {
+  color-scheme: dark;
+  --surface: #23252f;
+  --surface-2: rgb(255 255 255 / 0.07);
+  --elevated: #2b2e3a;
+  --border: rgb(255 255 255 / 0.15);
+  --hairline: rgb(255 255 255 / 0.09);
+  --t1: #f3f3f6;
+  --t2: rgb(235 235 245 / 0.66);
+  --t3: rgb(235 235 245 / 0.42);
+  --accent: #f0917a;
+  --accent-soft: rgb(240 145 122 / 0.16);
+  --accent-ink: #f5b3a2;
+  --accent-on: #1a1a1e;
+  --ok: #4ade80;
+  --ok-soft: rgb(74 222 128 / 0.16);
+  --warn: #fbbf24;
+  --warn-soft: rgb(251 191 36 / 0.16);
+  --danger: #fb7185;
+  --danger-soft: rgb(251 113 133 / 0.16);
+  --sh-1: rgb(0 0 0 / 0.4);
+  --sh-2: rgb(0 0 0 / 0.6);
+  background: linear-gradient(180deg, #24262f 0%, #1a1c24 100%);
+  color: var(--t1);
+}
+
+[data-density="compact"] {
+  --row-h: 32px;
+  --row-px: 12px;
+}
+
+/* ============================================================================
+   THEME BRIDGE — `inline` so utilities stay live against the vars above
+   ============================================================================ */
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-elevated: var(--elevated);
+
+  --color-border: var(--border);
+  --color-hairline: var(--hairline);
+
+  --color-t1: var(--t1);
+  --color-t2: var(--t2);
+  --color-t3: var(--t3);
+
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-on: var(--accent-on);
+
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  /* Legacy aliases — the ~250 existing call sites (text-ink, text-muted,
+     bg-primary, text-primary-ink, border-border…) keep working and are now
+     theme-aware for free. Prefer the names above in new code. */
+  --color-ink: var(--t1);
+  --color-muted: var(--t2);
+  --color-faint: var(--t3);
+  --color-primary: var(--accent);
+  --color-primary-soft: var(--accent-soft);
+  --color-primary-ink: var(--accent-ink);
+
+  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Radius is deliberately outside the inline bridge — these are constants, not
+   theme-dependent. Overriding --radius-lg re-shapes all 155 existing
+   `rounded-lg` call sites in one line. */
+@theme {
+  --radius-sm: 7px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-card: 20px;
+}
+
+/* ============================================================================
+   BASE
+   ============================================================================ */
+
+html,
+body {
   height: 100%;
 }
 
 body {
-  background: var(--color-bg);
-  color: var(--color-ink);
+  background: var(--bg);
+  color: var(--t1);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* tabular numbers for all data figures */
-.tnum {
-  font-variant-numeric: tabular-nums;
+/* the warm field the cards float on */
+.bg-app {
+  background: linear-gradient(180deg, var(--grad-a) 0%, var(--grad-b) 14%, var(--bg) 38%);
+  min-height: 100vh;
 }
 
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+@layer utilities {
+  /* ---------- elevation: two soft blurs + a hairline ring, never a border ---- */
+  .elev-sm {
+    box-shadow: 0 1px 3px -1px var(--sh-1), 0 2px 6px -2px var(--sh-1), 0 0 0 1px var(--hairline);
+  }
+  .elev {
+    box-shadow: 0 2px 8px -2px var(--sh-1), 0 4px 16px -4px var(--sh-1), 0 0 0 1px var(--hairline);
+  }
+  .elev-hi {
+    box-shadow: 0 4px 16px -2px var(--sh-2), 0 8px 32px -4px var(--sh-1), 0 0 0 1px var(--border);
+  }
+  .elev-lift {
+    transition: box-shadow 0.24s cubic-bezier(0.4, 0, 0.2, 1), transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .elev-lift:hover {
+    box-shadow: 0 4px 16px -2px var(--sh-2), 0 8px 32px -4px var(--sh-1), 0 0 0 1px var(--border);
+    transform: translateY(-2px);
+  }
+
+  /* ---------- type scale ----------
+     Tracking is size-specific: tight as text grows, near zero at body size. */
+  /* Size + leading + tracking only — weight stays the markup's job, so these
+     never fight a `font-bold` sitting on the same element. Tracking is
+     size-specific: tight as text grows, ~0 at body size. */
+  .t-stat    { font-size: 30px; line-height: 1;    letter-spacing: -0.035em; font-variant-numeric: tabular-nums; }
+  .t-display { font-size: 24px; line-height: 1.08; letter-spacing: -0.028em; }
+  .t-title   { font-size: 19px; line-height: 1.15; letter-spacing: -0.022em; }
+  .t-head    { font-size: 15px; line-height: 1.3;  letter-spacing: -0.015em; }
+  .t-body    { font-size: 13px; line-height: 1.45; letter-spacing: -0.005em; }
+  .t-sm      { font-size: 12px; line-height: 1.45; }
+  .t-xs      { font-size: 11px; line-height: 1.4; }
+  .t-micro   { font-size: 10px; line-height: 1.3; }
+
+  /* The eyebrow/column-header treatment, as one decision instead of four
+     utilities repeated everywhere. */
+  .t-label {
+    font-size: 10px;
+    line-height: 1.3;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+
+  /* every figure in this product is a number in a column */
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  /* one directed entrance, not twenty scattered micro-interactions */
+  .rise { animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .pop-in { animation: pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- focus: one visible, consistent ring ---------- */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ---------- scrollbars ---------- */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #d8dce2; border-radius: 999px; border: 2px solid var(--color-bg); }
-::-webkit-scrollbar-thumb:hover { background: #c2c8d0; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: padding-box; }
+
+/* ---------- motion & transparency preferences ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.14s !important;
+    scroll-behavior: auto !important;
+  }
+  .elev-lift:hover { transform: none; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .backdrop-blur, [class*="backdrop-blur"] { backdrop-filter: none !important; }
+}
+
+/* ---------- print: documents are always paper ---------- */
+@media print {
+  body { background: #fff !important; }
+  .no-print { display: none !important; }
+}

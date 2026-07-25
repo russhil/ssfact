@@ -28,7 +28,7 @@ export default async function CatalogPage() {
           canEdit ? (
             <Link
               href="/catalog/new"
-              className="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-indigo-600"
+              className="rounded-lg bg-primary px-3.5 py-2 t-body font-semibold text-accent-on shadow-sm transition hover:opacity-90"
             >
               + New Product
             </Link>
@@ -39,8 +39,8 @@ export default async function CatalogPage() {
       <div className="mb-4 grid grid-cols-4 gap-3.5">
         {kpis.map(([label, value]) => (
           <Card key={label} className="p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</div>
-            <div className="mt-1.5 text-[22px] font-extrabold tnum">{value}</div>
+            <div className="t-xs font-semibold uppercase tracking-wide text-muted">{label}</div>
+            <div className="mt-1.5 t-display font-extrabold tnum">{value}</div>
           </Card>
         ))}
       </div>

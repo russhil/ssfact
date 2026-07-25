@@ -3,54 +3,92 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  AlertTriangle,
+  BarChart3,
+  Boxes,
+  ClipboardList,
+  Factory,
+  FileText,
   LayoutDashboard,
   LayoutGrid,
-  ClipboardList,
-  Boxes,
-  Factory,
-  Truck,
-  BarChart3,
+  LogOut,
   Package,
   PackageCheck,
   Scissors,
-  AlertTriangle,
-  Users,
+  ShieldCheck,
   ShoppingCart,
   SlidersHorizontal,
-  ShieldCheck,
-  FileText,
-  LogOut,
+  Truck,
+  Users,
 } from "lucide-react";
 import { logout } from "@/lib/auth-actions";
 import type { Role } from "@/lib/session";
+import { CommandTrigger, DensityToggle, ThemeToggle } from "@/components/theme-controls";
+import { cn } from "@/lib/cn";
 
 type NavItem = {
   href: string;
   label: string;
   icon: typeof LayoutDashboard;
   roles: Role[];
+  /** key into the `counts` prop */
+  count?: "jobs" | "pendingTrims";
 };
 
 const ALL: Role[] = ["ADMIN", "STAFF", "VENDOR", "TRIMS"];
+const STAFF: Role[] = ["ADMIN", "STAFF"];
 
-const nav: NavItem[] = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard, roles: ALL },
-  { href: "/board", label: "Production Board", icon: LayoutGrid, roles: ["ADMIN", "STAFF"] },
-  { href: "/job-cards", label: "Job Cards", icon: ClipboardList, roles: ["ADMIN", "STAFF", "VENDOR"] },
-  { href: "/production-orders", label: "Production", icon: PackageCheck, roles: ["ADMIN"] },
-  { href: "/catalog", label: "Product Master", icon: Package, roles: ["ADMIN", "STAFF"] },
-  { href: "/inventory", label: "Inventory", icon: Boxes, roles: ["ADMIN", "STAFF"] },
-  { href: "/fabric-orders", label: "Fabric Orders", icon: ShoppingCart, roles: ["ADMIN", "STAFF"] },
-  { href: "/trim-orders", label: "Trim Orders", icon: ShoppingCart, roles: ["ADMIN", "STAFF"] },
-  { href: "/challans", label: "Challans", icon: FileText, roles: ["ADMIN", "STAFF"] },
-  { href: "/trims", label: "Trims", icon: Scissors, roles: ["ADMIN", "STAFF", "TRIMS"] },
-  { href: "/pending-trims", label: "Pending Trims", icon: AlertTriangle, roles: ["ADMIN", "STAFF", "TRIMS"] },
-  { href: "/suppliers", label: "Suppliers", icon: Users, roles: ["ADMIN", "STAFF"] },
-  { href: "/vendors", label: "Vendors", icon: Factory, roles: ["ADMIN", "STAFF"] },
-  { href: "/dispatch", label: "Dispatch", icon: Truck, roles: ["ADMIN", "STAFF"] },
-  { href: "/masters", label: "Masters", icon: SlidersHorizontal, roles: ["ADMIN", "STAFF"] },
-  { href: "/reports", label: "Reports", icon: BarChart3, roles: ["ADMIN"] },
-  { href: "/users", label: "Users", icon: ShieldCheck, roles: ["ADMIN"] },
+/* Grouped so 17 destinations read as five short lists instead of one long one.
+   Role gating is unchanged — it still mirrors ROUTE_ROLES in proxy.ts. */
+const GROUPS: { group: string; items: NavItem[] }[] = [
+  {
+    group: "Overview",
+    items: [
+      { href: "/", label: "Dashboard", icon: LayoutDashboard, roles: ALL },
+      { href: "/board", label: "Production Board", icon: LayoutGrid, roles: STAFF },
+    ],
+  },
+  {
+    group: "Production",
+    items: [
+      { href: "/job-cards", label: "Job Cards", icon: ClipboardList, roles: ["ADMIN", "STAFF", "VENDOR"], count: "jobs" },
+      { href: "/production-orders", label: "Production", icon: PackageCheck, roles: ["ADMIN"] },
+      { href: "/dispatch", label: "Dispatch", icon: Truck, roles: STAFF },
+    ],
+  },
+  {
+    group: "Materials",
+    items: [
+      { href: "/inventory", label: "Inventory", icon: Boxes, roles: STAFF },
+      { href: "/fabric-orders", label: "Fabric Orders", icon: ShoppingCart, roles: STAFF },
+      { href: "/trim-orders", label: "Trim Orders", icon: ShoppingCart, roles: STAFF },
+      { href: "/challans", label: "Challans", icon: FileText, roles: STAFF },
+      { href: "/trims", label: "Trims", icon: Scissors, roles: ["ADMIN", "STAFF", "TRIMS"] },
+      {
+        href: "/pending-trims",
+        label: "Pending Trims",
+        icon: AlertTriangle,
+        roles: ["ADMIN", "STAFF", "TRIMS"],
+        count: "pendingTrims",
+      },
+    ],
+  },
+  {
+    group: "Network",
+    items: [
+      { href: "/vendors", label: "Vendors", icon: Factory, roles: STAFF },
+      { href: "/suppliers", label: "Suppliers", icon: Users, roles: STAFF },
+      { href: "/catalog", label: "Product Master", icon: Package, roles: STAFF },
+    ],
+  },
+  {
+    group: "Admin",
+    items: [
+      { href: "/masters", label: "Masters", icon: SlidersHorizontal, roles: STAFF },
+      { href: "/users", label: "Users", icon: ShieldCheck, roles: ["ADMIN"] },
+      { href: "/reports", label: "Reports", icon: BarChart3, roles: ["ADMIN"] },
+    ],
+  },
 ];
 
 const ROLE_LABEL: Record<Role, string> = {
@@ -60,68 +98,100 @@ const ROLE_LABEL: Record<Role, string> = {
   TRIMS: "Trims",
 };
 
+export type NavCounts = { jobs?: number; pendingTrims?: number };
+
 export function Sidebar({
   role,
   displayName,
+  counts = {},
 }: {
   role: Role;
   displayName: string;
+  counts?: NavCounts;
 }) {
   const path = usePathname();
-  const items = nav.filter((n) => n.roles.includes(role));
   const initial = (displayName.trim()[0] ?? "?").toUpperCase();
 
+  const groups = GROUPS.map((g) => ({ ...g, items: g.items.filter((n) => n.roles.includes(role)) })).filter(
+    (g) => g.items.length > 0
+  );
+
   return (
-    <aside className="sticky top-0 flex h-screen flex-col border-r border-border bg-surface px-3 py-4">
-      <Link href="/" className="mb-6 flex items-center gap-2 px-2">
-        <span className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 text-sm font-black text-white">
+    <aside className="sticky top-0 flex h-screen flex-col border-r border-hairline bg-surface px-3 py-4">
+      <Link href="/" className="mb-3 flex items-center gap-2.5 px-2">
+        <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-accent t-body font-black text-accent-on">
           S
         </span>
-        <span className="text-[15px] font-extrabold tracking-tight">Sportsun</span>
+        <span className="min-w-0 leading-tight">
+          <span className="block truncate t-head font-bold">Sportsun</span>
+          <span className="block truncate t-xs text-t3">Production OS</span>
+        </span>
       </Link>
 
-      <nav className="flex flex-col gap-0.5">
-        {items.map(({ href, label, icon: Icon }) => {
-          const active = href === "/" ? path === "/" : path.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition ${
-                active
-                  ? "bg-primary-soft text-primary-ink"
-                  : "text-slate-500 hover:bg-slate-50 hover:text-ink"
-              }`}
-            >
-              <Icon size={16} strokeWidth={active ? 2.4 : 2} />
-              {label}
-            </Link>
-          );
-        })}
+      <CommandTrigger />
+
+      <nav className="-mx-1 mt-1 flex-1 overflow-y-auto px-1 scrollbar-hide">
+        {groups.map((g) => (
+          <div key={g.group}>
+            <div className="px-2.5 pb-1 pt-4 t-label text-t3">{g.group}</div>
+            {g.items.map(({ href, label, icon: Icon, count }) => {
+              const active = href === "/" ? path === "/" : path.startsWith(href);
+              const n = count ? counts[count] : undefined;
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-lg px-2.5 py-2 t-sm font-medium",
+                    "transition-[background-color,color] duration-150",
+                    "active:scale-[0.98] active:transition-transform active:duration-75",
+                    active
+                      ? "bg-accent-soft font-semibold text-accent-ink"
+                      : "text-t2 hover:bg-surface-2 hover:text-t1"
+                  )}
+                >
+                  <Icon size={15} strokeWidth={active ? 2.4 : 2} className="shrink-0" />
+                  <span className="truncate">{label}</span>
+                  {n != null && n > 0 && (
+                    <span className={cn("ml-auto tnum t-xs font-bold", active ? "opacity-70" : "text-t3")}>
+                      {n}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
-      <div className="mt-auto flex flex-col gap-2">
-        <div className="flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5">
-          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-[12px] font-bold text-white">
+      <div className="mt-3 flex flex-col gap-2 border-t border-hairline pt-3">
+        <div className="flex items-center gap-2.5 rounded-xl bg-surface-2 px-2.5 py-2">
+          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-accent t-xs font-bold text-accent-on">
             {initial}
           </span>
-          <div className="min-w-0 leading-tight">
-            <div className="truncate text-[12px] font-semibold text-slate-700">
-              {displayName}
-            </div>
-            <div className="text-[11px] text-muted">{ROLE_LABEL[role]}</div>
-          </div>
+          <span className="min-w-0 leading-tight">
+            <span className="block truncate t-sm font-semibold">{displayName}</span>
+            <span className="block t-xs text-t3">{ROLE_LABEL[role]}</span>
+          </span>
         </div>
 
-        <form action={logout}>
-          <button
-            type="submit"
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium text-slate-500 transition hover:bg-slate-50 hover:text-danger"
-          >
-            <LogOut size={16} strokeWidth={2} />
-            Sign out
-          </button>
-        </form>
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <DensityToggle />
+          <form action={logout} className="ml-auto">
+            <button
+              type="submit"
+              className={cn(
+                "inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 t-sm font-medium text-t2",
+                "transition-colors duration-150 hover:bg-danger-soft hover:text-danger"
+              )}
+            >
+              <LogOut size={15} strokeWidth={2} />
+              Sign out
+            </button>
+          </form>
+        </div>
       </div>
     </aside>
   );

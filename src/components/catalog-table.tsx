@@ -29,7 +29,7 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
   }, [q, status, cat, rows]);
 
   const selectCls =
-    "rounded-lg border border-border bg-surface px-3 py-2 text-[12px] outline-none focus:border-primary focus:ring-2 focus:ring-indigo-100";
+    "rounded-lg border border-border bg-surface px-3 py-2 t-sm outline-none focus:border-primary focus:ring-2 focus:ring-accent/15";
 
   return (
     <div>
@@ -40,7 +40,7 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search SKU, name, category…"
-            className="w-full rounded-lg border border-border bg-surface py-2 pl-8 pr-3 text-[12px] outline-none focus:border-primary focus:ring-2 focus:ring-indigo-100"
+            className="w-full rounded-lg border border-border bg-surface py-2 pl-8 pr-3 t-sm outline-none focus:border-primary focus:ring-2 focus:ring-accent/15"
           />
         </div>
         <select value={status} onChange={(e) => setStatus(e.target.value)} className={selectCls}>
@@ -58,9 +58,9 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
       </div>
 
       <div className="overflow-hidden rounded-card border border-border bg-surface">
-        <table className="w-full text-[12px]">
+        <table className="w-full t-sm">
           <thead>
-            <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-faint">
+            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
               <th className="px-4 py-2.5 font-semibold"></th>
               <th className="px-4 py-2.5 font-semibold">SKU</th>
               <th className="px-4 py-2.5 font-semibold">Product</th>
@@ -82,13 +82,13 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
           </thead>
           <tbody>
             {shown.map((r) => (
-              <tr key={r.extId} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+              <tr key={r.extId} className="border-b border-hairline last:border-0 hover:bg-surface-2">
                 <td className="px-4 py-2">
                   {r.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={r.imageUrl} alt="" loading="lazy" className="h-9 w-9 rounded-md border border-border object-cover" />
                   ) : (
-                    <div className="h-9 w-9 rounded-md border border-dashed border-border bg-slate-50" />
+                    <div className="h-9 w-9 rounded-md border border-dashed border-border bg-surface-2" />
                   )}
                 </td>
                 <td className="px-4 py-2.5">
@@ -97,16 +97,16 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
                   </Link>
                 </td>
                 <td className="px-4 py-2.5 font-medium">{r.name}</td>
-                <td className="px-4 py-2.5 text-slate-500">{r.headCategory ?? "—"}</td>
+                <td className="px-4 py-2.5 text-t2">{r.headCategory ?? "—"}</td>
                 {canSeeCost ? (
                   <>
                     <td className="px-4 py-2.5 text-right tnum">{inr(r.mrp)}</td>
-                    <td className="px-4 py-2.5 text-right tnum text-slate-500">{inr(r.wholesale)}</td>
+                    <td className="px-4 py-2.5 text-right tnum text-t2">{inr(r.wholesale)}</td>
                   </>
                 ) : (
                   <>
-                    <td className="px-4 py-2.5 text-slate-500">{r.fabricName ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-slate-500">{r.samplingStatus ? r.samplingStatus.replace(/_/g, " ") : "—"}</td>
+                    <td className="px-4 py-2.5 text-t2">{r.fabricName ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-t2">{r.samplingStatus ? r.samplingStatus.replace(/_/g, " ") : "—"}</td>
                   </>
                 )}
                 <td className="px-4 py-2.5">
@@ -120,7 +120,7 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-[11px] text-faint">
+      <p className="mt-2 t-xs text-faint">
         {shown.length} of {rows.length} SKUs · the commercial product master
       </p>
     </div>
