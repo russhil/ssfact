@@ -22,7 +22,9 @@ export async function login(
   }
 
   const user = await db.user.findUnique({ where: { username } });
-  if (!user || !verifyPassword(password, user.passwordHash)) {
+  // A deactivated login fails identically to a wrong password — a distinct
+  // "account disabled" message would be a username-enumeration oracle.
+  if (!user || !user.active || !verifyPassword(password, user.passwordHash)) {
     return { error: "Invalid username or password" };
   }
 

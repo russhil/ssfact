@@ -85,6 +85,9 @@ export async function getFabricOrders() {
     const challans = o.challans as OrderChallanLink[];
     return {
       id: o.id, fabric: o.fabric.name, fabricId: o.fabricId, supplier: o.supplier?.name ?? null,
+      // supplierId + gsm are what the edit form re-hydrates from; resolving the supplier
+      // by name in the component would miss suppliers that have since been deactivated.
+      supplierId: o.supplierId, gsm: o.gsm,
       lines, totalQty, colourCount: lines.length, unit: o.unit, rate: o.rate, status: o.status as string,
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
       poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
@@ -118,6 +121,7 @@ export async function getTrimOrders() {
     const challans = o.challans as OrderChallanLink[];
     return {
       id: o.id, trim: o.trimItem.name, trimItemId: o.trimItemId, supplier: o.supplier?.name ?? null,
+      supplierId: o.supplierId, remarks: o.remarks, // re-hydrated by the edit form
       lines: o.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty })),
       totalQty: o.qty, unit: o.unit ?? o.trimItem.unit ?? null, rate: o.rate, status: o.status as string,
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
@@ -230,6 +234,30 @@ export type FabricPick = Awaited<ReturnType<typeof getFabricPickList>>[number];
 export async function getVendorList() {
   const rows = await db.vendor.findMany({ include: { _count: { select: { jobCards: true } } }, orderBy: { name: "asc" } });
   return rows.map((v) => ({ id: v.id, name: v.name, kind: v.kind as string, active: (v as { active?: boolean }).active ?? true, jobs: v._count.jobCards }));
+}
+
+// ── Change 20 — logins ──
+
+export type UserRow = {
+  id: number; username: string; displayName: string;
+  role: "ADMIN" | "STAFF" | "VENDOR" | "TRIMS";
+  vendorName: string | null; active: boolean; createdAt: Date;
+};
+
+/**
+ * Every login, for the admin Users page. The `select` is explicit and deliberate:
+ * it makes serialising `passwordHash` into a client component structurally
+ * impossible rather than merely conventional.
+ */
+export async function listUsers(): Promise<UserRow[]> {
+  const rows = await db.user.findMany({
+    select: {
+      id: true, username: true, displayName: true, role: true,
+      vendorName: true, active: true, createdAt: true,
+    },
+    orderBy: [{ active: "desc" }, { role: "asc" }, { username: "asc" }],
+  });
+  return rows.map((u) => ({ ...u, role: u.role as UserRow["role"] }));
 }
 
 export async function getCuttingMasterList() {
