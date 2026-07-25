@@ -1,17 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick } from "@/lib/actions";
+import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick } from "@/lib/actions";
 import { Card, Badge } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
-import { Plus, Check, X, FileText, Truck } from "lucide-react";
+import { Plus, Check, X, FileText, Truck, Pencil, Trash2 } from "lucide-react";
 
 type Line = { colour: string; qty: number };
 type ChallanLink = { id: number; challanNo: string | null; status: string };
 type Order = {
-  id: number; fabric: string; fabricId: number; supplier: string | null; lines: Line[]; totalQty: number;
+  id: number; fabric: string; fabricId: number; supplier: string | null; supplierId: number | null;
+  gsm: number | null; lines: Line[]; totalQty: number;
   colourCount: number; unit: string; rate: number | null; status: string; expectedDate: Date | string | null;
   receivedDate: Date | string | null; poNumber: string | null; poStage: string;
   // Change 18 Part C: the inward challans this order was received on.
@@ -55,6 +56,9 @@ export function FabricOrderManager({
   const [addColourRow, setAddColourRow] = useState<number | null>(null);
   const [colourDraft, setColourDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  // Change 20: the same form doubles as the edit form for an unlocked order.
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const formRef = useRef<HTMLDivElement>(null);
 
   // keep a trailing empty row once the last row is filled
   function normalizeRows(rows: Line[]): Line[] {
@@ -100,6 +104,13 @@ export function FabricOrderManager({
     } finally { setAddFabric(false); setFabricDraft(""); setBusy(false); }
   }
 
+  function resetForm() {
+    setEditingId(null);
+    setFabricId(""); setSupplierId(""); setExpected(""); setRate(""); setGsm(""); setUnit("MTR");
+    setLines([{ colour: "", qty: 0 }]);
+    setAddColourRow(null); setColourDraft(""); setAddFabric(false); setFabricDraft("");
+  }
+
   async function create() {
     if (!fabricId || filled.length === 0) return;
     setBusy(true);
@@ -110,11 +121,55 @@ export function FabricOrderManager({
         unit: unit as "KG" | "MTR",
         lines: filled,
       });
-      setFabricId(""); setSupplierId(""); setExpected(""); setRate(""); setGsm(""); setUnit("MTR"); setLines([{ colour: "", qty: 0 }]);
+      resetForm();
       router.refresh();
-    } finally { setBusy(false); }
+    } catch (e) { alert((e as Error).message); } finally { setBusy(false); }
   }
-  async function act(fn: () => Promise<unknown>) { setBusy(true); try { await fn(); router.refresh(); } finally { setBusy(false); } }
+
+  function startEdit(o: Order) {
+    setEditingId(o.id);
+    setFabricId(String(o.fabricId));
+    setSupplierId(o.supplierId ? String(o.supplierId) : "");
+    setExpected(dateInput(o.expectedDate));
+    setRate(o.rate != null ? String(o.rate) : "");
+    setGsm(o.gsm != null ? String(o.gsm) : "");
+    setUnit(o.unit);
+    setLines([...o.lines.map((l) => ({ colour: l.colour, qty: l.qty })), { colour: "", qty: 0 }]);
+    setAddColourRow(null); setAddFabric(false);
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function save() {
+    if (!editingId || filled.length === 0) return;
+    setBusy(true);
+    try {
+      await updateFabricOrder({
+        id: editingId, supplierId: supplierId ? +supplierId : null,
+        expectedDate: expected || null, rate: rate ? +rate : null, gsm: gsm ? +gsm : null,
+        unit: unit as "KG" | "MTR",
+        lines: filled,
+      });
+      resetForm();
+      router.refresh();
+    } catch (e) { alert((e as Error).message); } finally { setBusy(false); }
+  }
+
+  async function remove(o: Order) {
+    if (!confirm(`Delete the ${o.fabric} order (${num(o.totalQty)} ${o.unit.toLowerCase()})? This cannot be undone.`)) return;
+    if (editingId === o.id) resetForm();
+    await act(() => deleteFabricOrder({ id: o.id }));
+  }
+
+  // Mirrors the server guards in deleteFabricOrder / updateFabricOrder.
+  const canEdit = (o: Order) => !o.poNumber && !o.receivedDate;
+  const canDelete = (o: Order) => canEdit(o) && o.challans.length === 0;
+
+  async function act(fn: () => Promise<unknown>) {
+    setBusy(true);
+    try { await fn(); router.refresh(); }
+    catch (e) { alert((e as Error).message); }
+    finally { setBusy(false); }
+  }
 
   /**
    * Change 18 Part A: receiving is logging an inward challan, not a one-click "Receive".
@@ -133,14 +188,29 @@ export function FabricOrderManager({
     }
   }
 
-  const colourOptions = colourList;
+  /**
+   * Order lines store the canonical colorKey() value, which is not guaranteed to exist in
+   * the Colour master. Without merging those back in, editing an order would render a blank
+   * <select> for the unmatched colour and silently drop that line on save.
+   */
+  const colourOptions = useMemo(() => {
+    const extra = [...new Set(lines.map((l) => l.colour).filter((c) => c && !colourList.some((x) => x.name === c)))];
+    return [...colourList, ...extra.map((name, i) => ({ id: -1 - i, name, hex: null }))];
+  }, [colourList, lines]);
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
+      <div ref={formRef} className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
         {/* entry */}
         <Card className="p-5">
-          <h3 className="mb-4 text-[11px] font-bold uppercase tracking-wide text-muted">New fabric order</h3>
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-[11px] font-bold uppercase tracking-wide text-muted">
+              {editingId ? "Edit fabric order" : "New fabric order"}
+            </h3>
+            {editingId && (
+              <button onClick={resetForm} className="text-[11px] font-semibold text-slate-500 hover:text-danger">Cancel</button>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-2.5">
             <div className="col-span-2">
               <label className="mb-1 block text-[11px] font-semibold text-slate-600">Fabric</label>
@@ -151,10 +221,12 @@ export function FabricOrderManager({
                   <button onClick={() => setAddFabric(false)} className="rounded-lg border border-border px-3 text-slate-500"><X size={14} /></button>
                 </div>
               ) : (
-                <select value={fabricId} onChange={(e) => (e.target.value === ADD ? setAddFabric(true) : pickFabric(e.target.value))} className={inp}>
+                // The material is frozen while editing — updateFabricOrder takes no fabricId,
+                // and swapping it would need the sourcing-rate bookkeeping redone.
+                <select value={fabricId} disabled={!!editingId} onChange={(e) => (e.target.value === ADD ? setAddFabric(true) : pickFabric(e.target.value))} className={`${inp} disabled:bg-slate-50 disabled:text-slate-500`}>
                   <option value="">Fabric…</option>
                   {fabricList.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-                  <option value={ADD}>➕ Add new fabric…</option>
+                  {!editingId && <option value={ADD}>➕ Add new fabric…</option>}
                 </select>
               )}
             </div>
@@ -237,8 +309,8 @@ export function FabricOrderManager({
                 <span className="text-[24px] font-extrabold text-white tnum">{num(totalQty)}</span>
               </div>
               {totalValue != null && <div className="mt-1 text-right text-[12px] text-indigo-200">≈ {inr(totalValue)}</div>}
-              <button onClick={create} disabled={busy || !fabricId || filled.length === 0} className="mt-4 w-full rounded-lg bg-primary px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:opacity-40">
-                {busy ? "Saving…" : "Create order"}
+              <button onClick={editingId ? save : create} disabled={busy || !fabricId || filled.length === 0} className="mt-4 w-full rounded-lg bg-primary px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:bg-indigo-600 disabled:opacity-40">
+                {busy ? "Saving…" : editingId ? "Save changes" : "Create order"}
               </button>
             </>
           )}
@@ -262,7 +334,7 @@ export function FabricOrderManager({
           </thead>
           <tbody>
             {orders.map((o) => (
-              <tr key={o.id} className="border-b border-slate-50 last:border-0 align-top">
+              <tr key={o.id} className={`border-b border-slate-50 last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
                 <td className="px-4 py-2.5 font-semibold">{o.fabric}</td>
                 <td className="px-4 py-2.5 text-slate-500">
                   <div className="flex flex-wrap gap-1">
@@ -291,6 +363,8 @@ export function FabricOrderManager({
                     {!o.poNumber && <button onClick={() => act(() => generatePO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-primary-ink hover:bg-slate-50"><FileText size={12} /> Generate PO</button>}
                     {o.poNumber && <Link href={`/po/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-primary-ink hover:bg-slate-50"><FileText size={12} /> Open PO</Link>}
                     {o.status !== "DISCARDED" && <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"><Truck size={12} /> Log Inward Challan</button>}
+                    {canEdit(o) && <button onClick={() => startEdit(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"><Pencil size={12} /> Edit</button>}
+                    {canDelete(o) && <button onClick={() => remove(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger-soft"><Trash2 size={12} /> Delete</button>}
                   </div>
                 </td>
               </tr>
@@ -304,3 +378,5 @@ export function FabricOrderManager({
 }
 
 const inp = "w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary";
+/** A stored date rendered for an <input type="date">. */
+const dateInput = (d: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");

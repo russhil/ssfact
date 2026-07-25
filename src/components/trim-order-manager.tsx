@@ -1,12 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createTrimOrder, draftChallanFromTrimOrder, generateTrimPO } from "@/lib/actions";
+import { createTrimOrder, updateTrimOrder, deleteTrimOrder, draftChallanFromTrimOrder, generateTrimPO } from "@/lib/actions";
 import { Card, Badge } from "@/components/ui";
 import { num, inr } from "@/lib/format";
-import { Plus, X, FileText, Truck } from "lucide-react";
+import { Plus, X, FileText, Truck, Pencil, Trash2 } from "lucide-react";
 
 /**
  * Change 18 Part B — the trim mirror of FabricOrderManager.
@@ -20,6 +20,7 @@ type SplitLine = { colour: string; size: string; qty: number };
 type ChallanLink = { id: number; challanNo: string | null; status: string };
 type Order = {
   id: number; trim: string; trimItemId: number; supplier: string | null;
+  supplierId: number | null; remarks: string | null;
   lines: { colour: string | null; size: string | null; qty: number }[];
   totalQty: number; unit: string | null; rate: number | null; status: string;
   expectedDate: Date | string | null; receivedDate: Date | string | null;
@@ -49,6 +50,9 @@ export function TrimOrderManager({
   const [splitOpen, setSplitOpen] = useState(false);
   const [split, setSplit] = useState<SplitLine[]>([{ colour: "", size: "", qty: 0 }]);
   const [busy, setBusy] = useState(false);
+  // Change 20: the same form doubles as the edit form for an unlocked order.
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const formRef = useRef<HTMLDivElement>(null);
 
   const trim = useMemo(() => trims.find((t) => t.id === +trimId), [trims, trimId]);
 
@@ -75,6 +79,20 @@ export function TrimOrderManager({
   const removeSplitRow = (i: number) =>
     setSplit((rows) => (rows.length <= 1 ? [{ colour: "", size: "", qty: 0 }] : rows.filter((_, idx) => idx !== i)));
 
+  function resetForm() {
+    setEditingId(null);
+    setTrimId(""); setSupplierId(""); setExpected(""); setQty(""); setUnit(""); setRate(""); setRemarks("");
+    setSplitOpen(false); setSplit([{ colour: "", size: "", qty: 0 }]);
+  }
+
+  /**
+   * The split lines. Always an array, never undefined: updateTrimOrder's body is
+   * `if (input.lines) { … deleteMany … }`, so passing undefined would skip the rewrite
+   * and leave stale split rows attached to an order the user just made flat.
+   */
+  const splitPayload = () =>
+    splitOpen ? filledSplit.map((l) => ({ colour: l.colour || null, size: l.size || null, qty: l.qty })) : [];
+
   async function create() {
     if (!trimId || effectiveQty <= 0) return;
     setBusy(true);
@@ -87,15 +105,64 @@ export function TrimOrderManager({
         rate: rate ? +rate : null,
         expectedDate: expected || null,
         remarks: remarks.trim() || null,
-        lines: splitOpen ? filledSplit.map((l) => ({ colour: l.colour || null, size: l.size || null, qty: l.qty })) : [],
+        lines: splitPayload(),
       });
-      setTrimId(""); setSupplierId(""); setExpected(""); setQty(""); setUnit(""); setRate(""); setRemarks("");
-      setSplitOpen(false); setSplit([{ colour: "", size: "", qty: 0 }]);
+      resetForm();
       router.refresh();
     } catch (e) {
       alert((e as Error).message);
     } finally { setBusy(false); }
   }
+
+  function startEdit(o: Order) {
+    setEditingId(o.id);
+    // setTrimId directly, not pickTrim() — that would overwrite the order's own unit
+    // with the trim master's default.
+    setTrimId(String(o.trimItemId));
+    setUnit(o.unit ?? "");
+    setSupplierId(o.supplierId ? String(o.supplierId) : "");
+    setExpected(dateInput(o.expectedDate));
+    setQty(String(o.totalQty));
+    setRate(o.rate != null ? String(o.rate) : "");
+    setRemarks(o.remarks ?? "");
+    const hasSplit = o.lines.length > 0;
+    setSplitOpen(hasSplit);
+    setSplit(hasSplit
+      ? [...o.lines.map((l) => ({ colour: l.colour ?? "", size: l.size ?? "", qty: l.qty })), { colour: "", size: "", qty: 0 }]
+      : [{ colour: "", size: "", qty: 0 }]);
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function save() {
+    if (!editingId || effectiveQty <= 0) return;
+    setBusy(true);
+    try {
+      await updateTrimOrder({
+        id: editingId,
+        supplierId: supplierId ? +supplierId : null,
+        qty: effectiveQty,
+        unit: unit || null,
+        rate: rate ? +rate : null,
+        expectedDate: expected || null,
+        remarks: remarks.trim() || null,
+        lines: splitPayload(),
+      });
+      resetForm();
+      router.refresh();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally { setBusy(false); }
+  }
+
+  async function remove(o: Order) {
+    if (!confirm(`Delete the ${o.trim} order (${num(o.totalQty)} ${(o.unit ?? "").toLowerCase()})? This cannot be undone.`)) return;
+    if (editingId === o.id) resetForm();
+    await act(() => deleteTrimOrder({ id: o.id }));
+  }
+
+  // Mirrors the server guards in deleteTrimOrder / updateTrimOrder.
+  const canEdit = (o: Order) => !o.poNumber && !o.receivedDate;
+  const canDelete = (o: Order) => canEdit(o) && o.challans.length === 0;
 
   async function act(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -117,13 +184,21 @@ export function TrimOrderManager({
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
+      <div ref={formRef} className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
         {/* entry */}
         <Card className="p-5">
-          <h3 className="mb-4 text-[11px] font-bold uppercase tracking-wide text-muted">New trim order</h3>
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-[11px] font-bold uppercase tracking-wide text-muted">
+              {editingId ? "Edit trim order" : "New trim order"}
+            </h3>
+            {editingId && (
+              <button onClick={resetForm} className="text-[11px] font-semibold text-slate-500 hover:text-danger">Cancel</button>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-2.5">
             <Labelled label="Trim">
-              <select value={trimId} onChange={(e) => pickTrim(e.target.value)} className={inp}>
+              {/* frozen while editing — updateTrimOrder takes no trimItemId */}
+              <select value={trimId} disabled={!!editingId} onChange={(e) => pickTrim(e.target.value)} className={`${inp} disabled:bg-slate-50 disabled:text-slate-500`}>
                 <option value="">— pick trim —</option>
                 {trims.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
@@ -202,9 +277,9 @@ export function TrimOrderManager({
               {totalValue != null && <div className="mt-1 flex justify-between"><span className="text-white/60">Value</span><b className="tnum">≈ {inr(totalValue)}</b></div>}
             </div>
           </div>
-          <button onClick={create} disabled={busy || !trimId || effectiveQty <= 0}
+          <button onClick={editingId ? save : create} disabled={busy || !trimId || effectiveQty <= 0}
             className="mt-4 w-full rounded-lg bg-white px-3 py-2.5 text-[13px] font-bold text-ink transition hover:bg-white/90 disabled:opacity-40">
-            Create order
+            {busy ? "Saving…" : editingId ? "Save changes" : "Create order"}
           </button>
         </Card>
       </div>
@@ -226,7 +301,7 @@ export function TrimOrderManager({
           </thead>
           <tbody>
             {orders.map((o) => (
-              <tr key={o.id} className="border-b border-slate-50 last:border-0 align-top">
+              <tr key={o.id} className={`border-b border-slate-50 last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
                 <td className="px-4 py-2.5 font-semibold">{o.trim}</td>
                 <td className="px-4 py-2.5 text-slate-500">
                   {o.lines.length === 0 ? <span className="text-faint">flat</span> : (
@@ -259,6 +334,8 @@ export function TrimOrderManager({
                     {!o.poNumber && <button onClick={() => act(() => generateTrimPO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-primary-ink hover:bg-slate-50"><FileText size={12} /> Generate PO</button>}
                     {o.poNumber && <Link href={`/pot/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-primary-ink hover:bg-slate-50"><FileText size={12} /> Open PO</Link>}
                     {o.status !== "DISCARDED" && <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"><Truck size={12} /> Log Inward Challan</button>}
+                    {canEdit(o) && <button onClick={() => startEdit(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"><Pencil size={12} /> Edit</button>}
+                    {canDelete(o) && <button onClick={() => remove(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger-soft"><Trash2 size={12} /> Delete</button>}
                   </div>
                 </td>
               </tr>
@@ -272,6 +349,8 @@ export function TrimOrderManager({
 }
 
 const inp = "w-full rounded-lg border border-border px-2.5 py-2 text-[13px] outline-none focus:border-primary";
+/** A stored date rendered for an <input type="date">. */
+const dateInput = (d: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
 
 function Labelled({ label, children }: { label: string; children: React.ReactNode }) {
   return (

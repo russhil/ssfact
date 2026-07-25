@@ -17,6 +17,7 @@ import {
   Users,
   ShoppingCart,
   SlidersHorizontal,
+  ShieldCheck,
   FileText,
   LogOut,
 } from "lucide-react";
@@ -49,6 +50,7 @@ const nav: NavItem[] = [
   { href: "/dispatch", label: "Dispatch", icon: Truck, roles: ["ADMIN", "STAFF"] },
   { href: "/masters", label: "Masters", icon: SlidersHorizontal, roles: ["ADMIN", "STAFF"] },
   { href: "/reports", label: "Reports", icon: BarChart3, roles: ["ADMIN"] },
+  { href: "/users", label: "Users", icon: ShieldCheck, roles: ["ADMIN"] },
 ];
 
 const ROLE_LABEL: Record<Role, string> = {

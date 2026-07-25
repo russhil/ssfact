@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
-import { requireRole } from "@/lib/auth";
+import { requireRole, hashPassword } from "@/lib/auth";
 import { colorKey } from "@/lib/colour";
 import { getJobTrimIssues } from "@/lib/jobs";
 import { revalidatePath } from "next/cache";
@@ -1155,6 +1155,121 @@ export async function updateSupplier(input: { id: number; name?: string; type?: 
   return { ok: true };
 }
 
+// ── Change 20 — user administration ──
+//
+// These are the only actions in this file guarded by requireRole("ADMIN") alone rather
+// than ("ADMIN", "STAFF"). A server action is reachable by direct POST no matter what
+// the sidebar renders or the proxy allows, so this guard — not the nav — is the boundary.
+
+type UserRole = "ADMIN" | "STAFF" | "VENDOR" | "TRIMS";
+
+/** A VENDOR login must soft-link to a real Vendor by name; every other role must not. */
+async function resolveVendorName(role: UserRole, vendorName?: string | null) {
+  if (role !== "VENDOR") return null;
+  const name = vendorName?.trim();
+  if (!name) throw new Error("A vendor login needs a vendor");
+  const v = await db.vendor.findUnique({ where: { name }, select: { name: true } });
+  if (!v) throw new Error(`No vendor named "${name}" in the vendor master`);
+  return v.name; // store verbatim — the link resolves on the name, not an id
+}
+
+/**
+ * The system may never reach zero active admins. Paired with a self-check at each call
+ * site: on its own, this lets you demote yourself while a dormant admin exists; a
+ * self-check on its own lets admin A delete admin B while B deletes A.
+ */
+async function assertNotLastAdmin(id: number) {
+  const t = await db.user.findUnique({ where: { id }, select: { role: true, active: true } });
+  if (!t) throw new Error("User not found");
+  if (t.role !== "ADMIN" || !t.active) return; // not an admin seat — nothing to protect
+  const admins = await db.user.count({ where: { role: "ADMIN", active: true } });
+  if (admins <= 1) throw new Error("This is the last active admin — promote another admin first");
+}
+
+export async function createUser(input: {
+  username: string; displayName: string; password: string;
+  role: UserRole; vendorName?: string | null;
+}) {
+  await requireRole("ADMIN");
+  const username = input.username.trim();
+  const displayName = input.displayName.trim();
+  if (username.length < 3 || /\s/.test(username)) throw new Error("Username must be 3+ characters, no spaces");
+  if (!displayName) throw new Error("Display name required");
+  if (input.password.length < 6) throw new Error("Password must be at least 6 characters");
+  const vendorName = await resolveVendorName(input.role, input.vendorName);
+  if (await db.user.findUnique({ where: { username }, select: { id: true } }))
+    throw new Error("That username is taken");
+  const u = await db.user.create({
+    data: {
+      username, displayName, role: input.role as any, vendorName,
+      passwordHash: hashPassword(input.password),
+    } as any,
+    select: { id: true },
+  });
+  revalidatePath("/users");
+  return { id: u.id };
+}
+
+export async function updateUser(input: {
+  id: number; displayName?: string; role?: UserRole; vendorName?: string | null;
+}) {
+  const me = await requireRole("ADMIN");
+  const current = await db.user.findUnique({
+    where: { id: input.id }, select: { role: true, vendorName: true },
+  });
+  if (!current) throw new Error("User not found");
+  const role = (input.role ?? current.role) as UserRole;
+  if (input.role && input.role !== "ADMIN") {
+    if (input.id === me.userId) throw new Error("You cannot change your own role");
+    await assertNotLastAdmin(input.id);
+  }
+  const vendorName =
+    input.role !== undefined || input.vendorName !== undefined
+      ? await resolveVendorName(role, input.vendorName ?? current.vendorName)
+      : undefined;
+  await db.user.update({
+    where: { id: input.id },
+    data: {
+      ...(input.displayName != null ? { displayName: input.displayName.trim() } : {}),
+      ...(input.role ? { role: input.role as any } : {}),
+      ...(vendorName !== undefined ? { vendorName } : {}),
+    } as any,
+  });
+  revalidatePath("/users");
+  return { ok: true };
+}
+
+export async function resetUserPassword(input: { id: number; password: string }) {
+  await requireRole("ADMIN");
+  if (input.password.length < 6) throw new Error("Password must be at least 6 characters");
+  await db.user.update({
+    where: { id: input.id },
+    data: { passwordHash: hashPassword(input.password) },
+  });
+  revalidatePath("/users");
+  return { ok: true };
+}
+
+export async function setUserActive(input: { id: number; active: boolean }) {
+  const me = await requireRole("ADMIN");
+  if (!input.active) {
+    if (input.id === me.userId) throw new Error("You cannot deactivate your own account");
+    await assertNotLastAdmin(input.id);
+  }
+  await db.user.update({ where: { id: input.id }, data: { active: input.active } as any });
+  revalidatePath("/users");
+  return { ok: true };
+}
+
+export async function deleteUser(input: { id: number }) {
+  const me = await requireRole("ADMIN");
+  if (input.id === me.userId) throw new Error("You cannot delete your own account");
+  await assertNotLastAdmin(input.id);
+  await db.user.delete({ where: { id: input.id } });
+  revalidatePath("/users");
+  return { ok: true };
+}
+
 // ── Change 08: Colour master + fabric quick-add ──
 export async function createColour(input: { name: string; hex?: string | null }) {
   await requireRole("ADMIN", "STAFF");
@@ -1329,12 +1444,15 @@ export async function createFabricOrder(input: {
 
 export async function updateFabricOrder(input: {
   id: number; supplierId?: number | null; expectedDate?: string | null; rate?: number | null;
-  gsm?: number | null; lines?: { colour: string; qty: number }[];
+  gsm?: number | null; unit?: "KG" | "MTR"; lines?: { colour: string; qty: number }[];
 }) {
   await requireRole("ADMIN", "STAFF");
-  const o = await db.fabricOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
+  const o = await db.fabricOrder.findUnique({ where: { id: input.id }, select: { poNumber: true, receivedDate: true } });
   if (!o) throw new Error("Order not found");
   if (o.poNumber) throw new Error("Order is locked — PO already generated");
+  // Rewriting the lines of an already-received order would move the goods out from
+  // under a locked challan that has already posted them to stock.
+  if (o.receivedDate) throw new Error("Order is already received — it can no longer be edited");
   await db.$transaction(async (tx) => {
     if (input.lines) {
       const lines = input.lines.map((l) => ({ colour: colorKey(l.colour), qty: l.qty })).filter((l) => l.colour && l.qty > 0);
@@ -1348,6 +1466,7 @@ export async function updateFabricOrder(input: {
         ...(input.supplierId !== undefined ? { supplierId: input.supplierId } : {}),
         ...(input.rate !== undefined ? { rate: input.rate } : {}),
         ...(input.gsm !== undefined ? { gsm: input.gsm } : {}),
+        ...(input.unit !== undefined ? { unit: input.unit as any } : {}),
         ...(input.expectedDate !== undefined ? { expectedDate: input.expectedDate ? new Date(input.expectedDate) : null } : {}),
       },
     });
@@ -1358,8 +1477,20 @@ export async function updateFabricOrder(input: {
 
 export async function deleteFabricOrder(input: { id: number }) {
   await requireRole("ADMIN", "STAFF");
-  const o = await db.fabricOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
-  if (o?.poNumber) throw new Error("Order is locked — PO already generated");
+  const o = await db.fabricOrder.findUnique({
+    where: { id: input.id },
+    select: { poNumber: true, receivedDate: true },
+  });
+  if (!o) throw new Error("Order not found");
+  if (o.poNumber) throw new Error("Order is locked — PO already generated");
+  if (o.receivedDate) throw new Error("Order is already received — it can no longer be deleted");
+  // MaterialChallan.fabricOrderId is onDelete: SetNull, so deleting an order that has a
+  // challan against it succeeds silently and strips the receipt of its "For PO-…"
+  // provenance. Refuse instead — the challan must be voided first.
+  const challans = await db.materialChallan.count({
+    where: { fabricOrderId: input.id, voidedAt: null },
+  });
+  if (challans > 0) throw new Error("Challans are logged against this order — void them first");
   await db.fabricOrder.delete({ where: { id: input.id } });
   revalidatePath("/fabric-orders");
   return { ok: true };
@@ -1515,9 +1646,10 @@ export async function updateTrimOrder(input: {
   lines?: TrimOrderLineInput[];
 }) {
   await requireRole("ADMIN", "STAFF");
-  const o = await db.trimOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
+  const o = await db.trimOrder.findUnique({ where: { id: input.id }, select: { poNumber: true, receivedDate: true } });
   if (!o) throw new Error("Order not found");
   if (o.poNumber) throw new Error("Order is locked — PO already generated");
+  if (o.receivedDate) throw new Error("Order is already received — it can no longer be edited");
   await db.$transaction(async (tx) => {
     if (input.lines) {
       const lines = cleanTrimLines(input.lines);
@@ -1550,8 +1682,18 @@ export async function updateTrimOrder(input: {
 
 export async function deleteTrimOrder(input: { id: number }) {
   await requireRole("ADMIN", "STAFF");
-  const o = await db.trimOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
-  if (o?.poNumber) throw new Error("Order is locked — PO already generated");
+  const o = await db.trimOrder.findUnique({
+    where: { id: input.id },
+    select: { poNumber: true, receivedDate: true },
+  });
+  if (!o) throw new Error("Order not found");
+  if (o.poNumber) throw new Error("Order is locked — PO already generated");
+  if (o.receivedDate) throw new Error("Order is already received — it can no longer be deleted");
+  // Mirrors deleteFabricOrder: MaterialChallan.trimOrderId is onDelete: SetNull.
+  const challans = await db.materialChallan.count({
+    where: { trimOrderId: input.id, voidedAt: null },
+  });
+  if (challans > 0) throw new Error("Challans are logged against this order — void them first");
   await db.trimOrder.delete({ where: { id: input.id } });
   revalidatePath("/trim-orders");
   return { ok: true };

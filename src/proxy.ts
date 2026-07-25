@@ -6,6 +6,7 @@ const ROUTE_ROLES: { prefix: string; roles: Role[] }[] = [
   { prefix: "/styles", roles: ["ADMIN"] },
   { prefix: "/production-orders", roles: ["ADMIN"] },
   { prefix: "/reports", roles: ["ADMIN"] },
+  { prefix: "/users", roles: ["ADMIN"] },
   { prefix: "/vendors", roles: ["ADMIN", "STAFF"] },
   { prefix: "/inventory", roles: ["ADMIN", "STAFF"] },
   { prefix: "/dispatch", roles: ["ADMIN", "STAFF"] },

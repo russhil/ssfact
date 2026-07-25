@@ -515,6 +515,9 @@ model User {
   displayName  String
   role         Role     @default(STAFF)
   vendorName   String? // for VENDOR role: matches Vendor.name verbatim
+  // Change 20: logins deactivate rather than delete — username is unique, so a hard
+  // delete frees the name for a different person and orphans the audit trail.
+  active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
   @@index([role])
