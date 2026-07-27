@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { createUser, updateUser, resetUserPassword, setUserActive, deleteUser } from "@/lib/actions";
 import { Card, Badge, SearchInput } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
+import { SignatureUpload } from "@/components/signature-upload";
 import { Plus, Check, KeyRound, Trash2, X } from "lucide-react";
 import type { UserRow } from "@/lib/masters";
 
@@ -181,6 +182,7 @@ export function UserManager({
               <th className="px-4 py-2.5 font-semibold">Username</th>
               <th className="px-4 py-2.5 font-semibold">Role</th>
               <th className="px-4 py-2.5 font-semibold">Vendor</th>
+              <th className="px-4 py-2.5 font-semibold">Signature</th>
               <th className="px-4 py-2.5 font-semibold">Created</th>
               <th className="px-4 py-2.5 font-semibold">Status</th>
               <th className="px-4 py-2.5 text-right font-semibold">Actions</th>
@@ -247,6 +249,14 @@ export function UserManager({
                       </select>
                     ) : (
                       "—"
+                    )}
+                  </td>
+                  {/* Change 25 Part I.1 — printed on every PO this person raises. */}
+                  <td className="px-4 py-2.5">
+                    {u.role === "ADMIN" || u.role === "STAFF" ? (
+                      <SignatureUpload userId={u.id} signatureUrl={u.signatureUrl} />
+                    ) : (
+                      <span className="text-faint">—</span>
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-t2">{fmtDate(u.createdAt)}</td>

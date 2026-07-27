@@ -1,15 +1,97 @@
 import { db } from "@/lib/db";
+import type { Prisma } from "@/generated/prisma/client";
+
+/** Change 25 Part G.0 — a named person, rendered as `name (role)`. */
+export type ContactRow = {
+  id: number;
+  name: string;
+  role: string | null;
+  phone: string | null;
+  email: string | null;
+};
 
 export async function getSuppliers() {
   const suppliers = await db.supplier.findMany({
-    include: { _count: { select: { trims: true, fabricOrders: true } } },
+    include: {
+      _count: { select: { trims: true, fabricOrders: true } },
+      contacts: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+    },
     orderBy: { name: "asc" },
   });
   return suppliers.map((s) => ({
     id: s.id, name: s.name, type: s.type, city: s.city, phone: s.phone,
     address: (s as { address?: string | null }).address ?? null, email: (s as { email?: string | null }).email ?? null,
+    // Change 25 Part G.1
+    gstNo: s.gstNo,
+    contacts: s.contacts.map((c): ContactRow => ({ id: c.id, name: c.name, role: c.role, phone: c.phone, email: c.email })),
     remarks: s.remarks, active: s.active, trims: s._count.trims, orders: s._count.fabricOrders,
   }));
+}
+
+export type SupplierRow = Awaited<ReturnType<typeof getSuppliers>>[number];
+
+/* ── Change 25 Part G.2 — the buyer (issuing firm) master ── */
+
+export type BuyerRow = {
+  id: number;
+  name: string;
+  gstNo: string | null;
+  city: string | null;
+  buyerAddress: string | null;
+  billingAddress: string | null;
+  active: boolean;
+  contacts: ContactRow[];
+  deliveryAddrs: { id: number; label: string | null; address: string; active: boolean }[];
+  orders: number;
+};
+
+export async function getBuyers(): Promise<BuyerRow[]> {
+  const rows = await db.buyer.findMany({
+    include: {
+      contacts: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
+      deliveryAddrs: { orderBy: { id: "asc" } },
+      _count: { select: { fabricOrders: true, trimOrders: true } },
+    },
+    orderBy: [{ active: "desc" }, { name: "asc" }],
+  });
+  return rows.map((b) => ({
+    id: b.id,
+    name: b.name,
+    gstNo: b.gstNo,
+    city: b.city,
+    buyerAddress: b.buyerAddress,
+    billingAddress: b.billingAddress,
+    active: b.active,
+    contacts: b.contacts.map((c): ContactRow => ({ id: c.id, name: c.name, role: c.role, phone: c.phone, email: c.email })),
+    deliveryAddrs: b.deliveryAddrs.map((a) => ({ id: a.id, label: a.label, address: a.address, active: a.active })),
+    orders: b._count.fabricOrders + b._count.trimOrders,
+  }));
+}
+
+/**
+ * The firm picker shown when a PO is generated — active firms with their active
+ * delivery addresses only. A deactivated address stays on the orders that already
+ * reference it but is never offered again.
+ */
+export async function getBuyerOptions() {
+  const rows = await db.buyer.findMany({
+    where: { active: true },
+    select: {
+      id: true, name: true, gstNo: true,
+      deliveryAddrs: { where: { active: true }, select: { id: true, label: true, address: true }, orderBy: { id: "asc" } },
+    },
+    orderBy: { name: "asc" },
+  });
+  return rows;
+}
+
+/** Change 25 Part I — who can be named as the PO's authorised signatory. */
+export async function getSignatoryOptions() {
+  return db.user.findMany({
+    where: { active: true, role: { in: ["ADMIN", "STAFF"] } },
+    select: { id: true, displayName: true, signatureUrl: true },
+    orderBy: { displayName: "asc" },
+  });
 }
 
 export async function getColours() {
@@ -99,6 +181,8 @@ export async function getFabricOrders() {
       // supplierId + gsm are what the edit form re-hydrates from; resolving the supplier
       // by name in the component would miss suppliers that have since been deactivated.
       supplierId: o.supplierId, gsm: o.gsm,
+      // Change 25 Part J: the remark is shown on the row and re-hydrated by the edit form.
+      remarks: o.remarks,
       lines, totalQty, colourCount: lines.length, unit: o.unit, rate: o.rate, status: o.status as string,
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
       poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
@@ -107,17 +191,77 @@ export async function getFabricOrders() {
   });
 }
 
+/**
+ * Change 25 — everything the PO document needs about the two parties, the tax line,
+ * the signatory and the attachments. Shared by both PO doc routes so they print the
+ * same blocks from the same shape.
+ */
+const PO_DOC_INCLUDE = {
+  supplier: true,
+  buyer: { include: { contacts: { orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } } },
+  deliveryAddress: true,
+  placedBy: { select: { displayName: true, signatureUrl: true } },
+  images: { orderBy: { sortOrder: "asc" } },
+} satisfies Prisma.FabricOrderInclude & Prisma.TrimOrderInclude;
+
+type PoDocSupplier = { name: string; address?: string | null; phone?: string | null; email?: string | null; gstNo?: string | null } | null;
+type PoDocBuyer = {
+  name: string; gstNo: string | null; city: string | null; buyerAddress: string | null; billingAddress: string | null;
+  contacts: { name: string; role: string | null; phone: string | null }[];
+} | null;
+
+/** `Ramesh (Owner)` — the convention the owner asked for, blank role = plain name. */
+export const contactLabel = (c: { name: string; role?: string | null }) => (c.role ? `${c.name} (${c.role})` : c.name);
+
+function poParties(o: {
+  supplier: PoDocSupplier;
+  buyer: PoDocBuyer;
+  deliveryAddress: { label: string | null; address: string } | null;
+  placedBy: { displayName: string; signatureUrl: string | null } | null;
+  gstRate: number | null;
+  images: { id: number; url: string; thumbUrl: string | null; caption: string | null }[];
+}) {
+  return {
+    supplier: o.supplier
+      ? {
+          name: o.supplier.name,
+          address: o.supplier.address ?? null,
+          phone: o.supplier.phone ?? null,
+          email: o.supplier.email ?? null,
+          gstNo: o.supplier.gstNo ?? null,
+        }
+      : null,
+    buyer: o.buyer
+      ? {
+          name: o.buyer.name,
+          gstNo: o.buyer.gstNo,
+          city: o.buyer.city,
+          address: o.buyer.buyerAddress,
+          billingAddress: o.buyer.billingAddress,
+          contacts: o.buyer.contacts.map((c) => ({ label: contactLabel(c), phone: c.phone })),
+        }
+      : null,
+    shipTo: o.deliveryAddress ? { label: o.deliveryAddress.label, address: o.deliveryAddress.address } : null,
+    signatory: o.placedBy ? { name: o.placedBy.displayName, signatureUrl: o.placedBy.signatureUrl } : null,
+    gstRate: o.gstRate,
+    images: o.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, caption: i.caption })),
+  };
+}
+
 export async function getFabricOrder(id: number) {
-  const o = await db.fabricOrder.findUnique({ where: { id }, include: { fabric: true, supplier: true, lines: true, challans: CHALLAN_LINK } });
+  const o = await db.fabricOrder.findUnique({
+    where: { id },
+    include: { fabric: true, lines: true, challans: CHALLAN_LINK, ...PO_DOC_INCLUDE },
+  });
   if (!o) return null;
   const lines = o.lines.length > 0 ? o.lines.map((l) => ({ colour: l.colour, qty: l.qty })) : o.color ? [{ colour: o.color, qty: o.qty }] : [];
   return {
     id: o.id, fabric: o.fabric.name, gsm: o.gsm, unit: o.unit, rate: o.rate, remarks: o.remarks,
-    supplier: o.supplier ? { name: o.supplier.name, address: (o.supplier as { address?: string | null }).address ?? null, phone: o.supplier.phone, email: (o.supplier as { email?: string | null }).email ?? null } : null,
     lines, totalQty: lines.reduce((a, l) => a + l.qty, 0) || o.qty,
     status: o.status as string, expectedDate: o.expectedDate, orderDate: o.orderDate,
     poNumber: o.poNumber, poGeneratedAt: o.poGeneratedAt, sentAt: o.sentAt, poStage: poStageOf(o),
     challans: o.challans as OrderChallanLink[],
+    ...poParties(o),
   };
 }
 
@@ -144,16 +288,19 @@ export async function getTrimOrders() {
 export type TrimOrderRow = Awaited<ReturnType<typeof getTrimOrders>>[number];
 
 export async function getTrimOrder(id: number) {
-  const o = await db.trimOrder.findUnique({ where: { id }, include: { trimItem: true, supplier: true, lines: true, challans: CHALLAN_LINK } });
+  const o = await db.trimOrder.findUnique({
+    where: { id },
+    include: { trimItem: true, lines: true, challans: CHALLAN_LINK, ...PO_DOC_INCLUDE },
+  });
   if (!o) return null;
   return {
     id: o.id, trim: o.trimItem.name, unit: o.unit ?? o.trimItem.unit ?? null, rate: o.rate, remarks: o.remarks,
-    supplier: o.supplier ? { name: o.supplier.name, address: (o.supplier as { address?: string | null }).address ?? null, phone: o.supplier.phone, email: (o.supplier as { email?: string | null }).email ?? null } : null,
     lines: o.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty })),
     totalQty: o.qty,
     status: o.status as string, expectedDate: o.expectedDate, orderDate: o.orderDate,
     poNumber: o.poNumber, poGeneratedAt: o.poGeneratedAt, sentAt: o.sentAt, poStage: poStageOf(o),
     challans: o.challans as OrderChallanLink[],
+    ...poParties(o),
   };
 }
 
@@ -253,6 +400,8 @@ export type UserRow = {
   id: number; username: string; displayName: string;
   role: "ADMIN" | "STAFF" | "VENDOR" | "TRIMS";
   vendorName: string | null; active: boolean; createdAt: Date;
+  /** Change 25 Part I — printed above the name on every PO this person raises. */
+  signatureUrl: string | null;
 };
 
 /**
@@ -264,7 +413,7 @@ export async function listUsers(): Promise<UserRow[]> {
   const rows = await db.user.findMany({
     select: {
       id: true, username: true, displayName: true, role: true,
-      vendorName: true, active: true, createdAt: true,
+      vendorName: true, active: true, createdAt: true, signatureUrl: true,
     },
     orderBy: [{ active: "desc" }, { role: "asc" }, { username: "asc" }],
   });
@@ -429,6 +578,8 @@ export async function getChallan(id: number) {
       returnOf: { select: { id: true, challanNo: true } },
       returns: { select: { id: true, challanNo: true, status: true, voidedAt: true, returnReason: true } },
       lines: { include: { fabric: true, trimItem: true }, orderBy: { id: "asc" } },
+      // Change 25 Part H.3: the proof photo of the paper challan / received bundle.
+      images: { orderBy: { sortOrder: "asc" } },
     },
   });
   if (!c) return null;
@@ -476,6 +627,8 @@ export async function getChallan(id: number) {
     lines,
     totalQty: lines.reduce((a, l) => a + l.qty, 0),
     totalValue,
+    // Change 25 Part H.3
+    images: c.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, caption: i.caption })),
   };
 }
 

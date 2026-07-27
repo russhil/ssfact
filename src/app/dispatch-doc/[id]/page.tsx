@@ -8,8 +8,17 @@ import { waLink } from "@/lib/share";
 import { PrintButton } from "@/components/print-button";
 import { MessageCircle } from "lucide-react";
 import { BrandLetterhead } from "@/components/brand";
+import { docTitle } from "@/components/po-doc";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
+
+/** Change 25 Part K.1 — named after the DC number. */
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const e = await db.dispatchEvent.findUnique({ where: { id: Number(id) }, select: { dispatchNo: true } });
+  return { title: docTitle(e?.dispatchNo ?? null, `Dispatch #${id}`) };
+}
 
 const SIZE_ORDER = ["S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"];
 const sizeRank = (s: string) => { const i = SIZE_ORDER.indexOf(s.toUpperCase()); return i === -1 ? 99 : i; };

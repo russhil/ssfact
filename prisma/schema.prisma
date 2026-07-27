@@ -569,6 +569,14 @@ model User {
   // delete frees the name for a different person and orphans the audit trail.
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
+  // Change 25 Part I — this staff member's signature, uploaded once and printed
+  // above their name in the PO's authorised-signatory block. One image per user,
+  // so a plain URL rather than an ImageAsset gallery.
+  signatureUrl String?
+
+  // Change 25 Part I — POs this person raised (their authorised signature).
+  fabricOrdersPlaced FabricOrder[] @relation("FabricOrderPlacedBy")
+  trimOrdersPlaced   TrimOrder[]   @relation("TrimOrderPlacedBy")
 
   // Change 25 Part A — the actor side of every audit stamp. Named relations only
   // because a model can point at User twice (created/updated); nothing reads these
@@ -760,9 +768,11 @@ model Supplier {
   name         String        @unique
   type         SupplierType?
   city         String?
-  phone        String?
+  phone        String? // the firm's main line; named people live in contacts[]
   address      String? // for the PO document
   email        String? // for the PO email (mailto)
+  // Change 25 Part G.1: GSTIN, printed on the PO document.
+  gstNo        String?
   remarks      String?
   active           Boolean           @default(true)
   trims            TrimItem[]
@@ -772,8 +782,77 @@ model Supplier {
   // that used to live under a free-text name.
   trimOrders       TrimOrder[]
   fabricSuppliers  FabricSupplier[]
+  // Change 25 Part G.0
+  contacts         Contact[]
 
   @@index([type])
+}
+
+/**
+ * Change 25 Part G.0 — named people at a supplier or a buyer firm.
+ *
+ * The floor team needs to know WHO to call and in what capacity, not just a
+ * number on the letterhead. Rendered everywhere as `name (role)` —
+ * "Ramesh (Owner)", "Priya (Accounts)".
+ *
+ * One child table serves both parents through nullable FKs, the same
+ * one-table-serves-many pattern as ImageAsset. The parent's own phone/email stay
+ * as the main line for back-compat.
+ */
+model Contact {
+  id         Int       @id @default(autoincrement())
+  name       String
+  role       String? // "Owner" | "Accounts" | "Dispatch" | free text — shown in ()
+  phone      String?
+  email      String?
+  sortOrder  Int?
+  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierId Int?
+  buyer      Buyer?    @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  buyerId    Int?
+
+  @@index([supplierId])
+  @@index([buyerId])
+}
+
+/**
+ * Change 25 Part G.2 — the firm a purchase order is issued FROM.
+ *
+ * Not an end customer: end-buyer/sales management stays in the separate B2B app.
+ * This is the factory's own bill-from / ship-from identity. The owner runs three
+ * or four firms and must choose which one a PO goes out under, with that firm's
+ * GST, billing address and one of its delivery addresses.
+ */
+model Buyer {
+  id             Int                    @id @default(autoincrement())
+  name           String                 @unique
+  gstNo          String?
+  city           String?
+  buyerAddress   String? // main / registered address
+  billingAddress String? // the second address — where the bill goes
+  active         Boolean                @default(true)
+  contacts       Contact[]
+  deliveryAddrs  BuyerDeliveryAddress[]
+  fabricOrders   FabricOrder[]
+  trimOrders     TrimOrder[]
+}
+
+/**
+ * A delivery address must be its own table, not a field: a PO references ONE
+ * specific address by FK, and the set changes over time.
+ */
+model BuyerDeliveryAddress {
+  id      Int     @id @default(autoincrement())
+  buyer   Buyer   @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  buyerId Int
+  label   String? // "Warehouse", "Unit 2"
+  address String
+  active  Boolean @default(true)
+
+  fabricOrders FabricOrder[]
+  trimOrders   TrimOrder[]
+
+  @@index([buyerId])
 }
 
 // Global colour master (Change 08) — powers the colour dropdown; order lines store a string.
@@ -841,6 +920,20 @@ model FabricOrder {
   // Change 18 Part C: the inward challans this PO was received on.
   challans      MaterialChallan[]
 
+  // Change 25 Part G.3 — which of our firms this PO is issued from, and to which
+  // of its delivery addresses. Nullable so every existing order still prints.
+  buyer             Buyer?                @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  buyerId           Int?
+  deliveryAddress   BuyerDeliveryAddress? @relation(fields: [deliveryAddressId], references: [id], onDelete: SetNull)
+  deliveryAddressId Int?
+  // Change 25 Part I — the staff member who raised the PO, i.e. its authorised
+  // signatory. Distinct from createdById: a PO can be generated later, by someone
+  // other than whoever drafted the order.
+  placedBy          User?                 @relation("FabricOrderPlacedBy", fields: [placedById], references: [id], onDelete: SetNull)
+  placedById        Int?
+  // Change 25 Part K.2 — GST %, stored so a reprint is identical.
+  gstRate           Float?
+
   // Change 25 Part A — audit stamps.
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now()) @updatedAt
@@ -888,6 +981,17 @@ model TrimOrder {
   sentAt        DateTime?
   lines         TrimOrderLine[]
   challans      MaterialChallan[]
+
+  // Change 25 Parts G.3 / I / K.2 — mirror of FabricOrder.
+  buyer             Buyer?                @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  buyerId           Int?
+  deliveryAddress   BuyerDeliveryAddress? @relation(fields: [deliveryAddressId], references: [id], onDelete: SetNull)
+  deliveryAddressId Int?
+  placedBy          User?                 @relation("TrimOrderPlacedBy", fields: [placedById], references: [id], onDelete: SetNull)
+  placedById        Int?
+  gstRate           Float?
+  // Change 25 Part H.2 — sample photos against a trim order.
+  images            ImageAsset[]
 
   // Change 25 Part A — audit stamps.
   createdAt   DateTime @default(now())
@@ -951,11 +1055,21 @@ model ImageAsset {
   fabricOrderId Int?
   product       Product?     @relation(fields: [productId], references: [id], onDelete: Cascade)
   productId     Int?
+  // Change 25 Part H — two more attach points. Each needs its own nullable FK
+  // (that is how the gallery stays queryable per entity), so we add exactly the
+  // two that earn it rather than a loose polymorphic blob: a trim order's sample
+  // photo, and the paper delivery challan snapped against an inward receipt.
+  trimOrder        TrimOrder?       @relation(fields: [trimOrderId], references: [id], onDelete: Cascade)
+  trimOrderId      Int?
+  materialChallan  MaterialChallan? @relation(fields: [materialChallanId], references: [id], onDelete: Cascade)
+  materialChallanId Int?
 
   @@index([trimItemId])
   @@index([fabricId])
   @@index([fabricOrderId])
   @@index([productId])
+  @@index([trimOrderId])
+  @@index([materialChallanId])
 }
 
 model ProductionOrder {
@@ -1009,6 +1123,8 @@ model MaterialChallan {
   voidedAt  DateTime?
   lines     MaterialChallanLine[]
   createdAt DateTime              @default(now())
+  // Change 25 Part H.3 — proof photo of the paper challan / received bundle.
+  images    ImageAsset[]
 
   // Change 25 Part D — purchase return. A return is an OUTWARD challan whose
   // counterparty is a supplier, pointing back at the inward challan the goods

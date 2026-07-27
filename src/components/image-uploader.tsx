@@ -17,7 +17,9 @@ export function ImageUploader({
   images,
   label = "Photos",
 }: {
-  entity: "trim" | "fabric" | "fabricOrder" | "product";
+  // Change 25 Part H: trimOrder + challan are the two new attach points. Keep this in
+  // step with ImgEntity / IMG_FK in actions.ts — they are the same set.
+  entity: "trim" | "fabric" | "fabricOrder" | "product" | "trimOrder" | "challan";
   entityId: number;
   kind?: string;
   multiple?: boolean;

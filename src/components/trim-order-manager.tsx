@@ -9,6 +9,7 @@ import { createTrimOrder, updateTrimOrder, deleteTrimOrder, draftChallanFromTrim
 import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr } from "@/lib/format";
 import { orderFlag } from "@/lib/order-flags";
+import { GeneratePoButton, type BuyerOption, type SignatoryOption } from "@/components/generate-po";
 import { Plus, X, FileText, Truck, Pencil, Trash2, Undo2 } from "lucide-react";
 
 /**
@@ -40,9 +41,11 @@ const STATUS_TONE: Record<string, "primary" | "warn" | "ok" | "default" | "dange
 const STAGE_TONE: Record<string, "default" | "primary" | "ok"> = { Draft: "default", "PO Generated": "primary", Sent: "ok" };
 
 export function TrimOrderManager({
-  orders, trims, suppliers, colours, units,
+  orders, trims, suppliers, colours, units, buyers, signatories, meId, canOverrideSignatory,
 }: {
   orders: Order[]; trims: TrimPick[]; suppliers: Pick[]; colours: string[]; units: string[];
+  // Change 25 G.3 / I.2 / K.2 — issued from which firm, GST %, and who signs it.
+  buyers: BuyerOption[]; signatories: SignatoryOption[]; meId: number; canOverrideSignatory: boolean;
 }) {
   const router = useRouter();
   const [trimId, setTrimId] = useState<string>("");
@@ -420,7 +423,11 @@ export function TrimOrderManager({
           <tbody>
             {view.rows.map((o) => (
               <tr key={o.id} className={`border-b border-hairline last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
-                <td className="px-4 py-2.5 font-semibold">{o.trim}</td>
+                <td className="px-4 py-2.5 font-semibold">
+                  {o.trim}
+                  {/* Change 25 Part J */}
+                  {o.remarks && <div className="t-xs font-normal text-t3">{o.remarks}</div>}
+                </td>
                 <td className="px-4 py-2.5 text-t2">
                   {o.lines.length === 0 ? <span className="text-faint">flat</span> : (
                     <div className="flex flex-wrap gap-1">
@@ -472,7 +479,18 @@ export function TrimOrderManager({
                 </td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-wrap justify-end gap-1.5">
-                    {!o.poNumber && <button onClick={() => act(() => generateTrimPO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Generate PO</button>}
+                    {/* Change 25 — see the fabric manager: one dialog for firm, GST and signatory. */}
+                    {!o.poNumber && (
+                      <GeneratePoButton
+                        orderId={o.id}
+                        kind="TRIM"
+                        buyers={buyers}
+                        signatories={signatories}
+                        meId={meId}
+                        canOverrideSignatory={canOverrideSignatory}
+                        disabled={busy}
+                      />
+                    )}
                     {o.poNumber && <Link href={`/pot/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Open PO</Link>}
                     {/* Change 22 Part A: RECEIVED rows stop offering "Log Inward" as the primary
                         action — edit / reverse live in the CHALLAN column; a split delivery is a

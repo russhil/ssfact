@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
 import { requireRole, hashPassword, canSeeCost as canSeeCostFor } from "@/lib/auth";
+import type { SessionPayload } from "@/lib/session";
 import { logAudit, computeChanges } from "@/lib/audit";
 import { colorKey } from "@/lib/colour";
 import { num } from "@/lib/format";
@@ -1189,32 +1190,243 @@ export async function removeBomLine(input: { id: number }) {
 
 // ── Change 05 — masters & procurement ──
 
-export async function createSupplier(input: { name: string; type?: string | null; city?: string | null; phone?: string | null; address?: string | null; email?: string | null; remarks?: string | null }) {
-  await requireRole("ADMIN", "STAFF");
+/**
+ * Change 25 Part G.0 — a named person at a supplier or a buyer firm.
+ * Blank names are dropped rather than rejected: the form always carries a trailing
+ * empty row, and an empty row is not an error.
+ */
+export type ContactInput = {
+  name: string;
+  role?: string | null;
+  phone?: string | null;
+  email?: string | null;
+};
+
+const cleanContacts = (rows: ContactInput[] | undefined) =>
+  (rows ?? [])
+    .filter((c) => c.name?.trim())
+    .map((c, i) => ({
+      name: c.name.trim(),
+      role: c.role?.trim() || null,
+      phone: c.phone?.trim() || null,
+      email: c.email?.trim() || null,
+      sortOrder: i,
+    }));
+
+export async function createSupplier(input: { name: string; type?: string | null; city?: string | null; phone?: string | null; address?: string | null; email?: string | null; gstNo?: string | null; remarks?: string | null; contacts?: ContactInput[] }) {
+  const user = await requireRole("ADMIN", "STAFF");
   if (!input.name.trim()) throw new Error("Name required");
-  const s = await db.supplier.create({
-    data: { name: input.name.trim(), type: (input.type ?? null) as any, city: input.city ?? null, phone: input.phone ?? null, address: input.address ?? null, email: input.email ?? null, remarks: input.remarks ?? null } as any,
+  const contacts = cleanContacts(input.contacts);
+  const s = await db.$transaction(async (tx) => {
+    const row = await tx.supplier.create({
+      data: {
+        name: input.name.trim(), type: (input.type ?? null) as any, city: input.city ?? null,
+        phone: input.phone ?? null, address: input.address ?? null, email: input.email ?? null,
+        gstNo: input.gstNo?.trim() || null, remarks: input.remarks ?? null,
+        ...(contacts.length ? { contacts: { create: contacts } } : {}),
+      } as any,
+    });
+    await logAudit(tx, user, {
+      action: "createSupplier",
+      entity: "Supplier",
+      entityId: row.id,
+      entityLabel: row.name,
+      summary: `Added supplier ${row.name}`,
+      meta: { gstNo: input.gstNo ?? null, city: input.city ?? null, contacts: contacts.length },
+    });
+    return row;
   });
   revalidatePath("/suppliers");
   return { id: s.id };
 }
 
-export async function updateSupplier(input: { id: number; name?: string; type?: string | null; city?: string | null; phone?: string | null; address?: string | null; email?: string | null; remarks?: string | null; active?: boolean }) {
-  await requireRole("ADMIN", "STAFF");
-  await db.supplier.update({
+export async function updateSupplier(input: { id: number; name?: string; type?: string | null; city?: string | null; phone?: string | null; address?: string | null; email?: string | null; gstNo?: string | null; remarks?: string | null; active?: boolean; contacts?: ContactInput[] }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const before = await db.supplier.findUnique({
     where: { id: input.id },
-    data: {
+    select: { name: true, type: true, city: true, phone: true, address: true, email: true, gstNo: true, remarks: true, active: true },
+  });
+  if (!before) throw new Error("Supplier not found");
+
+  const patch = {
       ...(input.name != null ? { name: input.name.trim() } : {}),
       ...(input.type !== undefined ? { type: (input.type ?? null) as any } : {}),
       ...(input.city !== undefined ? { city: input.city } : {}),
       ...(input.phone !== undefined ? { phone: input.phone } : {}),
       ...(input.address !== undefined ? { address: input.address } : {}),
       ...(input.email !== undefined ? { email: input.email } : {}),
+      ...(input.gstNo !== undefined ? { gstNo: input.gstNo?.trim() || null } : {}),
       ...(input.remarks !== undefined ? { remarks: input.remarks } : {}),
       ...(input.active !== undefined ? { active: input.active } : {}),
-    } as any,
+  } as Record<string, unknown>;
+
+  await db.$transaction(async (tx) => {
+    await tx.supplier.update({ where: { id: input.id }, data: patch as any });
+    // Contacts are replaced wholesale when the form sends them: the repeatable rows
+    // ARE the list, so a removed row must disappear. `undefined` leaves them alone,
+    // which is what the row-level active toggle sends.
+    if (input.contacts !== undefined) {
+      await tx.contact.deleteMany({ where: { supplierId: input.id } });
+      const rows = cleanContacts(input.contacts);
+      for (const c of rows) await tx.contact.create({ data: { ...c, supplierId: input.id } });
+    }
+    const changes = computeChanges(before as unknown as Record<string, unknown>, patch);
+    await logAudit(tx, user, {
+      action: "updateSupplier",
+      entity: "Supplier",
+      entityId: input.id,
+      entityLabel: input.name?.trim() || before.name,
+      summary: changes
+        ? `Edited ${Object.keys(changes).join(", ")} on supplier ${before.name}`
+        : `Updated contacts on supplier ${before.name}`,
+      changes,
+    });
   });
   revalidatePath("/suppliers");
+  return { ok: true };
+}
+
+/* ── Change 25 Part G.2 — the buyer (issuing firm) master ──
+ *
+ * A purchase order has two parties. The supplier side was already modelled; this is
+ * the other one — which of the owner's own firms the PO goes out under, with that
+ * firm's GST, registered and billing addresses, and its set of delivery addresses.
+ */
+
+export async function createBuyer(input: {
+  name: string;
+  gstNo?: string | null;
+  city?: string | null;
+  buyerAddress?: string | null;
+  billingAddress?: string | null;
+  contacts?: ContactInput[];
+  deliveryAddrs?: { label?: string | null; address: string }[];
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const name = input.name?.trim();
+  if (!name) throw new Error("Name required");
+  const contacts = cleanContacts(input.contacts);
+  const addrs = (input.deliveryAddrs ?? [])
+    .filter((a) => a.address?.trim())
+    .map((a) => ({ label: a.label?.trim() || null, address: a.address.trim() }));
+
+  const b = await db.$transaction(async (tx) => {
+    const row = await tx.buyer.create({
+      data: {
+        name,
+        gstNo: input.gstNo?.trim() || null,
+        city: input.city?.trim() || null,
+        buyerAddress: input.buyerAddress?.trim() || null,
+        billingAddress: input.billingAddress?.trim() || null,
+        ...(contacts.length ? { contacts: { create: contacts } } : {}),
+        ...(addrs.length ? { deliveryAddrs: { create: addrs } } : {}),
+      },
+    });
+    await logAudit(tx, user, {
+      action: "createBuyer",
+      entity: "Buyer",
+      entityId: row.id,
+      entityLabel: row.name,
+      summary: `Added firm ${row.name}`,
+      meta: { gstNo: input.gstNo ?? null, contacts: contacts.length, deliveryAddresses: addrs.length },
+    });
+    return row;
+  });
+  revalidatePath("/buyers");
+  return { id: b.id };
+}
+
+export async function updateBuyer(input: {
+  id: number;
+  name?: string;
+  gstNo?: string | null;
+  city?: string | null;
+  buyerAddress?: string | null;
+  billingAddress?: string | null;
+  active?: boolean;
+  contacts?: ContactInput[];
+  deliveryAddrs?: { id?: number; label?: string | null; address: string; active?: boolean }[];
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const before = await db.buyer.findUnique({
+    where: { id: input.id },
+    select: { name: true, gstNo: true, city: true, buyerAddress: true, billingAddress: true, active: true },
+  });
+  if (!before) throw new Error("Firm not found");
+
+  const patch = {
+    ...(input.name != null ? { name: input.name.trim() } : {}),
+    ...(input.gstNo !== undefined ? { gstNo: input.gstNo?.trim() || null } : {}),
+    ...(input.city !== undefined ? { city: input.city?.trim() || null } : {}),
+    ...(input.buyerAddress !== undefined ? { buyerAddress: input.buyerAddress?.trim() || null } : {}),
+    ...(input.billingAddress !== undefined ? { billingAddress: input.billingAddress?.trim() || null } : {}),
+    ...(input.active !== undefined ? { active: input.active } : {}),
+  } as Record<string, unknown>;
+
+  await db.$transaction(async (tx) => {
+    await tx.buyer.update({ where: { id: input.id }, data: patch as any });
+    if (input.contacts !== undefined) {
+      await tx.contact.deleteMany({ where: { buyerId: input.id } });
+      for (const c of cleanContacts(input.contacts)) await tx.contact.create({ data: { ...c, buyerId: input.id } });
+    }
+    if (input.deliveryAddrs !== undefined) {
+      // Addresses are NOT deleted: a PO points at one by FK, and destroying it would
+      // blank the ship-to on an already-issued document. Dropped rows deactivate.
+      const keep = new Set(input.deliveryAddrs.filter((a) => a.id).map((a) => a.id!));
+      await tx.buyerDeliveryAddress.updateMany({
+        where: { buyerId: input.id, id: { notIn: [...keep] } },
+        data: { active: false },
+      });
+      for (const a of input.deliveryAddrs) {
+        if (!a.address?.trim()) continue;
+        const data = { label: a.label?.trim() || null, address: a.address.trim(), active: a.active ?? true };
+        if (a.id) await tx.buyerDeliveryAddress.update({ where: { id: a.id }, data });
+        else await tx.buyerDeliveryAddress.create({ data: { ...data, buyerId: input.id } });
+      }
+    }
+    const changes = computeChanges(before as unknown as Record<string, unknown>, patch);
+    await logAudit(tx, user, {
+      action: "updateBuyer",
+      entity: "Buyer",
+      entityId: input.id,
+      entityLabel: input.name?.trim() || before.name,
+      summary: changes
+        ? `Edited ${Object.keys(changes).join(", ")} on firm ${before.name}`
+        : `Updated contacts or addresses on firm ${before.name}`,
+      changes,
+    });
+  });
+  revalidatePath("/buyers");
+  revalidatePath("/fabric-orders");
+  revalidatePath("/trim-orders");
+  return { ok: true };
+}
+
+export async function addBuyerDeliveryAddress(input: { buyerId: number; label?: string | null; address: string }) {
+  await requireRole("ADMIN", "STAFF");
+  if (!input.address?.trim()) throw new Error("Address required");
+  const a = await db.buyerDeliveryAddress.create({
+    data: { buyerId: input.buyerId, label: input.label?.trim() || null, address: input.address.trim() },
+  });
+  revalidatePath("/buyers");
+  return { id: a.id };
+}
+
+export async function deactivateBuyer(input: { id: number; active?: boolean }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const next = input.active ?? false;
+  await db.$transaction(async (tx) => {
+    const b = await tx.buyer.update({ where: { id: input.id }, data: { active: next }, select: { name: true } });
+    await logAudit(tx, user, {
+      action: "deactivateBuyer",
+      entity: "Buyer",
+      entityId: input.id,
+      entityLabel: b.name,
+      summary: `${next ? "Reactivated" : "Deactivated"} firm ${b.name}`,
+      changes: { active: { old: !next, new: next } },
+    });
+  });
+  revalidatePath("/buyers");
   return { ok: true };
 }
 
@@ -1320,6 +1532,33 @@ export async function setUserActive(input: { id: number; active: boolean }) {
     await assertNotLastAdmin(input.id);
   }
   await db.user.update({ where: { id: input.id }, data: { active: input.active } as any });
+  revalidatePath("/users");
+  return { ok: true };
+}
+
+/**
+ * Change 25 Part I — store a staff member's signature image, printed above their name
+ * in the PO's authorised-signatory block. The file goes through the existing
+ * uploadImage() provider client-side; this only records the URL. Passing null clears it.
+ */
+export async function setUserSignature(input: { id: number; url: string | null }) {
+  const me = await requireRole("ADMIN");
+  await db.$transaction(async (tx) => {
+    const u = await tx.user.update({
+      where: { id: input.id },
+      data: { signatureUrl: input.url },
+      select: { displayName: true },
+    });
+    await logAudit(tx, me, {
+      action: "setUserSignature",
+      entity: "User",
+      entityId: input.id,
+      entityLabel: u.displayName,
+      summary: input.url
+        ? `Loaded a signature for ${u.displayName}`
+        : `Removed the signature for ${u.displayName}`,
+    });
+  });
   revalidatePath("/users");
   return { ok: true };
 }
@@ -1508,6 +1747,9 @@ export async function createFabricOrder(input: {
 export async function updateFabricOrder(input: {
   id: number; supplierId?: number | null; expectedDate?: string | null; rate?: number | null;
   gsm?: number | null; unit?: "KG" | "MTR"; lines?: { colour: string; qty: number }[];
+  // Change 25 Part J: createFabricOrder always accepted remarks; the edit path did not,
+  // so a remark could be set on creation and then never corrected.
+  remarks?: string | null;
 }) {
   await requireRole("ADMIN", "STAFF");
   const o = await db.fabricOrder.findUnique({ where: { id: input.id }, select: { poNumber: true, receivedDate: true } });
@@ -1531,6 +1773,7 @@ export async function updateFabricOrder(input: {
         ...(input.gsm !== undefined ? { gsm: input.gsm } : {}),
         ...(input.unit !== undefined ? { unit: input.unit as any } : {}),
         ...(input.expectedDate !== undefined ? { expectedDate: input.expectedDate ? new Date(input.expectedDate) : null } : {}),
+        ...(input.remarks !== undefined ? { remarks: input.remarks } : {}),
       },
     });
   });
@@ -1610,9 +1853,35 @@ export async function receiveFabricOrder(input: { id: number }) {
   return { ok: true };
 }
 
+/**
+ * Change 25 — what a PO carries beyond its number. Every field is optional, so the
+ * bare `generatePO({ id })` call still behaves exactly as it did.
+ *   buyerId / deliveryAddressId — which of our firms issues it, shipping where (G.3)
+ *   gstRate                     — the tax %, stored so a reprint is identical (K.2)
+ *   placedById                  — the authorised signatory; defaults to the caller,
+ *                                 overridable by an owner generating on someone
+ *                                 else's behalf (I.2)
+ */
+export type PoIssueInput = {
+  buyerId?: number | null;
+  deliveryAddressId?: number | null;
+  gstRate?: number | null;
+  placedById?: number | null;
+};
+
+/** Resolve the signatory: an owner may name someone else, anyone else signs their own. */
+async function resolveSignatory(user: SessionPayload, placedById?: number | null) {
+  if (placedById == null || placedById === user.userId) return user.userId;
+  // Only an owner can sign on someone else's behalf; a staff PO always carries its
+  // own author, so the block can never be used to misattribute authorisation.
+  if (!canSeeCostFor(user)) return user.userId;
+  const staff = await db.user.findUnique({ where: { id: placedById }, select: { id: true, active: true } });
+  return staff?.active ? staff.id : user.userId;
+}
+
 /** Assign PO-YYYY-NNN (yearly sequence), lock the order. Idempotent. */
-export async function generatePO(input: { id: number }) {
-  await requireRole("ADMIN", "STAFF");
+export async function generatePO(input: { id: number } & PoIssueInput) {
+  const user = await requireRole("ADMIN", "STAFF");
   const o = await db.fabricOrder.findUnique({
     where: { id: input.id },
     select: { poNumber: true, fabricId: true, supplierId: true, rate: true, unit: true },
@@ -1624,7 +1893,36 @@ export async function generatePO(input: { id: number }) {
   const existing = await db.fabricOrder.findMany({ where: { poNumber: { startsWith: prefix } }, select: { poNumber: true } });
   const maxN = existing.reduce((m, e) => Math.max(m, parseInt(e.poNumber!.slice(prefix.length), 10) || 0), 0);
   const poNumber = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
-  await db.fabricOrder.update({ where: { id: input.id }, data: { poNumber, poGeneratedAt: new Date() } });
+  const placedById = await resolveSignatory(user, input.placedById);
+
+  await db.$transaction(async (tx) => {
+    await tx.fabricOrder.update({
+      where: { id: input.id },
+      data: {
+        poNumber,
+        poGeneratedAt: new Date(),
+        placedById,
+        ...(input.buyerId !== undefined ? { buyerId: input.buyerId } : {}),
+        ...(input.deliveryAddressId !== undefined ? { deliveryAddressId: input.deliveryAddressId } : {}),
+        ...(input.gstRate !== undefined ? { gstRate: input.gstRate } : {}),
+        updatedById: user.userId,
+      },
+    });
+    await logAudit(tx, user, {
+      action: "generatePO",
+      entity: "FabricOrder",
+      entityId: input.id,
+      entityLabel: poNumber,
+      summary: `Generated ${poNumber}`,
+      changes: { poNumber: { old: null, new: poNumber } },
+      meta: {
+        buyerId: input.buyerId ?? null,
+        deliveryAddressId: input.deliveryAddressId ?? null,
+        gstRate: input.gstRate ?? null,
+        placedById,
+      },
+    });
+  });
   // Change 18 Part E: a PO carries the TRUE price for that order — it does NOT overwrite
   // the master's estimate. The confirmed price is appended to the fabric's sourcing history
   // with its provenance (which PO, when) so the master shows "who quoted what".
@@ -1766,8 +2064,8 @@ export async function deleteTrimOrder(input: { id: number }) {
  * Assign POT-YYYY-NNN (yearly sequence), lock the order. Idempotent.
  * Trims get their own series so trim and fabric PO numbers never collide.
  */
-export async function generateTrimPO(input: { id: number }) {
-  await requireRole("ADMIN", "STAFF");
+export async function generateTrimPO(input: { id: number } & PoIssueInput) {
+  const user = await requireRole("ADMIN", "STAFF");
   const o = await db.trimOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
   if (!o) throw new Error("Order not found");
   if (o.poNumber) return { poNumber: o.poNumber }; // idempotent
@@ -1779,7 +2077,36 @@ export async function generateTrimPO(input: { id: number }) {
   });
   const maxN = existing.reduce((m, e) => Math.max(m, parseInt(e.poNumber!.slice(prefix.length), 10) || 0), 0);
   const poNumber = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
-  await db.trimOrder.update({ where: { id: input.id }, data: { poNumber, poGeneratedAt: new Date() } });
+  const placedById = await resolveSignatory(user, input.placedById);
+
+  await db.$transaction(async (tx) => {
+    await tx.trimOrder.update({
+      where: { id: input.id },
+      data: {
+        poNumber,
+        poGeneratedAt: new Date(),
+        placedById,
+        ...(input.buyerId !== undefined ? { buyerId: input.buyerId } : {}),
+        ...(input.deliveryAddressId !== undefined ? { deliveryAddressId: input.deliveryAddressId } : {}),
+        ...(input.gstRate !== undefined ? { gstRate: input.gstRate } : {}),
+        updatedById: user.userId,
+      },
+    });
+    await logAudit(tx, user, {
+      action: "generateTrimPO",
+      entity: "TrimOrder",
+      entityId: input.id,
+      entityLabel: poNumber,
+      summary: `Generated ${poNumber}`,
+      changes: { poNumber: { old: null, new: poNumber } },
+      meta: {
+        buyerId: input.buyerId ?? null,
+        deliveryAddressId: input.deliveryAddressId ?? null,
+        gstRate: input.gstRate ?? null,
+        placedById,
+      },
+    });
+  });
   // Change 18 Part E: the PO carries the true price; the trim master's estimate is untouched.
   revalidatePath("/trim-orders");
   return { poNumber };
@@ -1875,9 +2202,13 @@ export async function upsertCuttingMaster(input: { id?: number; name: string; ac
 
 // ── Change 06 — images ──
 
-type ImgEntity = "trim" | "fabric" | "fabricOrder" | "product";
-const IMG_FK: Record<ImgEntity, "trimItemId" | "fabricId" | "fabricOrderId" | "productId"> = {
+// Change 25 Part H: two more attach points — a trim order's sample photo and the
+// paper challan snapped against an inward receipt. One nullable FK each on
+// ImageAsset, which is what keeps the gallery queryable per entity.
+type ImgEntity = "trim" | "fabric" | "fabricOrder" | "product" | "trimOrder" | "challan";
+const IMG_FK: Record<ImgEntity, "trimItemId" | "fabricId" | "fabricOrderId" | "productId" | "trimOrderId" | "materialChallanId"> = {
   trim: "trimItemId", fabric: "fabricId", fabricOrder: "fabricOrderId", product: "productId",
+  trimOrder: "trimOrderId", challan: "materialChallanId",
 };
 
 export async function attachImages(input: { entity: ImgEntity; entityId: number; kind?: string | null; items: { url: string; thumbUrl?: string | null }[] }) {

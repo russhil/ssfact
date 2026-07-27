@@ -9,6 +9,7 @@ import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFr
 import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
 import { orderFlag } from "@/lib/order-flags";
+import { GeneratePoButton, type BuyerOption, type SignatoryOption } from "@/components/generate-po";
 import { Plus, Check, X, FileText, Truck, Pencil, Trash2, Undo2, CornerUpLeft } from "lucide-react";
 
 type Line = { colour: string; qty: number };
@@ -17,6 +18,7 @@ type Order = {
   id: number; fabric: string; fabricId: number; supplier: string | null; supplierId: number | null;
   gsm: number | null; lines: Line[]; totalQty: number;
   colourCount: number; unit: string; rate: number | null; status: string; expectedDate: Date | string | null;
+  remarks: string | null;
   receivedDate: Date | string | null; poNumber: string | null; poStage: string;
   // Change 18 Part C: the inward challans this order was received on.
   challans: ChallanLink[];
@@ -34,9 +36,11 @@ const STAGE_TONE: Record<string, "default" | "primary" | "ok"> = { Draft: "defau
 const ADD = "__add__";
 
 export function FabricOrderManager({
-  orders, fabrics, suppliers, colours,
+  orders, fabrics, suppliers, colours, buyers, signatories, meId, canOverrideSignatory,
 }: {
   orders: Order[]; fabrics: FabricPick[]; suppliers: Pick[]; colours: ColourOpt[];
+  // Change 25 G.3 / I.2 / K.2 — issued from which firm, GST %, and who signs it.
+  buyers: BuyerOption[]; signatories: SignatoryOption[]; meId: number; canOverrideSignatory: boolean;
 }) {
   const router = useRouter();
   const [fabricList, setFabricList] = useState<FabricPick[]>(fabrics);
@@ -48,6 +52,9 @@ export function FabricOrderManager({
   const [expected, setExpected] = useState("");
   const [rate, setRate] = useState("");
   const [gsm, setGsm] = useState("");
+  // Change 25 Part J: the column and the create action always supported a remark;
+  // this form simply never rendered the input, so it could not be entered.
+  const [remarks, setRemarks] = useState("");
   // Change 17 Part G: unit is selectable per order, defaulting from the fabric master.
   const [unit, setUnit] = useState("MTR");
 
@@ -115,7 +122,7 @@ export function FabricOrderManager({
 
   function resetForm() {
     setEditingId(null);
-    setFabricId(""); setSupplierId(""); setExpected(""); setRate(""); setGsm(""); setUnit("MTR");
+    setFabricId(""); setSupplierId(""); setExpected(""); setRate(""); setGsm(""); setUnit("MTR"); setRemarks("");
     setLines([{ colour: "", qty: 0 }]);
     setAddColourRow(null); setColourDraft(""); setAddFabric(false); setFabricDraft("");
   }
@@ -128,6 +135,7 @@ export function FabricOrderManager({
         fabricId: +fabricId, supplierId: supplierId ? +supplierId : null,
         expectedDate: expected || null, rate: rate ? +rate : null, gsm: gsm ? +gsm : null,
         unit: unit as "KG" | "MTR",
+        remarks: remarks.trim() || null,
         lines: filled,
       });
       resetForm();
@@ -142,6 +150,7 @@ export function FabricOrderManager({
     setExpected(dateInput(o.expectedDate));
     setRate(o.rate != null ? String(o.rate) : "");
     setGsm(o.gsm != null ? String(o.gsm) : "");
+    setRemarks(o.remarks ?? "");
     setUnit(o.unit);
     setLines([...o.lines.map((l) => ({ colour: l.colour, qty: l.qty })), { colour: "", qty: 0 }]);
     setAddColourRow(null); setAddFabric(false);
@@ -156,6 +165,7 @@ export function FabricOrderManager({
         id: editingId, supplierId: supplierId ? +supplierId : null,
         expectedDate: expected || null, rate: rate ? +rate : null, gsm: gsm ? +gsm : null,
         unit: unit as "KG" | "MTR",
+        remarks: remarks.trim() || null,
         lines: filled,
       });
       resetForm();
@@ -365,6 +375,11 @@ export function FabricOrderManager({
                 <option value="KG">KG</option>
               </select>
             </div>
+            {/* Change 25 Part J */}
+            <div className="col-span-2">
+              <label className="mb-1 block t-xs font-semibold text-t1">Remark</label>
+              <input value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="—" className={inp} />
+            </div>
           </div>
 
           {/* colour × qty */}
@@ -454,7 +469,11 @@ export function FabricOrderManager({
           <tbody>
             {view.rows.map((o) => (
               <tr key={o.id} className={`border-b border-hairline last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
-                <td className="px-4 py-2.5 font-semibold">{o.fabric}</td>
+                <td className="px-4 py-2.5 font-semibold">
+                  {o.fabric}
+                  {/* Change 25 Part J */}
+                  {o.remarks && <div className="t-xs font-normal text-t3">{o.remarks}</div>}
+                </td>
                 <td className="px-4 py-2.5 text-t2">
                   <div className="flex flex-wrap gap-1">
                     {o.lines.map((l, i) => <span key={i} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs">{l.colour} {num(l.qty)}</span>)}
@@ -509,7 +528,20 @@ export function FabricOrderManager({
                 </td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-wrap justify-end gap-1.5">
-                    {!o.poNumber && <button onClick={() => act(() => generatePO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Generate PO</button>}
+                    {/* Change 25: generating a PO now also chooses the issuing firm, the delivery
+                        address, the GST % and the signatory — one dialog, since all three
+                        parts attach at exactly this moment. */}
+                    {!o.poNumber && (
+                      <GeneratePoButton
+                        orderId={o.id}
+                        kind="FABRIC"
+                        buyers={buyers}
+                        signatories={signatories}
+                        meId={meId}
+                        canOverrideSignatory={canOverrideSignatory}
+                        disabled={busy}
+                      />
+                    )}
                     {o.poNumber && <Link href={`/po/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Open PO</Link>}
                     {/* Change 22 Part A: once RECEIVED, logging another inward is no longer
                         the primary action — the row's job is now edit / reverse (in the

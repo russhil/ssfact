@@ -5,8 +5,17 @@ import { getCurrentUser } from "@/lib/auth";
 import { num, fmtDate } from "@/lib/format";
 import { jobItem, jobStyle } from "@/lib/job-display";
 import { PrintButton } from "@/components/print-button";
+import { docTitle } from "@/components/po-doc";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
+
+/** Change 25 Part K.1 — named after the job card this challan belongs to. */
+export async function generateMetadata({ params }: { params: Promise<{ si: string }> }): Promise<Metadata> {
+  const { si } = await params;
+  const j = await getJob(si);
+  return { title: docTitle(j?.siNo ?? null, `Challan ${si}`) };
+}
 
 export default async function ChallanPage({ params }: { params: Promise<{ si: string }> }) {
   const { si } = await params;

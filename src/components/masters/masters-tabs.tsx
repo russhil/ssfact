@@ -19,7 +19,10 @@ const SIMPLE = [
 ] as const;
 const RICH: [string, string][] = [
   ["Suppliers", "/suppliers"], ["Trims", "/trims"], ["Fabrics", "/inventory"],
-  ["Products", "/catalog"], ["Vendors", "/vendors"], ["Cutting masters", "/vendors"],
+  ["Products", "/catalog"], ["Vendors", "/vendors"],
+  // Change 25 Part G.2: the issuing-firm master. Replaces a duplicate "Cutting
+  // masters" tile that pointed at /vendors, the same href as Vendors.
+  ["Buyers", "/buyers"],
 ];
 
 export function MastersTabs({

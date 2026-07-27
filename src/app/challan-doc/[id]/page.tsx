@@ -6,9 +6,19 @@ import { getCurrentUser } from "@/lib/auth";
 import { num, inr, fmtDate } from "@/lib/format";
 import { ChallanDocActions } from "@/components/challan-doc-actions";
 import { PurchaseReturnButton } from "@/components/purchase-return";
+import { ImageUploader } from "@/components/image-uploader";
 import { BrandLetterhead } from "@/components/brand";
+import { docTitle, DocAttachments } from "@/components/po-doc";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
+
+/** Change 25 Part K.1 — the exported PDF is named after the challan, not the app. */
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const c = await getChallan(Number(id));
+  return { title: docTitle(c?.challanNo ?? null, `Challan #${id}`) };
+}
 
 export default async function ChallanDoc({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -36,13 +46,13 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
   // Change 25 Part D: a return is outward, but it is a debit note to a supplier, not a
   // delivery challan to a vendor — it must not print as one.
   const isReturn = !!c.returnOf;
-  const docTitle = isReturn ? "PURCHASE RETURN" : isOut ? "DELIVERY CHALLAN" : "INWARD CHALLAN";
+  const heading = isReturn ? "PURCHASE RETURN" : isOut ? "DELIVERY CHALLAN" : "INWARD CHALLAN";
   const hasRate = c.totalValue != null;
   const summary =
-    `Sport Sun ${docTitle} ${c.challanNo ?? ""}\n${c.counterparty?.name ?? ""}\n` +
+    `Sport Sun ${heading} ${c.challanNo ?? ""}\n${c.counterparty?.name ?? ""}\n` +
     c.lines.map((l) => `• ${l.name}${l.colour ? ` (${l.colour})` : ""}: ${num(l.qty)} ${l.unit}`).join("\n") +
     `\nTotal: ${num(c.totalQty)} pcs/units`;
-  const subject = `${docTitle} ${c.challanNo ?? ""} — Sport Sun`;
+  const subject = `${heading} ${c.challanNo ?? ""} — Sport Sun`;
 
   return (
     <div className="doc-light mx-auto max-w-[800px] bg-white p-8 text-[12px] text-ink">
@@ -107,7 +117,7 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
       <div className="flex items-start justify-between border-b-2 border-ink pb-3">
         <div>
           <BrandLetterhead />
-          <h1 className="mt-1.5 text-[13px] font-bold tracking-wide">{docTitle}{c.voided ? " (VOID)" : ""}</h1>
+          <h1 className="mt-1.5 text-[13px] font-bold tracking-wide">{heading}{c.voided ? " (VOID)" : ""}</h1>
           <p className="mt-0.5 text-[11px] text-muted">
             {c.kind ?? "—"}
             {c.jobCardSiNo && <> · Job <Link href={`/job-cards/${c.jobCardId}`} className="no-print text-primary-ink hover:underline">{c.jobCardSiNo}</Link><span className="hidden print:inline">{c.jobCardSiNo}</span></>}
@@ -191,6 +201,23 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
             but goes back to a supplier, so "Vendor acknowledgement" would be wrong. */}
         <div className="w-40 border-t border-ink pt-1 text-center">{c.counterpartyKind === "VENDOR" ? "Vendor" : "Supplier"} acknowledgement</div>
       </div>
+
+      {/* Change 25 Part H.3 — the boxman photographs the paper challan / the bundle
+          against this receipt, which is the photographic backup for the posting.
+          Change 25 Part K.3 — those photos print as following pages of the PDF. */}
+      {c.direction === "INWARD" && (
+        <div className="no-print mt-6 border-t border-slate-200 pt-4">
+          <ImageUploader
+            entity="challan"
+            entityId={c.id}
+            kind="challan"
+            multiple
+            images={c.images}
+            label="Proof photos"
+          />
+        </div>
+      )}
+      <DocAttachments images={c.images} label="Proof photo" showThumbnails={false} />
     </div>
   );
 }

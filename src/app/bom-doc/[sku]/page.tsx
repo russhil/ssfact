@@ -7,8 +7,18 @@ import { waLink } from "@/lib/share";
 import { PrintButton } from "@/components/print-button";
 import { MessageCircle } from "lucide-react";
 import { BrandLetterhead } from "@/components/brand";
+import { docTitle } from "@/components/po-doc";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
+
+/** Change 25 Part K.1 — named after the product whose BOM this is. */
+export async function generateMetadata({ params }: { params: Promise<{ sku: string }> }): Promise<Metadata> {
+  const { sku } = await params;
+  const decoded = decodeURIComponent(sku);
+  const p = await getProductDetail(decoded);
+  return { title: docTitle(p ? `BOM ${p.skuCode ?? decoded}` : null, `BOM ${decoded}`) };
+}
 
 // Change 15 Part C/E: the product's master BOM in the shared "APPROVAL CHALLAN" print format.
 export default async function BomDocPage({ params }: { params: Promise<{ sku: string }> }) {

@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   BarChart3,
   Boxes,
+  Building2,
   ClipboardList,
   History,
   Factory,
@@ -85,6 +86,7 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/vendors", label: "Vendors", icon: Factory, roles: STAFF },
       { href: "/suppliers", label: "Suppliers", icon: Users, roles: STAFF },
+      { href: "/buyers", label: "Buyers", icon: Building2, roles: STAFF },
       { href: "/catalog", label: "Product Master", icon: Package, roles: STAFF },
     ],
   },
