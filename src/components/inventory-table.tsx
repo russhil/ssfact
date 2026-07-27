@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { Badge, Card, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Badge, Card, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, pct } from "@/lib/format";
 
 /**
@@ -58,6 +58,21 @@ export function InventoryTable({ rows }: { rows: FabricRow[] }) {
     []
   );
 
+  const csv: CsvExport<FabricRow> = {
+    filename: "inventory",
+    columns: [
+      { header: "fabric", value: (r) => r.name },
+      { header: "unit", value: (r) => r.unit },
+      // the colour chips under the fabric name, one field
+      { header: "colours", value: (r) => r.colors.map((c) => `${c.color} ${c.current}`).join("; ") },
+      { header: "opening", value: (r) => r.opening },
+      { header: "issued", value: (r) => r.issued },
+      { header: "available", value: (r) => r.available },
+      { header: "used_pct", value: (r) => r.usedPct },
+      { header: "status", value: (r) => (stockStatus(r) === "short" ? "Indent" : stockStatus(r) === "low" ? "Low" : "OK") },
+    ],
+  };
+
   const view = useTableView<FabricRow>({
     id: "inv",
     rows,
@@ -86,7 +101,7 @@ export function InventoryTable({ rows }: { rows: FabricRow[] }) {
       </div>
 
       <Card className="p-5">
-        <TableToolbar view={view} filters={filters} searchPlaceholder="Search fabric or colour…" showDate={false} unit="available" />
+        <TableToolbar view={view} filters={filters} searchPlaceholder="Search fabric or colour…" showDate={false} unit="available" csv={csv} />
         <div className="overflow-x-auto">
           <table className="w-full t-sm">
             <thead>

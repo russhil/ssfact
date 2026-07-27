@@ -5,6 +5,8 @@ const ROUTE_ROLES: { prefix: string; roles: Role[] }[] = [
   // Change 25 Part A: the audit trail names who changed what, so it is owner-only —
   // the same gate as /users, and for the same reason.
   { prefix: "/audit", roles: ["ADMIN"] },
+  // Change 25 Part C: /settings/backup hands over the whole database.
+  { prefix: "/settings", roles: ["ADMIN"] },
   // The board shows every vendor's work on one screen, so it is staff-only —
   // matching what the sidebar has always offered. Without this rule a VENDOR or
   // TRIMS login could reach it by typing the URL.

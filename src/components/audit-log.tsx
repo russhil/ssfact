@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { AuditDiff, summarizeAudit, actionTone } from "@/components/audit-diff";
 import type { AuditRow } from "@/lib/masters";
 
@@ -79,6 +79,16 @@ export function AuditLog({
     [options]
   );
 
+  const csv: CsvExport<AuditRow> = {
+    filename: "audit-log",
+    columns: [
+      { header: "changed_at", value: (r) => new Date(r.at) },
+      { header: "change", value: (r) => summarizeAudit(r) },
+      { header: "record", value: (r) => r.entityLabel ?? `${r.entity} #${r.entityId}` },
+      { header: "action", value: (r) => r.action },
+    ],
+  };
+
   const view = useTableView<AuditRow>({
     id: "aud",
     rows,
@@ -101,6 +111,7 @@ export function AuditLog({
         filters={filters}
         searchPlaceholder="Search user, record, document no…"
         dateLabel="Date"
+        csv={csv}
       />
       <div className="overflow-x-auto">
         <table className="w-full t-sm">

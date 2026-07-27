@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { Badge, Card, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Badge, Card, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, fmtDate } from "@/lib/format";
 
 /**
@@ -82,6 +82,30 @@ export function FinishingLog({
     return f;
   }, [vendors, showVendor]);
 
+  const csv: CsvExport<FinishingLogRow> = {
+    filename: "finishing-jobs",
+    columns: [
+      { header: "issued_date", value: (r) => new Date(r.issuedDate) },
+      { header: "jw_no", value: (r) => r.docNo ?? `#${r.id}` },
+      { header: "si_no", value: (r) => r.siNo },
+      ...(showVendor ? [{ header: "vendor", value: (r: FinishingLogRow) => r.vendor }] : []),
+      { header: "process", value: (r) => r.process },
+      { header: "qty_out", value: (r) => r.qtyOut },
+      { header: "qty_back", value: (r) => r.qtyBack },
+      // still with the vendor — the same rounding the Balance cell does
+      { header: "balance", value: (r) => Math.round((r.qtyOut - r.qtyBack) * 100) / 100 },
+      { header: "bill_no", value: (r) => r.billNo },
+      ...(canSeeCost
+        ? [
+            { header: "rate", value: (r: FinishingLogRow) => r.rate },
+            // what the vendor bills for: rate × pieces actually returned
+            { header: "value", value: (r: FinishingLogRow) => (r.rate != null ? Math.round(r.rate * r.qtyBack) : null) },
+          ]
+        : []),
+      { header: "status", value: (r) => r.status },
+    ],
+  };
+
   const view = useTableView<FinishingLogRow>({
     id,
     rows,
@@ -114,6 +138,7 @@ export function FinishingLog({
         searchPlaceholder="Search JW no, SI, bill…"
         dateLabel="Issued"
         unit="out"
+        csv={csv}
       />
       {view.rows.length === 0 ? (
         <p className="py-6 text-center t-sm text-muted">

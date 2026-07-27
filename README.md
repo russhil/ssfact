@@ -36,6 +36,38 @@ npm run db:reset      # migrate reset → import (workbook) → import:catalog �
 
 Catalog/BOM/trims source paths are env-overridable: `SPORTSUN_DB`, `BOM_XLSX`, `TRIMS_CSV`.
 
+## Backups
+
+The database is a single SQLite file. Back it up:
+
+```bash
+npm run backup        # → backups/ssfact-YYYY-MM-DD-HHmm.sqlite, keeps the last 14
+```
+
+Uses SQLite's `VACUUM INTO`, which snapshots inside a read transaction — safe to run
+against a live database and correct even mid-write. **Never `cp` the file instead:** a
+copy taken with a hot WAL can be unopenable.
+
+Env overrides: `BACKUP_DIR` (default `backups/`), `BACKUP_KEEP` (default 14).
+
+Nightly, on the server:
+
+```cron
+0 2 * * * cd /srv/ssfact && /usr/bin/npm run backup >> /var/log/ssfact-backup.log 2>&1
+```
+
+Backups sit on the same disk as the database, so that alone is not disaster recovery.
+Push them off-box on the same schedule:
+
+```cron
+15 2 * * * rsync -az /srv/ssfact/backups/ user@offsite:/backups/ssfact/
+```
+
+Admins can also pull a copy on demand from **Settings → Download backup** (`/settings`)
+before any risky change. It runs the same code and joins the same rotation.
+
+To restore, stop the app and put the chosen `.sqlite` file back at `DATABASE_URL`.
+
 ## The demo click-path
 
 1. **Dashboard** (`/`) — open on their own numbers: total cut · **Received** (stitched

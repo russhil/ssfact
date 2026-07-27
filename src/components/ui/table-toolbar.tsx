@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowUp, ChevronsUpDown, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Download, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { num } from "@/lib/format";
+import { toCsv, downloadCsv, ymd, type CsvColumn } from "@/lib/csv";
 import { SearchInput, inputClass } from "./form";
 
 /**
@@ -209,6 +210,18 @@ export type TableView<T> = ReturnType<typeof useTableView<T>>;
 
 /* --------------------------------------------------------- TableToolbar -- */
 
+/**
+ * Change 25 Part C — what an "Export CSV" click writes.
+ *
+ * It exports `view.rows`: the current filtered, sorted result, not the underlying
+ * table. What you see is what you get, and no new query is issued.
+ */
+export type CsvExport<T> = {
+  /** Base filename; the date is appended and `.csv` added. */
+  filename: string;
+  columns: CsvColumn<T>[];
+};
+
 export function TableToolbar<T>({
   view,
   filters,
@@ -216,6 +229,7 @@ export function TableToolbar<T>({
   dateLabel = "Date",
   showDate = true,
   unit,
+  csv,
   children,
   className,
 }: {
@@ -226,6 +240,8 @@ export function TableToolbar<T>({
   showDate?: boolean;
   /** Unit for the summary total, e.g. "pcs". */
   unit?: string;
+  /** Adds an Export CSV button that downloads the current filtered view. */
+  csv?: CsvExport<T>;
   /** Extra controls (tabs, an export button) rendered on the left. */
   children?: React.ReactNode;
   className?: string;
@@ -276,6 +292,16 @@ export function TableToolbar<T>({
       {view.active && (
         <button onClick={view.reset} className="inline-flex items-center gap-1 t-xs font-semibold text-t3 hover:text-danger">
           <X size={12} /> Clear
+        </button>
+      )}
+
+      {csv && (
+        <button
+          onClick={() => downloadCsv(`${csv.filename}-${ymd(new Date())}`, toCsv(view.rows, csv.columns))}
+          disabled={view.rows.length === 0}
+          className="inline-flex items-center gap-1 t-xs font-semibold text-t3 hover:text-t1 disabled:pointer-events-none disabled:opacity-40"
+        >
+          <Download size={12} /> Export CSV
         </button>
       )}
 

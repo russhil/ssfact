@@ -23,6 +23,7 @@ export {
   type SortDef,
   type TableView,
   type TableViewOptions,
+  type CsvExport,
 } from "./table-toolbar";
 export { Badge, Tag, StatusDot, Bar } from "./status";
 export { Sheet } from "./sheet";

@@ -6,7 +6,7 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick, voidChallan } from "@/lib/actions";
-import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
 import { Plus, Check, X, FileText, Truck, Pencil, Trash2, Undo2 } from "lucide-react";
 
@@ -259,6 +259,22 @@ export function FabricOrderManager({
     ],
     [supplierNames]
   );
+  const csv: CsvExport<Order> = {
+    filename: "fabric-orders",
+    columns: [
+      { header: "fabric", value: (o) => o.fabric },
+      { header: "colours", value: (o) => o.lines.map((l) => `${l.colour} ${l.qty}`).join("; ") },
+      { header: "total_qty", value: (o) => o.totalQty },
+      { header: "unit", value: (o) => o.unit },
+      // the received-vs-ordered sub-line under Total
+      { header: "received_qty", value: (o) => o.receivedQty },
+      { header: "due_qty", value: (o) => Math.round((o.totalQty - o.receivedQty) * 100) / 100 },
+      { header: "supplier", value: (o) => o.supplier },
+      { header: "po_no", value: (o) => o.poNumber ?? o.poStage },
+      { header: "received_on", value: (o) => o.challans.map((c) => c.challanNo ?? `Draft #${c.id}`).join("; ") },
+      { header: "status", value: (o) => o.status.replace("_", " ") },
+    ],
+  };
   const view = useTableView<Order>({
     id: "fo",
     rows: orders,
@@ -397,7 +413,7 @@ export function FabricOrderManager({
       {/* Change 23 Part C: a long order history is only usable once you can slice it —
           search, status/stage/supplier filters, received-vs-pending, date range, sort. */}
       <Card className="mt-4 p-5">
-        <TableToolbar view={view} filters={filters} searchPlaceholder="Search fabric, supplier, PO…" dateLabel="Order date" unit="ordered" />
+        <TableToolbar view={view} filters={filters} searchPlaceholder="Search fabric, supplier, PO…" dateLabel="Order date" unit="ordered" csv={csv} />
         <div className="overflow-x-auto">
         <table className="w-full t-sm">
           <thead>

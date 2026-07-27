@@ -16,6 +16,7 @@ import {
   Package,
   PackageCheck,
   Scissors,
+  Settings,
   ShieldCheck,
   ShoppingCart,
   SlidersHorizontal,
@@ -94,6 +95,7 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
       { href: "/users", label: "Users", icon: ShieldCheck, roles: ["ADMIN"] },
       { href: "/audit", label: "Audit", icon: History, roles: ["ADMIN"] },
       { href: "/reports", label: "Reports", icon: BarChart3, roles: ["ADMIN"] },
+      { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] },
     ],
   },
 ];

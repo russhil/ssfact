@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createTrim, updateTrim } from "@/lib/actions";
-import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { StockAdjust } from "@/components/stock-adjust";
 import { LookupSelect } from "@/components/masters/lookup-select";
 import { num } from "@/lib/format";
@@ -90,6 +90,18 @@ export function TrimMasterManager({
     ],
     [supplierNames]
   );
+  const csv: CsvExport<TrimMasterRow> = {
+    filename: "trims",
+    columns: [
+      { header: "trim", value: (t) => t.name },
+      { header: "category", value: (t) => t.category ?? t.family },
+      { header: "supplier", value: (t) => t.supplier },
+      { header: "rate", value: (t) => t.ratePerUnit },
+      { header: "reorder_level", value: (t) => t.reorderLevel },
+      { header: "current", value: (t) => t.current },
+      { header: "status", value: (t) => (t.current <= 0 ? "Indent" : isLow(t) ? "Low" : "OK") },
+    ],
+  };
   const view = useTableView<TrimMasterRow>({
     id: "tm",
     rows,
@@ -177,7 +189,7 @@ export function TrimMasterManager({
       )}
 
       <Card className="p-5">
-        <TableToolbar view={view} filters={filters} searchPlaceholder="Search trim, category, supplier…" showDate={false} unit="in store" />
+        <TableToolbar view={view} filters={filters} searchPlaceholder="Search trim, category, supplier…" showDate={false} unit="in store" csv={csv} />
         <div className="overflow-x-auto">
         <table className="w-full t-sm">
           <thead>
