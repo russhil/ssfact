@@ -127,7 +127,7 @@ export function ProductMasterForm({
 
       {isCreate ? (
         <p className="mt-3 rounded-lg border border-dashed border-border bg-surface-2 px-3 py-2 t-sm text-muted">
-          Save the product first, then add colours &amp; images on its page.
+          Colours and images are added after saving.
         </p>
       ) : (
         <div className="mt-3">

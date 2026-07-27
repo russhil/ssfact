@@ -1,24 +1,33 @@
-import Link from "next/link";
 import { getFabricStock } from "@/lib/inventory";
 import { getCurrentUser } from "@/lib/auth";
-import { Card, Badge, PageHeader } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
 import { AddFabricButton } from "@/components/add-fabric-button";
-import { num, pct } from "@/lib/format";
+import { InventoryTable } from "@/components/inventory-table";
 
 export const dynamic = "force-dynamic";
 
 export default async function InventoryPage() {
   const [stock, user] = await Promise.all([getFabricStock(), getCurrentUser()]);
   const canEdit = user?.role === "ADMIN" || user?.role === "STAFF";
-  const low = stock.filter((s) => s.usedPct >= 0.85 && s.available > 0).length;
-  const short = stock.filter((s) => s.available <= 0).length;
-  const totalAvail = stock.reduce((a, s) => a + Math.max(0, s.available), 0);
+
+  // Change 23 Part E: the KPI counts moved into the table component so the headline
+  // figures and the filter that shows those rows read one definition of low/short.
+  const rows = stock.map((s) => ({
+    id: s.id,
+    name: s.name,
+    unit: s.unit,
+    opening: s.opening,
+    issued: s.issued,
+    available: s.available,
+    usedPct: s.usedPct,
+    colors: s.colors.map((c) => ({ id: c.id, color: c.color, current: c.current, status: c.status })),
+  }));
 
   return (
     <div className="p-6">
       <PageHeader
         title="Inventory"
-        subtitle="Live fabric stock — depletes automatically as job cards consume it."
+        subtitle="Live fabric stock"
       />
 
       {canEdit && (
@@ -27,102 +36,7 @@ export default async function InventoryPage() {
         </div>
       )}
 
-      <div className="mb-4 grid grid-cols-4 gap-3.5">
-        <Card className="p-4">
-          <div className="t-xs font-semibold uppercase tracking-wide text-muted">Fabrics Tracked</div>
-          <div className="mt-1.5 t-display font-extrabold tnum">{stock.length}</div>
-        </Card>
-        <Card className="p-4">
-          <div className="t-xs font-semibold uppercase tracking-wide text-muted">Available Stock</div>
-          <div className="mt-1.5 t-display font-extrabold tnum">{num(totalAvail)}</div>
-        </Card>
-        <Card className="p-4">
-          <div className="t-xs font-semibold uppercase tracking-wide text-muted">Low (≥85% used)</div>
-          <div className="mt-1.5 t-display font-extrabold text-warn tnum">{low}</div>
-        </Card>
-        <Card className="p-4">
-          <div className="t-xs font-semibold uppercase tracking-wide text-muted">Short / Indent</div>
-          <div className="mt-1.5 t-display font-extrabold text-danger tnum">{short}</div>
-        </Card>
-      </div>
-
-      <Card className="overflow-hidden p-0">
-        <table className="w-full t-sm">
-          <thead>
-            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-4 py-2.5 font-semibold">Fabric</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Opening</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Issued</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Available</th>
-              <th className="px-4 py-2.5 font-semibold">Utilisation</th>
-              <th className="px-4 py-2.5 font-semibold">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stock.map((s) => {
-              const w = Math.min(100, Math.max(0, s.usedPct * 100));
-              const tone = s.available <= 0 ? "danger" : s.usedPct >= 0.85 ? "warn" : "primary";
-              return (
-                <tr key={s.id} className="border-b border-hairline last:border-0 hover:bg-surface-2">
-                  <td className="px-4 py-2.5">
-                    <Link href={`/inventory/${s.id}`} className="font-semibold text-primary-ink hover:underline">
-                      {s.name}
-                    </Link>
-                    <span className="ml-1.5 t-micro text-faint">{s.unit}</span>
-                    {s.colors.length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {s.colors.slice(0, 10).map((c) => (
-                          <span
-                            key={c.id}
-                            title={`${c.color}: ${num(c.current)} ${s.unit}`}
-                            className={`rounded px-1.5 py-0.5 t-micro font-semibold tnum ${
-                              c.status === "Indent"
-                                ? "bg-danger-soft text-danger"
-                                : c.status === "Low"
-                                  ? "bg-warn-soft text-warn"
-                                  : "bg-surface-2 text-t2"
-                            }`}
-                          >
-                            {c.color} {num(c.current)}
-                          </span>
-                        ))}
-                        {s.colors.length > 10 && (
-                          <span className="self-center t-micro text-faint">+{s.colors.length - 10} more</span>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-t2 tnum">{num(s.opening)}</td>
-                  <td className="px-4 py-2.5 text-right text-t2 tnum">{num(s.issued)}</td>
-                  <td className={`px-4 py-2.5 text-right font-bold tnum ${s.available <= 0 ? "text-danger" : ""}`}>
-                    {num(s.available)}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-28 overflow-hidden rounded-full bg-surface-2">
-                        <div
-                          className={`h-full rounded-full ${tone === "danger" ? "bg-danger" : tone === "warn" ? "bg-warn" : "bg-primary"}`}
-                          style={{ width: `${w}%` }}
-                        />
-                      </div>
-                      <span className="tnum t-xs font-semibold">{pct(s.usedPct)}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {s.available <= 0 ? (
-                      <Badge tone="danger">Indent</Badge>
-                    ) : s.usedPct >= 0.85 ? (
-                      <Badge tone="warn">Low</Badge>
-                    ) : (
-                      <Badge tone="ok">OK</Badge>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Card>
+      <InventoryTable rows={rows} />
     </div>
   );
 }

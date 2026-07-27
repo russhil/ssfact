@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
-import { Badge } from "@/components/ui";
+import { Badge, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
 import { num, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
@@ -20,8 +20,11 @@ export type VendorDispatchEvent = {
 };
 
 /**
- * Change 16 Part D — the vendor's dispatch log, filterable by layer. Read-only.
- * (Vendor is fixed by the page; this adds the within-vendor "by layer" axis.)
+ * Change 16 Part D — the vendor's dispatch log. Read-only.
+ *
+ * Change 23 Part H: keeps the layer filter and adds a date range and reason filter.
+ * The vendor is fixed by the page, so those are the axes left that matter — "what
+ * did this vendor return to me in July" is now two clicks.
  */
 export function VendorDispatchLog({
   events,
@@ -30,33 +33,52 @@ export function VendorDispatchLog({
   events: VendorDispatchEvent[];
   layers: { id: number; label: string }[];
 }) {
-  const [layerId, setLayerId] = useState<number | "all">("all");
-
-  const shown = useMemo(
-    () => (layerId === "all" ? events : events.filter((e) => e.layerIds.includes(layerId))),
-    [events, layerId]
+  const filters: FilterDef<VendorDispatchEvent>[] = useMemo(
+    () => [
+      {
+        key: "layer",
+        label: "layers",
+        options: layers.map((l) => ({ value: String(l.id), label: l.label })),
+        match: (e, v) => e.layerIds.includes(Number(v)),
+      },
+      {
+        key: "reason",
+        label: "reasons",
+        options: ["ORDER", "SALE", "OTHER"].map((v) => ({ value: v, label: v })),
+        match: (e, v) => e.reason === v,
+      },
+    ],
+    [layers]
   );
+
+  const view = useTableView<VendorDispatchEvent>({
+    id: "vdl",
+    rows: events,
+    filters,
+    search: (e) => [e.siNo, e.challan, ...e.layerLabels, ...e.cells],
+    date: (e) => e.date,
+    sorts: { date: (e) => new Date(e.date), qty: (e) => e.qty, si: (e) => e.siNo },
+    defaultSort: { key: "date", dir: "desc" },
+    sum: (e) => e.qty,
+  });
 
   return (
     <div>
-      <div className="mb-3 flex items-center gap-2">
-        <span className="t-xs font-semibold uppercase tracking-wide text-faint">Filter</span>
-        <select
-          value={layerId}
-          onChange={(e) => setLayerId(e.target.value === "all" ? "all" : Number(e.target.value))}
-          className="rounded-lg border border-border bg-surface px-2.5 py-1.5 t-sm outline-none focus:border-primary"
-        >
-          <option value="all">All layers</option>
-          {layers.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
-        </select>
-        <span className="ml-auto t-sm text-muted">{shown.length} of {events.length}</span>
-      </div>
+      <TableToolbar
+        view={view}
+        filters={filters}
+        searchPlaceholder="Search SI, layer, cell…"
+        dateLabel="Dispatch date"
+        unit="pcs"
+      />
 
-      {shown.length === 0 ? (
-        <p className="py-4 text-center t-sm text-muted">No dispatches{layerId !== "all" ? " for this layer" : " yet"}.</p>
+      {view.rows.length === 0 ? (
+        <p className="py-4 text-center t-sm text-muted">
+          {events.length === 0 ? "No dispatches yet." : "No dispatches match these filters."}
+        </p>
       ) : (
         <div className="space-y-1.5">
-          {shown.map((e) => (
+          {view.rows.map((e) => (
             <div key={e.id} className="border-b border-hairline py-2 t-sm last:border-0">
               <div className="flex items-center justify-between">
                 <span className="flex flex-wrap items-center gap-2 text-t2 tnum">

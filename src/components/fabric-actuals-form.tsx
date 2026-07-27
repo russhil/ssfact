@@ -141,7 +141,7 @@ export function FabricActualsForm({
           ) : (
             <>No stock movement</>
           )}
-          <span className="ml-2 t-xs text-faint">stock always settles at USED — re-saving the same figures moves nothing</span>
+          
         </span>
         <button
           onClick={submit}

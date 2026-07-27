@@ -20,9 +20,11 @@ import {
   SlidersHorizontal,
   Truck,
   Users,
+  Sparkles,
 } from "lucide-react";
 import { logout } from "@/lib/auth-actions";
 import type { Role } from "@/lib/session";
+import { BrandLockup } from "@/components/brand";
 import { CommandTrigger, DensityToggle, ThemeToggle } from "@/components/theme-controls";
 import { cn } from "@/lib/cn";
 
@@ -53,6 +55,9 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/job-cards", label: "Job Cards", icon: ClipboardList, roles: ["ADMIN", "STAFF", "VENDOR"], count: "jobs" },
       { href: "/production-orders", label: "Production", icon: PackageCheck, roles: ["ADMIN"] },
+      // Change 20: finishing given out as job-work, between the machine and dispatch —
+      // which is where it sits on the floor.
+      { href: "/finishing", label: "Finishing", icon: Sparkles, roles: STAFF },
       { href: "/dispatch", label: "Dispatch", icon: Truck, roles: STAFF },
     ],
   },
@@ -118,14 +123,8 @@ export function Sidebar({
 
   return (
     <aside className="sticky top-0 flex h-screen flex-col border-r border-hairline bg-surface px-3 py-4">
-      <Link href="/" className="mb-3 flex items-center gap-2.5 px-2">
-        <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-accent t-body font-black text-accent-on">
-          S
-        </span>
-        <span className="min-w-0 leading-tight">
-          <span className="block truncate t-head font-bold">Sportsun</span>
-          <span className="block truncate t-xs text-t3">Production OS</span>
-        </span>
+      <Link href="/" className="mb-4 block px-2 pt-1" aria-label="Sport Sun — Production OS, go to dashboard">
+        <BrandLockup width={132} />
       </Link>
 
       <CommandTrigger />

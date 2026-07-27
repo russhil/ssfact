@@ -1,10 +1,10 @@
-import Link from "next/link";
 import { db } from "@/lib/db";
 import { getJobs } from "@/lib/jobs";
 import { getCurrentUser } from "@/lib/auth";
 import { DispatchForm } from "@/components/dispatch-form";
-import { Card, PageHeader } from "@/components/ui";
-import { num, fmtDate } from "@/lib/format";
+import { DispatchLog } from "@/components/dispatch-log";
+import { FinishedGoodsExport } from "@/components/finished-goods-export";
+import { PageHeader } from "@/components/ui";
 import { jobItem } from "@/lib/job-display";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function DispatchPage() {
   const jobs = await getJobs();
   const me = await getCurrentUser();
+  const canEdit = me?.role === "ADMIN" || me?.role === "STAFF";
   const open = jobs
     .filter((j) => j.balance > 0)
     .sort((a, b) => b.balance - a.balance)
@@ -29,47 +30,38 @@ export default async function DispatchPage() {
   }
   const openJobs = open.map((o) => ({ ...o, id: (idBySi.get(o.siNo) ?? [0])[0] }));
 
-  const recent = await db.dispatchEvent.findMany({
-    include: { jobCard: { include: { product: true } } },
+  // Change 23 Part D: the whole log, not a "recent 12" — the toolbar is what narrows
+  // it now, and a date range over a truncated list would quietly lie.
+  const events = await db.dispatchEvent.findMany({
+    include: {
+      jobCard: { include: { product: true } },
+      lines: true,
+      layers: { select: { vendor: { select: { name: true } } } },
+    },
     orderBy: { date: "desc" },
-    take: 12,
   });
+  const dispatchRows = events.map((e) => ({
+    id: e.id, dispatchNo: e.dispatchNo, date: e.date.toISOString(), qty: e.qty,
+    reason: e.reason as string, note: e.note, challan: e.challan, arrangedBy: e.arrangedBy,
+    voidedAt: e.voidedAt ? e.voidedAt.toISOString() : null,
+    lines: e.lines.map((l) => ({ id: l.id, colour: l.colour, size: l.size, qty: l.qty })),
+    siNo: e.jobCard.siNo, jobCardId: e.jobCard.id, item: jobItem(e.jobCard),
+    // Change 19 C: the vendor that did the work lives on the layer, not the card header.
+    vendor: [...new Set(e.layers.map((l) => l.vendor?.name).filter((n): n is string => !!n))].join(", ") || null,
+  }));
 
   return (
     <div className="p-6">
-      <PageHeader title="Dispatch" subtitle="Log finished garments dispatched from vendors back to the warehouse — size×colour, against the cutting layers. Balances and the dashboard update instantly." />
+      <PageHeader title="Dispatch" subtitle="Finished garments returned from stitching vendors" />
       <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1fr_1.3fr]">
-        <DispatchForm jobs={openJobs} defaultArrangedBy={me?.displayName ?? ""} />
+        <div className="flex flex-col gap-3.5">
+          <DispatchForm jobs={openJobs} defaultArrangedBy={me?.displayName ?? ""} />
+          {/* Change 21: the one bridge to the ERP — a day's finished goods as a file,
+              instead of re-typing every size×colour cell off the paper challans. */}
+          {canEdit && <FinishedGoodsExport rows={dispatchRows} />}
+        </div>
 
-        <Card className="overflow-hidden p-0">
-          <div className="border-b border-border px-5 py-3 t-body font-bold">Recent Dispatches</div>
-          <table className="w-full t-sm">
-            <thead>
-              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-                <th className="px-5 py-2.5 font-semibold">Date</th>
-                <th className="px-5 py-2.5 font-semibold">Challan</th>
-                <th className="px-5 py-2.5 font-semibold">Job</th>
-                <th className="px-5 py-2.5 font-semibold">Item</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Qty</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map((e) => (
-                <tr key={e.id} className="border-b border-hairline last:border-0">
-                  <td className="px-5 py-2.5 text-t2 tnum">{fmtDate(e.date)}</td>
-                  <td className="px-5 py-2.5">
-                    <Link href={`/dispatch-doc/${e.id}`} className="font-semibold text-primary-ink hover:underline tnum">{e.dispatchNo ?? e.challan ?? `#${e.id}`}</Link>
-                  </td>
-                  <td className="px-5 py-2.5">
-                    <Link href={`/job-cards/${e.jobCard.id}`} className="font-bold text-primary-ink hover:underline">{e.jobCard.siNo}</Link>
-                  </td>
-                  <td className="px-5 py-2.5 text-t2">{jobItem(e.jobCard)}</td>
-                  <td className="px-5 py-2.5 text-right font-bold text-ok tnum">+{num(e.qty)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <DispatchLog rows={dispatchRows} canEdit={canEdit} />
       </div>
     </div>
   );

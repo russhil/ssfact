@@ -58,7 +58,10 @@ export function Sheet({
         aria-hidden={!open}
         style={{ width, maxWidth: "calc(100vw - 24px)" }}
         className={cn(
-          "fixed inset-y-3 right-3 z-50 flex flex-col overflow-hidden rounded-card bg-surface outline-none elev-hi",
+          // `text-left` is load-bearing: a Sheet is a DOM child of whatever opened it, so
+          // one rendered from a `text-right` table cell would inherit that alignment and
+          // right-align every label and hint inside the panel.
+          "fixed inset-y-3 right-3 z-50 flex flex-col overflow-hidden rounded-card bg-surface text-left outline-none elev-hi",
           "transition-[transform,opacity] duration-[400ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
           open ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-[calc(100%+20px)] opacity-0"
         )}

@@ -82,7 +82,9 @@ export async function getVendorPendency(now = new Date()): Promise<VendorPendenc
     where: { status: "ACTIVE" },
     include: {
       vendor: true,
-      dispatches: { select: { qty: true, date: true, layers: { select: { id: true } } } },
+      // Change 22 B.1: a voided dispatch never happened — it must not age a vendor's
+      // pendency or count towards what they've returned.
+      dispatches: { where: { voidedAt: null }, select: { qty: true, date: true, layers: { select: { id: true } } } },
       layers: { select: { id: true, cells: { select: { qty: true } }, vendor: { select: { name: true } } } },
     },
   });

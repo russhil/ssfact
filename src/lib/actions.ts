@@ -31,6 +31,8 @@ export async function postMaterialMovement(
     vendor?: string | null;
     invoice?: string | null;
     rate?: number | null;
+    // Change 22 Part E: why this movement happened, on a hand stock adjustment.
+    reason?: string | null;
   }
 ): Promise<void> {
   if (!m.qty || m.qty <= 0) return;
@@ -41,7 +43,7 @@ export async function postMaterialMovement(
   if (m.fabricId) {
     const colour = colorKey(m.colour);
     await tx.stockMovement.create({
-      data: { type, qty: m.qty, date, fabricId: m.fabricId, jobCardId: m.jobCardId ?? null, color: colour, note: m.note ?? null } as any,
+      data: { type, qty: m.qty, date, fabricId: m.fabricId, jobCardId: m.jobCardId ?? null, color: colour, note: m.note ?? null, reason: m.reason ?? null } as any,
     });
     const fc = await tx.fabricColor.upsert({
       where: { fabricId_color: { fabricId: m.fabricId, color: colour } },
@@ -51,7 +53,7 @@ export async function postMaterialMovement(
     await tx.fabricColor.update({ where: { id: fc.id }, data: { currentStock: delta } });
   } else if (m.trimItemId) {
     await tx.trimMovement.create({
-      data: { type, qty: m.qty, date, trimItemId: m.trimItemId, vendor: m.vendor ?? null, invoice: m.invoice ?? null, rate: m.rate ?? null } as any,
+      data: { type, qty: m.qty, date, trimItemId: m.trimItemId, vendor: m.vendor ?? null, invoice: m.invoice ?? null, rate: m.rate ?? null, note: m.note ?? null, reason: m.reason ?? null } as any,
     });
     await tx.trimItem.update({ where: { id: m.trimItemId }, data: { currentStock: delta } });
   }
@@ -2460,4 +2462,755 @@ export async function editLockedChallan(input: {
   revalidatePath("/inventory");
   revalidatePath("/trims");
   return { ok: true, challanNo: c.challanNo };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Change 22 — "Undo everywhere": reversals, edits & stock corrections
+//
+// House rules, applied throughout this block:
+//   · never hard-delete a posted ledger row — post the inverse movement;
+//   · balances MAY go negative (real over-issue / over-cut) — never clamp;
+//   · every reversal is idempotent where it can be;
+//   · every stock-changing action writes a movement, so the ledger and the
+//     balance can never silently disagree.
+// The materials-challan void/edit pair (voidChallan / editLockedChallan) is the
+// model everything below copies.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Change 22 Part E: why a hand stock adjustment happened. */
+export type AdjustReason = "COUNT" | "DAMAGE" | "WASTAGE" | "OPENING" | "OTHER";
+
+function revalidateDispatch(jobCardId: number) {
+  revalidatePath("/");
+  revalidatePath("/dispatch");
+  revalidatePath("/board");
+  revalidatePath("/job-cards");
+  revalidatePath(`/job-cards/${jobCardId}`);
+  revalidatePath(`/dispatch-doc/${jobCardId}`);
+}
+
+/**
+ * Change 22 B.1 — void a dispatch. The pieces go back onto the card and a card that
+ * closed *because of* this dispatch reopens.
+ *
+ * Deliberately posts NO material movement: dispatch never touched the fabric/trim
+ * ledger (finished goods live in the ERP, Change 21), so its reversal must not either.
+ * The DC- number and the document survive as a voided record.
+ */
+export async function voidDispatch(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const e = await db.dispatchEvent.findUnique({
+    where: { id: input.id },
+    include: { jobCard: { select: { id: true, cutQty: true, dispatchedQty: true, status: true, siNo: true } } },
+  });
+  if (!e) throw new Error("Dispatch not found");
+  if (e.voidedAt) return { ok: true, already: true as const }; // idempotent
+
+  const job = e.jobCard;
+  const newDispatched = job.dispatchedQty - e.qty;
+  // Reopen only when this dispatch is what closed it — i.e. the card no longer meets its
+  // own cut quantity. A card closed by hand stays closed.
+  const reopen = job.status === "CLOSED" && newDispatched < job.cutQty;
+
+  await db.$transaction(async (tx) => {
+    await tx.dispatchEvent.update({ where: { id: e.id }, data: { voidedAt: new Date() } });
+    await tx.jobCard.update({
+      where: { id: job.id },
+      data: { dispatchedQty: newDispatched, ...(reopen ? { status: "ACTIVE" as const } : {}) },
+    });
+  });
+
+  revalidateDispatch(job.id);
+  revalidatePath(`/dispatch-doc/${e.id}`);
+  return { ok: true, dispatchNo: e.dispatchNo, dispatched: newDispatched, reopened: reopen };
+}
+
+/**
+ * Change 22 B.2 — correct a dispatch WITHOUT losing its DC- number (the void-and-reissue
+ * discipline of editLockedChallan, applied to the card counters instead of the ledger).
+ */
+export async function editDispatch(input: {
+  id: number;
+  lines?: { colour?: string | null; size: string; qty: number }[];
+  qty?: number;
+  date?: string;
+  reason?: "ORDER" | "SALE" | "OTHER";
+  note?: string | null;
+  challan?: string | null;
+  arrangedBy?: string | null;
+  layerIds?: number[];
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const e = await db.dispatchEvent.findUnique({
+    where: { id: input.id },
+    include: { jobCard: { select: { id: true, cutQty: true, dispatchedQty: true, status: true } } },
+  });
+  if (!e) throw new Error("Dispatch not found");
+  if (e.voidedAt) throw new Error("This dispatch is voided — log a fresh one instead");
+
+  const lines = (input.lines ?? []).filter((l) => l.qty !== 0);
+  const newQty = lines.length ? lines.reduce((a, l) => a + l.qty, 0) : input.qty ?? e.qty;
+  if (!lines.length && newQty === 0) throw new Error("A dispatch must keep a quantity");
+
+  const job = e.jobCard;
+  // old total − this event's old qty + its new qty
+  const newDispatched = job.dispatchedQty - e.qty + newQty;
+  const closed = newDispatched >= job.cutQty && job.cutQty > 0;
+
+  await db.$transaction(async (tx) => {
+    if (input.lines) {
+      await tx.dispatchLine.deleteMany({ where: { eventId: e.id } });
+      for (const l of lines) {
+        await tx.dispatchLine.create({
+          data: { eventId: e.id, colour: l.colour ?? null, size: l.size, qty: l.qty },
+        });
+      }
+    }
+    await tx.dispatchEvent.update({
+      where: { id: e.id },
+      data: {
+        qty: newQty,
+        ...(input.date ? { date: new Date(input.date) } : {}),
+        ...(input.reason ? { reason: input.reason as any } : {}),
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        ...(input.challan !== undefined ? { challan: input.challan } : {}),
+        ...(input.arrangedBy !== undefined ? { arrangedBy: input.arrangedBy } : {}),
+        // `set` (not `connect`) so removing a layer from the event actually removes it.
+        ...(input.layerIds ? { layers: { set: input.layerIds.map((id) => ({ id })) } } : {}),
+      } as any,
+    });
+    await tx.jobCard.update({
+      where: { id: job.id },
+      data: { dispatchedQty: newDispatched, status: closed ? "CLOSED" : "ACTIVE" },
+    });
+  });
+
+  revalidateDispatch(job.id);
+  revalidatePath(`/dispatch-doc/${e.id}`);
+  return { ok: true, dispatchNo: e.dispatchNo, dispatched: newDispatched, closed };
+}
+
+/**
+ * Change 22 B.3 — explicit reopen/close for a job card, for the case a card closed on
+ * over-dispatch but work remains (or the reverse).
+ */
+export async function setJobCardOpen(input: { id: number; open: boolean }) {
+  await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.update({
+    where: { id: input.id },
+    data: { status: input.open ? "ACTIVE" : "CLOSED" },
+    select: { id: true, siNo: true, status: true },
+  });
+  revalidatePath("/");
+  revalidatePath("/board");
+  revalidatePath("/job-cards");
+  revalidatePath(`/job-cards/${job.id}`);
+  return { ok: true, status: job.status };
+}
+
+/**
+ * The fabric a single cutting layer was issued, per colour — recomputed with the SAME
+ * formula that issued it (createJobCard's per-colour split and addCuttingLayer ~:917
+ * agree): a lay's `fabricMtr` split across its colours by cut proportion, else avg × qty.
+ * Used to reverse a layer exactly, whether it was created with the card or appended later.
+ */
+function layerFabricByColour(
+  layer: { fabricMtr: number | null; avgConsumption: number | null; cells: { colour: string; qty: number }[] },
+  cardAvg: number | null
+): Map<string, number> {
+  const out = new Map<string, number>();
+  const total = layer.cells.reduce((a, c) => a + c.qty, 0);
+  if (total <= 0) return out;
+  const byCol = new Map<string, number>();
+  for (const c of layer.cells) byCol.set(colorKey(c.colour), (byCol.get(colorKey(c.colour)) ?? 0) + c.qty);
+  const avg = layer.avgConsumption ?? cardAvg;
+  for (const [col, q] of byCol) {
+    const issued =
+      layer.fabricMtr != null
+        ? Math.round(layer.fabricMtr * (q / total) * 100) / 100
+        : avg != null
+          ? Math.round(q * avg * 100) / 100
+          : 0;
+    if (issued > 0) out.set(col, issued);
+  }
+  return out;
+}
+
+/**
+ * Change 22 C.1 — delete a job card created by mistake, reversing every stock movement
+ * it posted so master stock returns to where it was.
+ *
+ * Guarded like deleteTrimOrder: a card that has already moved goods can't just vanish.
+ * The card's own ledger rows are NOT deleted — they are detached (jobCardId → null) and
+ * an inverse movement is posted, so the ledger keeps a truthful history of both.
+ */
+export async function deleteJobCard(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.findUnique({
+    where: { id: input.id },
+    select: { id: true, siNo: true },
+  });
+  if (!job) throw new Error("Job card not found");
+
+  const liveDispatches = await db.dispatchEvent.count({ where: { jobCardId: job.id, voidedAt: null } });
+  if (liveDispatches > 0)
+    throw new Error(
+      `${liveDispatches} dispatch${liveDispatches === 1 ? "" : "es"} logged against ${job.siNo} — void them first, then delete the card`
+    );
+  const lockedChallans = await db.materialChallan.count({
+    where: { jobCardId: job.id, status: "LOCKED", voidedAt: null },
+  });
+  if (lockedChallans > 0)
+    throw new Error(
+      `${lockedChallans} locked challan${lockedChallans === 1 ? "" : "s"} raised against ${job.siNo} — void them first, then delete the card`
+    );
+
+  // Net this card's OWN postings per (fabric, colour). Challan traffic is never stamped
+  // with a jobCardId (see the comment in lockChallan), so these rows are exactly the
+  // card's cutting issues and any fabric returned against it.
+  const movements = await db.stockMovement.findMany({
+    where: { jobCardId: job.id },
+    select: { id: true, type: true, qty: true, fabricId: true, color: true },
+  });
+  const net = new Map<string, { fabricId: number; colour: string | null; qty: number }>();
+  for (const m of movements) {
+    const key = `${m.fabricId}::${m.color ?? ""}`;
+    const row = net.get(key) ?? { fabricId: m.fabricId, colour: m.color, qty: 0 };
+    row.qty += m.type === "RECEIPT" ? m.qty : -m.qty;
+    net.set(key, row);
+  }
+
+  const now = new Date();
+  await db.$transaction(async (tx) => {
+    // 1) post the inverse of the card's net effect on each fabric colour
+    for (const r of net.values()) {
+      if (Math.abs(r.qty) < 0.005) continue;
+      await postMaterialMovement(tx, {
+        // net negative ⇒ the card took stock out ⇒ put it back IN
+        direction: r.qty < 0 ? "IN" : "OUT",
+        qty: Math.abs(Math.round(r.qty * 100) / 100),
+        date: now,
+        fabricId: r.fabricId,
+        colour: r.colour,
+        jobCardId: null, // the card is about to go; the reversal stands on its own
+        note: `Reverse ${job.siNo} (job card deleted)`,
+      });
+    }
+    // 2) detach — never destroy — the card's historical ledger rows
+    await tx.stockMovement.updateMany({ where: { jobCardId: job.id }, data: { jobCardId: null } });
+    // 3) drop the card's own children. Layers/cells, fabric lines and stitch assignments
+    //    cascade; these four do not.
+    await tx.dispatchLine.deleteMany({ where: { event: { jobCardId: job.id } } });
+    await tx.dispatchEvent.deleteMany({ where: { jobCardId: job.id } }); // voided only, per the guard
+    await tx.jobBomLine.deleteMany({ where: { jobCardId: job.id } });
+    await tx.returnNote.deleteMany({ where: { jobCardId: job.id } });
+    await tx.sizeBreakup.deleteMany({ where: { jobCardId: job.id } });
+    // 4) the auto-drafted trim challan (Change 19 A.2) dies with the card; a voided one
+    //    is history and merely loses its card link.
+    await tx.materialChallanLine.deleteMany({ where: { challan: { jobCardId: job.id, status: "DRAFT" } } });
+    await tx.materialChallan.deleteMany({ where: { jobCardId: job.id, status: "DRAFT" } });
+    await tx.materialChallan.updateMany({ where: { jobCardId: job.id }, data: { jobCardId: null } });
+    await tx.jobCard.delete({ where: { id: job.id } });
+  });
+
+  revalidatePath("/");
+  revalidatePath("/job-cards");
+  revalidatePath("/board");
+  revalidatePath("/inventory");
+  revalidatePath("/trims");
+  revalidatePath("/challans");
+  revalidatePath("/dispatch");
+  return { ok: true, siNo: job.siNo, reversed: [...net.values()].filter((r) => Math.abs(r.qty) >= 0.005).length };
+}
+
+/**
+ * Change 22 C.2 — edit a job card's light header metadata. Deliberately does NOT touch
+ * the cut matrix, the product, or any stock: quantity changes stay on the existing
+ * "Add split / re-cut" flow, and a metadata edit must never silently re-post fabric.
+ * MRP stays owner-only, exactly as in createJobCard.
+ */
+export async function updateJobCard(input: {
+  id: number;
+  siNo?: string;
+  plannedEtd?: string | null;
+  merchandiser?: string | null;
+  remark?: string | null;
+  needsPrint?: boolean;
+  needsLaser?: boolean;
+  needsEmb?: boolean;
+  customItem?: string | null;
+  customSku?: string | null;
+  customStyle?: string | null;
+  mrp?: number | null;
+  customMrp?: number | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.findUnique({ where: { id: input.id }, select: { id: true, productId: true } });
+  if (!job) throw new Error("Job card not found");
+
+  const siNo = input.siNo?.trim();
+  if (input.siNo !== undefined && !siNo) throw new Error("SI cannot be blank");
+  const owner = user.role === "ADMIN";
+
+  await db.jobCard.update({
+    where: { id: job.id },
+    data: {
+      ...(siNo ? { siNo } : {}),
+      ...(input.plannedEtd !== undefined ? { plannedEtd: input.plannedEtd ? new Date(input.plannedEtd) : null } : {}),
+      ...(input.merchandiser !== undefined ? { merchandiser: input.merchandiser } : {}),
+      ...(input.remark !== undefined ? { remark: input.remark } : {}),
+      ...(input.needsPrint !== undefined ? { needsPrint: input.needsPrint } : {}),
+      ...(input.needsLaser !== undefined ? { needsLaser: input.needsLaser } : {}),
+      ...(input.needsEmb !== undefined ? { needsEmb: input.needsEmb } : {}),
+      // custom item/style/sku only mean anything on a made-to-order card
+      ...(!job.productId && input.customItem !== undefined ? { customItem: input.customItem } : {}),
+      ...(!job.productId && input.customSku !== undefined ? { customSku: input.customSku } : {}),
+      ...(!job.productId && input.customStyle !== undefined ? { customStyle: input.customStyle } : {}),
+      ...(owner && input.mrp !== undefined ? { mrp: input.mrp } : {}),
+      ...(owner && !job.productId && input.customMrp !== undefined ? { customMrp: input.customMrp } : {}),
+    } as any,
+  });
+
+  revalidatePath("/job-cards");
+  revalidatePath(`/job-cards/${job.id}`);
+  revalidatePath("/board");
+  return { ok: true };
+}
+
+/**
+ * Change 22 Part D — edit a cutting layer. Cell edits move the card's cut quantity by the
+ * delta; they do NOT re-post fabric. Fabric is trued up in exactly one place
+ * (recordFabricActuals) and posting here too would double-count the lay.
+ */
+export async function updateCuttingLayer(input: {
+  id: number;
+  vendorName?: string | null;
+  cuttingMaster?: string | null;
+  cutDate?: string | null;
+  label?: string | null;
+  rolls?: number | null;
+  fabricMtr?: number | null;
+  fabricIssued?: number | null;
+  fabricBalance?: number | null;
+  avgConsumption?: number | null;
+  sizeRatio?: string | null;
+  cells?: { colour: string; size: string; qty: number }[];
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const layer = await db.cuttingLayer.findUnique({
+    where: { id: input.id },
+    include: { cells: true },
+  });
+  if (!layer) throw new Error("Cutting layer not found");
+
+  const oldTotal = layer.cells.reduce((a, c) => a + c.qty, 0);
+  const cells = input.cells
+    ?.filter((c) => c.qty > 0)
+    .map((c) => ({ colour: colorKey(c.colour), size: c.size, qty: c.qty }));
+  if (cells && cells.length === 0) throw new Error("A layer needs at least one cell — remove the layer instead");
+  const newTotal = cells ? cells.reduce((a, c) => a + c.qty, 0) : oldTotal;
+
+  await db.$transaction(async (tx) => {
+    const vendorId = input.vendorName !== undefined ? await resolveVendorId(tx, input.vendorName) : undefined;
+    const masterId = input.cuttingMaster ? await resolveCuttingMaster(tx, input.cuttingMaster) : undefined;
+    if (cells) {
+      await tx.cuttingLayerCell.deleteMany({ where: { layerId: layer.id } });
+      for (const c of cells) await tx.cuttingLayerCell.create({ data: { layerId: layer.id, ...c } });
+    }
+    await tx.cuttingLayer.update({
+      where: { id: layer.id },
+      data: {
+        ...(vendorId !== undefined && vendorId !== null ? { vendorId } : {}),
+        ...(masterId !== undefined ? { cuttingMasterId: masterId } : {}),
+        ...(input.cutDate !== undefined ? { cutDate: input.cutDate ? new Date(input.cutDate) : null } : {}),
+        ...(input.label !== undefined ? { label: input.label } : {}),
+        ...(input.rolls !== undefined ? { rolls: input.rolls } : {}),
+        ...(input.fabricMtr !== undefined ? { fabricMtr: input.fabricMtr } : {}),
+        ...(input.fabricIssued !== undefined ? { fabricIssued: input.fabricIssued } : {}),
+        ...(input.fabricBalance !== undefined ? { fabricBalance: input.fabricBalance } : {}),
+        ...(input.avgConsumption !== undefined ? { avgConsumption: input.avgConsumption } : {}),
+        ...(input.sizeRatio !== undefined ? { sizeRatio: input.sizeRatio } : {}),
+      } as any,
+    });
+    if (newTotal !== oldTotal) {
+      await tx.jobCard.update({
+        where: { id: layer.jobCardId },
+        data: { cutQty: { increment: newTotal - oldTotal } } as any,
+      });
+    }
+  });
+
+  revalidatePath(`/job-cards/${layer.jobCardId}`);
+  revalidatePath("/job-cards");
+  revalidatePath("/board");
+  revalidatePath("/vendors");
+  return { ok: true };
+}
+
+/**
+ * Change 22 Part D — remove a cutting layer, reversing the fabric it was issued and
+ * taking its pieces back off the card's cut quantity.
+ *
+ * Guarded: a layer that has already been dispatched against can't be removed (void the
+ * dispatch first) — you can't un-cut cloth that has already come back stitched.
+ */
+export async function removeCuttingLayer(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const layer = await db.cuttingLayer.findUnique({
+    where: { id: input.id },
+    include: {
+      cells: true,
+      dispatches: { where: { voidedAt: null }, select: { id: true, dispatchNo: true } },
+      jobCard: { select: { id: true, siNo: true, estAvg: true, product: { select: { fabricId: true } } } },
+    },
+  });
+  if (!layer) throw new Error("Cutting layer not found");
+  if (layer.dispatches.length > 0) {
+    const nos = layer.dispatches.map((d) => d.dispatchNo ?? `#${d.id}`).join(", ");
+    throw new Error(`This layer has been dispatched against (${nos}) — void those dispatches first`);
+  }
+
+  const fabricId = layer.jobCard.product?.fabricId ?? null;
+  const issued = layerFabricByColour(layer, layer.jobCard.estAvg);
+  const layerTotal = layer.cells.reduce((a, c) => a + c.qty, 0);
+  const now = new Date();
+
+  await db.$transaction(async (tx) => {
+    if (fabricId) {
+      for (const [colour, qty] of issued) {
+        // put the lay's fabric back — the inverse of the OUT that issued it
+        await postMaterialMovement(tx, {
+          direction: "IN",
+          qty,
+          date: now,
+          fabricId,
+          colour,
+          jobCardId: layer.jobCard.id,
+          note: `Reverse layer ${layer.layerNo} (${layer.jobCard.siNo})`,
+        });
+        const line = await tx.jobFabricLine.findFirst({
+          where: { jobCardId: layer.jobCard.id, fabricId, color: colour },
+        });
+        if (line) {
+          const cut = layer.cells
+            .filter((c) => colorKey(c.colour) === colour)
+            .reduce((a, c) => a + c.qty, 0);
+          await tx.jobFabricLine.update({
+            where: { id: line.id },
+            data: {
+              cutQty: (line.cutQty ?? 0) - cut,
+              qtyIssued: (line.qtyIssued ?? 0) - qty,
+            } as any,
+          });
+        }
+      }
+    }
+    await tx.cuttingLayerCell.deleteMany({ where: { layerId: layer.id } });
+    await tx.cuttingLayer.delete({ where: { id: layer.id } });
+    if (layerTotal > 0) {
+      await tx.jobCard.update({
+        where: { id: layer.jobCard.id },
+        data: { cutQty: { decrement: layerTotal } } as any,
+      });
+    }
+  });
+
+  revalidatePath(`/job-cards/${layer.jobCard.id}`);
+  revalidatePath("/job-cards");
+  revalidatePath("/board");
+  revalidatePath("/inventory");
+  revalidatePath("/vendors");
+  return { ok: true, reversedMtr: [...issued.values()].reduce((a, q) => a + q, 0) };
+}
+
+/**
+ * Change 22 Part E — the honest fabric stock adjustment. Replaces the blunt
+ * setFabricColorStock overwrite: the counted figure is reached by POSTING the delta
+ * through the shared ledger, with a reason, so the movement is recorded and is itself
+ * reversible. Negatives allowed.
+ */
+export async function adjustFabricStock(input: {
+  fabricId: number;
+  colour: string;
+  newQty?: number;
+  delta?: number;
+  reason: AdjustReason;
+  note?: string | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  if (input.newQty == null && input.delta == null) throw new Error("Give a counted quantity or a delta");
+  const colour = colorKey(input.colour);
+  const fc = await db.fabricColor.findUnique({
+    where: { fabricId_color: { fabricId: input.fabricId, color: colour } },
+    select: { id: true, currentStock: true },
+  });
+  if (!fc) throw new Error("That fabric colour is not in stock yet — add the colour first");
+
+  const delta =
+    input.delta != null ? input.delta : Math.round((input.newQty! - fc.currentStock) * 100) / 100;
+  if (Math.abs(delta) < 0.005) return { ok: true, unchanged: true as const, current: fc.currentStock };
+
+  await db.$transaction(async (tx) => {
+    await postMaterialMovement(tx, {
+      direction: delta > 0 ? "IN" : "OUT",
+      qty: Math.abs(delta),
+      date: new Date(),
+      fabricId: input.fabricId,
+      colour,
+      note: input.note ?? null,
+      reason: input.reason,
+    });
+    // OPENING is the first count: it also becomes the baseline the utilisation bar reads.
+    if (input.reason === "OPENING" && input.newQty != null) {
+      await tx.fabricColor.update({ where: { id: fc.id }, data: { openingStock: input.newQty } });
+    }
+  });
+
+  revalidatePath(`/inventory/${input.fabricId}`);
+  revalidatePath("/inventory");
+  revalidatePath("/");
+  return { ok: true, delta, current: Math.round((fc.currentStock + delta) * 100) / 100 };
+}
+
+/**
+ * Change 22 Part E — the same honest adjustment for trims, which had no correction path
+ * at all: the only doors into trim stock were a locked challan and the UI-less legacy
+ * recordTrimReceipt.
+ */
+export async function adjustTrimStock(input: {
+  trimItemId: number;
+  newQty?: number;
+  delta?: number;
+  reason: AdjustReason;
+  note?: string | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  if (input.newQty == null && input.delta == null) throw new Error("Give a counted quantity or a delta");
+  const t = await db.trimItem.findUnique({ where: { id: input.trimItemId }, select: { id: true, currentStock: true } });
+  if (!t) throw new Error("Trim item not found");
+
+  const delta =
+    input.delta != null ? input.delta : Math.round((input.newQty! - t.currentStock) * 100) / 100;
+  if (Math.abs(delta) < 0.005) return { ok: true, unchanged: true as const, current: t.currentStock };
+
+  await db.$transaction(async (tx) => {
+    await postMaterialMovement(tx, {
+      direction: delta > 0 ? "IN" : "OUT",
+      qty: Math.abs(delta),
+      date: new Date(),
+      trimItemId: input.trimItemId,
+      note: input.note ?? null,
+      reason: input.reason,
+    });
+  });
+
+  revalidatePath(`/trims/${input.trimItemId}`);
+  revalidatePath("/trims");
+  revalidatePath("/pending-trims");
+  revalidatePath("/");
+  return { ok: true, delta, current: Math.round((t.currentStock + delta) * 100) / 100 };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Change 20 — finishing as job-work (JW- series)
+//
+// A hand-off document per finishing step: which vendor, which layers, how many
+// pieces out, how many came back, at what rate, against which bill. It mirrors
+// addDispatch (event → layers) and reuses the DC-/CH- series idiom verbatim.
+//
+// ★ A tracking ledger, not a stock ledger. Nothing below calls
+// postMaterialMovement or touches dispatchedQty — that is deliberate and load
+// bearing. Finished garments live in the ERP (Change 21); fabric and trims were
+// deducted upstream (Change 19). Using it is entirely OPTIONAL: a card that never
+// raises a JW- behaves exactly as it did before.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type FinishingProcessName = "PRINT" | "EMBROIDERY" | "WASH" | "SUBLIMATION" | "LASER" | "OTHER";
+
+function revalidateFinishing(jobCardId?: number, vendorName?: string | null) {
+  revalidatePath("/finishing");
+  revalidatePath("/board");
+  if (jobCardId) revalidatePath(`/job-cards/${jobCardId}`);
+  if (vendorName) revalidatePath(`/vendors/${encodeURIComponent(vendorName)}`);
+  revalidatePath("/vendors");
+}
+
+/**
+ * Change 20 B.1 — give a card's layer(s) out for finishing. Allocates the JW- number
+ * inside the transaction so the number and the row can never drift apart.
+ */
+export async function createFinishingJob(input: {
+  jobCardId: number;
+  vendorName: string;
+  process: FinishingProcessName;
+  layerIds?: number[];
+  qtyOut?: number;
+  lines?: { colour?: string | null; size: string; qtyOut: number }[];
+  rate?: number | null;
+  billNo?: string | null;
+  issuedDate?: string;
+  note?: string | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const canSeeCost = user.role === "ADMIN"; // rate is cost data, same gate as MRP
+
+  const job = await db.jobCard.findUnique({ where: { id: input.jobCardId }, select: { id: true, siNo: true } });
+  if (!job) throw new Error("Job card not found");
+
+  const lines = (input.lines ?? []).filter((l) => l.qtyOut > 0);
+  const qtyOut = lines.length ? lines.reduce((a, l) => a + l.qtyOut, 0) : input.qtyOut ?? 0;
+  if (qtyOut <= 0) throw new Error("Give a quantity to send for finishing");
+
+  const created = await db.$transaction(async (tx) => {
+    const vendor = await tx.vendor.findUnique({ where: { name: input.vendorName.trim() } });
+    if (!vendor) throw new Error(`No vendor named "${input.vendorName}" — add the vendor first`);
+
+    // Same series idiom as addDispatch (DC-) and lockChallan (CH-). Do not invent a new one.
+    const year = new Date().getFullYear();
+    const prefix = `JW-${year}-`;
+    const existing = await tx.finishingJob.findMany({
+      where: { docNo: { startsWith: prefix } },
+      select: { docNo: true },
+    });
+    const maxN = existing.reduce(
+      (m, e) => Math.max(m, parseInt((e.docNo ?? "").slice(prefix.length), 10) || 0),
+      0
+    );
+    const docNo = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+
+    return tx.finishingJob.create({
+      data: {
+        docNo,
+        process: input.process as any,
+        status: "OPEN",
+        vendorId: vendor.id,
+        jobCardId: job.id,
+        issuedDate: input.issuedDate ? new Date(input.issuedDate) : new Date(),
+        qtyOut,
+        qtyBack: 0,
+        rate: canSeeCost ? input.rate ?? null : null,
+        billNo: input.billNo ?? null,
+        note: input.note ?? null,
+        ...(input.layerIds?.length ? { layers: { connect: input.layerIds.map((id) => ({ id })) } } : {}),
+        ...(lines.length
+          ? { lines: { create: lines.map((l) => ({ colour: l.colour ? colorKey(l.colour) : null, size: l.size, qtyOut: l.qtyOut })) } }
+          : {}),
+      } as any,
+      select: { id: true, docNo: true },
+    });
+  });
+
+  revalidateFinishing(job.id, input.vendorName);
+  return created;
+}
+
+/**
+ * Change 20 B.2 — log pieces coming back. Partial receipts accumulate; over- and
+ * short-returns are real house data and are never clamped (same rule as dispatch).
+ */
+export async function receiveFinishingJob(input: {
+  id: number;
+  qtyBack: number;
+  lines?: { id: number; qtyBack: number }[];
+  receivedDate?: string;
+  billNo?: string | null;
+  note?: string | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const jw = await db.finishingJob.findUnique({
+    where: { id: input.id },
+    include: { vendor: { select: { name: true } } },
+  });
+  if (!jw) throw new Error("Finishing job not found");
+  if (!input.qtyBack) throw new Error("Give a quantity received back");
+
+  const total = Math.round((jw.qtyBack + input.qtyBack) * 100) / 100;
+  const now = input.receivedDate ? new Date(input.receivedDate) : new Date();
+
+  await db.$transaction(async (tx) => {
+    for (const l of input.lines ?? []) {
+      const line = await tx.finishingJobLine.findUnique({ where: { id: l.id }, select: { qtyBack: true, jobId: true } });
+      if (!line || line.jobId !== jw.id) continue;
+      await tx.finishingJobLine.update({ where: { id: l.id }, data: { qtyBack: line.qtyBack + l.qtyBack } });
+    }
+    await tx.finishingJob.update({
+      where: { id: jw.id },
+      data: {
+        qtyBack: total,
+        status: total >= jw.qtyOut ? "CLOSED" : "OPEN",
+        receivedDate: jw.receivedDate ?? now,
+        ...(input.billNo !== undefined ? { billNo: input.billNo } : {}),
+        ...(input.note !== undefined ? { note: input.note } : {}),
+      } as any,
+    });
+  });
+
+  revalidateFinishing(jw.jobCardId, jw.vendor.name);
+  return { ok: true, docNo: jw.docNo, qtyBack: total, closed: total >= jw.qtyOut };
+}
+
+/**
+ * Change 20 B.3 — edit an OPEN job that has no receipts yet. Change 22 Part F is
+ * explicit that finishing must ship WITH its undo rather than repeat the one-way-door
+ * pattern the whole of Change 22 exists to fix; this and deleteFinishingJob are it.
+ */
+export async function updateFinishingJob(input: {
+  id: number;
+  process?: FinishingProcessName;
+  vendorName?: string;
+  qtyOut?: number;
+  rate?: number | null;
+  billNo?: string | null;
+  issuedDate?: string;
+  note?: string | null;
+  layerIds?: number[];
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const canSeeCost = user.role === "ADMIN";
+  const jw = await db.finishingJob.findUnique({
+    where: { id: input.id },
+    include: { vendor: { select: { name: true } } },
+  });
+  if (!jw) throw new Error("Finishing job not found");
+  if (jw.qtyBack > 0) throw new Error("Pieces have already come back on this job — it stays as history");
+
+  await db.$transaction(async (tx) => {
+    let vendorId: number | undefined;
+    if (input.vendorName) {
+      const v = await tx.vendor.findUnique({ where: { name: input.vendorName.trim() } });
+      if (!v) throw new Error(`No vendor named "${input.vendorName}"`);
+      vendorId = v.id;
+    }
+    await tx.finishingJob.update({
+      where: { id: jw.id },
+      data: {
+        ...(input.process ? { process: input.process as any } : {}),
+        ...(vendorId ? { vendorId } : {}),
+        ...(input.qtyOut != null ? { qtyOut: input.qtyOut } : {}),
+        ...(canSeeCost && input.rate !== undefined ? { rate: input.rate } : {}),
+        ...(input.billNo !== undefined ? { billNo: input.billNo } : {}),
+        ...(input.issuedDate ? { issuedDate: new Date(input.issuedDate) } : {}),
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        ...(input.layerIds ? { layers: { set: input.layerIds.map((id) => ({ id })) } } : {}),
+      } as any,
+    });
+  });
+
+  revalidateFinishing(jw.jobCardId, input.vendorName ?? jw.vendor.name);
+  return { ok: true };
+}
+
+/** Change 20 B.3 — delete an OPEN job with no receipts. Moves no stock (nothing to reverse). */
+export async function deleteFinishingJob(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const jw = await db.finishingJob.findUnique({
+    where: { id: input.id },
+    include: { vendor: { select: { name: true } } },
+  });
+  if (!jw) throw new Error("Finishing job not found");
+  if (jw.qtyBack > 0) throw new Error("Pieces have already come back on this job — it stays as history");
+
+  await db.finishingJob.delete({ where: { id: jw.id } });
+  revalidateFinishing(jw.jobCardId, jw.vendor.name);
+  return { ok: true, docNo: jw.docNo };
 }

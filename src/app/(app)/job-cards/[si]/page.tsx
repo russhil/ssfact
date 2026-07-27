@@ -11,6 +11,10 @@ import { TrimSheet } from "@/components/trim-sheet";
 import { StatusTimeline } from "@/components/status-timeline";
 import { LayerDispatch, type DispatchLayer } from "@/components/layer-dispatch";
 import { AddCuttingLayer } from "@/components/add-cutting-layer";
+import { DispatchActions } from "@/components/dispatch-actions";
+import { JobCardActions } from "@/components/job-card-actions";
+import { LayerActions } from "@/components/layer-actions";
+import { FinishingPanel } from "@/components/finishing-panel";
 import { JobTrimChallanButton } from "@/components/job-trim-challan-button";
 import { num, inr, fmtDate, pct } from "@/lib/format";
 import { STAGE_LABEL, stageTone, normStage } from "@/lib/job-labels";
@@ -38,6 +42,17 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   const canSeeCost = u?.role === "ADMIN";
   const masterList = canEdit
     ? await db.cuttingMaster.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { name: true } })
+    : [];
+  // Change 20: this card's finishing job-work (optional — a card may have none).
+  const finishingJobs = await db.finishingJob.findMany({
+    where: { jobCardId: j.id },
+    include: { vendor: { select: { name: true } }, layers: { select: { layerNo: true, label: true } } },
+    orderBy: { id: "asc" },
+  });
+
+  // Change 22 Part D: the layer editor lets a lay be re-pointed at a different vendor.
+  const vendorNames = canEdit
+    ? (await db.vendor.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { name: true } })).map((v) => v.name)
     : [];
   // Change 17 Part C: challans raised against this job card (by kind).
   const jobChallans = canEdit ? await getJobCardChallans(j.id) : [];
@@ -131,7 +146,10 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
     vendor: l.vendor?.name ?? null,
     cells: l.cells.map((c) => ({ colour: c.colour, size: c.size, qty: c.qty })),
   }));
-  const priorDispatch = j.dispatches.map((e) => ({ id: e.id, qty: e.qty, layerIds: e.layers.map((x) => x.id) }));
+  // Change 22 B.1: voided events are shown in the log but must never feed a balance.
+  const liveDispatches = j.dispatches.filter((e) => !e.voidedAt);
+  const voidedCount = j.dispatches.length - liveDispatches.length;
+  const priorDispatch = liveDispatches.map((e) => ({ id: e.id, qty: e.qty, layerIds: e.layers.map((x) => x.id) }));
 
   const meta = [
     ["Style No", styleNo],
@@ -178,6 +196,22 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Change 22 Part C: reopen/close, edit header details, delete a mistaken card. */}
+          {canEdit && (
+            <JobCardActions
+              canSeeCost={canSeeCost}
+              job={{
+                id: j.id, siNo: j.siNo, status: j.status, hasProduct: !!j.productId,
+                plannedEtd: j.plannedEtd ? j.plannedEtd.toISOString().slice(0, 10) : null,
+                merchandiser: j.merchandiser, remark: j.remark,
+                needsPrint: j.needsPrint, needsLaser: j.needsLaser, needsEmb: j.needsEmb,
+                customItem: j.customItem, customSku: j.customSku, customStyle: j.customStyle,
+                mrp: j.mrp, customMrp: j.customMrp,
+                liveDispatches: liveDispatches.length,
+                lockedChallans: jobChallans.filter((c) => c.status === "LOCKED").length,
+              }}
+            />
+          )}
           {canEdit && (
             <Link href={`/job-cards/new?si=${encodeURIComponent(j.siNo)}`} className="inline-flex items-center gap-1 rounded-lg border border-border px-3.5 py-2 t-body font-semibold text-primary-ink hover:bg-surface-2">
               <Plus size={14} /> Add split / re-cut
@@ -223,8 +257,8 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           { label: "Cut", date: j.cuttingIssuedOn ?? j.orderDate, done: !!j.cuttingIssuedOn || j.cutQty > 0 },
           { label: "On machine", date: null, done: stage === "ON_MACHINE" || stage === "FINISHING" || stage === "DISPATCH" || j.dispatchedQty > 0 },
           { label: "Finishing", date: null, done: stage === "FINISHING" || stage === "DISPATCH" || j.dispatchedQty > 0 },
-          { label: "Received", date: j.dispatches[0]?.date ?? null, done: j.dispatchedQty > 0 },
-          { label: "Closed", date: j.dispatches[j.dispatches.length - 1]?.date ?? null, done: j.status === "CLOSED" },
+          { label: "Received", date: liveDispatches[0]?.date ?? null, done: j.dispatchedQty > 0 },
+          { label: "Closed", date: liveDispatches[liveDispatches.length - 1]?.date ?? null, done: j.status === "CLOSED" },
         ]}
       />
 
@@ -245,7 +279,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         {/* dispatch log with reason + running balance */}
         <Card className="p-5">
           <h3 className="mb-3 t-body font-bold">
-            Dispatch Log <span className="font-medium text-faint">· {j.dispatches.length} events</span>
+            Dispatch Log <span className="font-medium text-faint">· {liveDispatches.length} events{voidedCount > 0 && ` · ${voidedCount} void`}</span>
           </h3>
           {j.dispatches.length === 0 ? (
             <p className="py-4 text-center t-sm text-muted">No dispatch yet.</p>
@@ -254,8 +288,11 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               {j.dispatches.map((e) => {
                 const layerLabels = e.layers.map((x) => x.label || `L${x.layerNo}`);
                 const cells = e.lines.map((ln) => `${ln.colour ? ln.colour + " " : ""}${ln.size}:${num(ln.qty)}`);
+                // Change 22 B.1: a voided event keeps its DC number and stays visible as
+                // history — dimmed and struck through, never counted.
+                const dead = !!e.voidedAt;
                 return (
-                  <div key={e.id} className="border-b border-hairline py-2 t-sm last:border-0">
+                  <div key={e.id} className={`border-b border-hairline py-2 t-sm last:border-0 ${dead ? "opacity-55" : ""}`}>
                     <div className="flex items-center justify-between">
                       <span className="flex flex-wrap items-center gap-2 text-t2 tnum">
                         {fmtDate(e.date)}
@@ -264,7 +301,18 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                         {e.challan && <span className="text-faint">challan {e.challan}</span>}
                       </span>
                       <span className="flex items-center gap-2">
-                        <span className="font-bold tnum">+{num(e.qty)}</span>
+                        <span className={`font-bold tnum ${dead ? "line-through" : ""}`}>+{num(e.qty)}</span>
+                        {canEdit && (
+                          <DispatchActions
+                            compact
+                            event={{
+                              id: e.id, dispatchNo: e.dispatchNo, date: e.date.toISOString(), qty: e.qty,
+                              reason: e.reason, note: e.note, challan: e.challan, arrangedBy: e.arrangedBy,
+                              voidedAt: e.voidedAt ? e.voidedAt.toISOString() : null,
+                              lines: e.lines.map((ln) => ({ id: ln.id, colour: ln.colour, size: ln.size, qty: ln.qty })),
+                            }}
+                          />
+                        )}
                         <Link href={`/dispatch-doc/${e.id}`} className="t-xs font-semibold text-primary-ink hover:underline no-print">doc →</Link>
                       </span>
                     </div>
@@ -319,7 +367,28 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                       <span className="font-medium text-faint">· {num(ltotal)} pcs</span>
                       {l.vendor && <Badge tone="primary">{l.vendor.name}</Badge>}
                     </span>
-                    <span className="text-faint">{l.cutDate ? fmtDate(l.cutDate) : ""}{l.cuttingMaster ? ` · ${l.cuttingMaster.name}` : ""}</span>
+                    <span className="flex items-center gap-2 text-faint">
+                      {l.cutDate ? fmtDate(l.cutDate) : ""}{l.cuttingMaster ? ` · ${l.cuttingMaster.name}` : ""}
+                      {/* Change 22 Part D: edit or remove this lay. */}
+                      {canEdit && (
+                        <LayerActions
+                          unit={unit}
+                          vendors={vendorNames}
+                          masters={masterList.map((m) => m.name)}
+                          layer={{
+                            id: l.id, layerNo: l.layerNo, label: l.label,
+                            cutDate: l.cutDate ? l.cutDate.toISOString().slice(0, 10) : null,
+                            vendor: l.vendor?.name ?? null, cuttingMaster: l.cuttingMaster?.name ?? null,
+                            rolls: l.rolls, fabricMtr: l.fabricMtr, fabricIssued: l.fabricIssued,
+                            fabricBalance: l.fabricBalance, avgConsumption: l.avgConsumption,
+                            total: ltotal,
+                            dispatched: liveDispatches
+                              .filter((e) => e.layers.some((x) => x.id === l.id))
+                              .reduce((a, e) => a + e.qty, 0),
+                          }}
+                        />
+                      )}
+                    </span>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-center t-sm">
@@ -367,6 +436,27 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           )}
         </Card>
       )}
+
+      {/* Change 20 Part C.1: finishing given out as job-work, per layer, per vendor.
+          The PRINT/LASER/EMB flags above stay as quick planning; these are the record. */}
+      <FinishingPanel
+        jobCardId={j.id}
+        siNo={j.siNo}
+        canEdit={canEdit}
+        canSeeCost={canSeeCost}
+        vendors={vendorNames}
+        layers={j.layers.map((l) => ({ id: l.id, label: l.label || `Layer ${l.layerNo}` }))}
+        rows={finishingJobs.map((f) => ({
+          id: f.id, docNo: f.docNo, process: f.process as string, status: f.status as string,
+          vendor: f.vendor.name,
+          layers: f.layers.map((x) => x.label || `L${x.layerNo}`),
+          issuedDate: f.issuedDate.toISOString(),
+          receivedDate: f.receivedDate ? f.receivedDate.toISOString() : null,
+          qtyOut: f.qtyOut, qtyBack: f.qtyBack,
+          rate: canSeeCost ? f.rate : null,
+          billNo: f.billNo, note: f.note,
+        }))}
+      />
 
       {/* Change 17 Part C: challans raised against this job card */}
       {canEdit && (
@@ -602,7 +692,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <JobTrimChallanButton jobCardId={j.id} />
               <span className="t-xs text-faint">
-                Trims leave stock only when an outward challan is locked. Need more mid-job? Raise another one.
+                
               </span>
             </div>
           )}

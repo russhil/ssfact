@@ -1,74 +1,63 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
-import { Search } from "lucide-react";
 import type { ProductRow } from "@/lib/catalog";
 import { STATUS_LABEL, statusTone } from "@/lib/catalog-labels";
-import { Badge } from "@/components/ui";
+import { Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
 import { inr } from "@/lib/format";
 
 export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: ProductRow[]; categories: string[]; canSeeCost?: boolean }) {
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState("ALL");
-  const [cat, setCat] = useState("ALL");
+  // Change 23 Part G: search + status + category kept exactly as they were, moved onto
+  // the shared toolbar, and click-to-sort added.
+  const filters: FilterDef<ProductRow>[] = useMemo(
+    () => [
+      {
+        key: "status",
+        label: "statuses",
+        options: Object.entries(STATUS_LABEL).map(([k, v]) => ({ value: k, label: v })),
+        match: (r, v) => r.status === v,
+      },
+      {
+        key: "cat",
+        label: "categories",
+        options: categories.map((c) => ({ value: c, label: c })),
+        match: (r, v) => (r.headCategory ?? "Uncategorised") === v,
+      },
+    ],
+    [categories]
+  );
 
-  const shown = useMemo(() => {
-    const n = q.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (status !== "ALL" && r.status !== status) return false;
-      if (cat !== "ALL" && (r.headCategory ?? "Uncategorised") !== cat) return false;
-      if (!n) return true;
-      return (
-        r.skuCode.toLowerCase().includes(n) ||
-        r.name.toLowerCase().includes(n) ||
-        (r.headCategory ?? "").toLowerCase().includes(n) ||
-        (r.styleGroup ?? "").toLowerCase().includes(n)
-      );
-    });
-  }, [q, status, cat, rows]);
-
-  const selectCls =
-    "rounded-lg border border-border bg-surface px-3 py-2 t-sm outline-none focus:border-primary focus:ring-2 focus:ring-accent/15";
+  const view = useTableView<ProductRow>({
+    id: "cat",
+    rows,
+    filters,
+    search: (r) => [r.skuCode, r.name, r.headCategory, r.styleGroup],
+    sorts: {
+      sku: (r) => r.skuCode,
+      name: (r) => r.name,
+      category: (r) => r.headCategory ?? "",
+      mrp: (r) => r.mrp,
+      wholesale: (r) => r.wholesale,
+    },
+  });
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative w-72">
-          <Search size={14} className="absolute left-3 top-2.5 text-faint" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search SKU, name, category…"
-            className="w-full rounded-lg border border-border bg-surface py-2 pl-8 pr-3 t-sm outline-none focus:border-primary focus:ring-2 focus:ring-accent/15"
-          />
-        </div>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className={selectCls}>
-          <option value="ALL">All statuses</option>
-          {Object.entries(STATUS_LABEL).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-        <select value={cat} onChange={(e) => setCat(e.target.value)} className={selectCls}>
-          <option value="ALL">All categories</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
-      </div>
+      <TableToolbar view={view} filters={filters} searchPlaceholder="Search SKU, name, category…" showDate={false} />
 
       <div className="overflow-hidden rounded-card border border-border bg-surface">
         <table className="w-full t-sm">
           <thead>
             <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
               <th className="px-4 py-2.5 font-semibold"></th>
-              <th className="px-4 py-2.5 font-semibold">SKU</th>
-              <th className="px-4 py-2.5 font-semibold">Product</th>
-              <th className="px-4 py-2.5 font-semibold">Category</th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="sku">SKU</SortHeader></th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="name">Product</SortHeader></th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="category">Category</SortHeader></th>
               {canSeeCost ? (
                 <>
-                  <th className="px-4 py-2.5 text-right font-semibold">MRP</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Wholesale</th>
+                  <th className="px-4 py-2.5 text-right"><SortHeader view={view} sortKey="mrp" align="right">MRP</SortHeader></th>
+                  <th className="px-4 py-2.5 text-right"><SortHeader view={view} sortKey="wholesale" align="right">Wholesale</SortHeader></th>
                 </>
               ) : (
                 <>
@@ -81,7 +70,7 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
             </tr>
           </thead>
           <tbody>
-            {shown.map((r) => (
+            {view.rows.map((r) => (
               <tr key={r.extId} className="border-b border-hairline last:border-0 hover:bg-surface-2">
                 <td className="px-4 py-2">
                   {r.imageUrl ? (
@@ -120,9 +109,7 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
           </tbody>
         </table>
       </div>
-      <p className="mt-2 t-xs text-faint">
-        {shown.length} of {rows.length} SKUs · the commercial product master
-      </p>
+      <p className="mt-2 t-xs text-faint">the commercial product master</p>
     </div>
   );
 }

@@ -5,10 +5,10 @@ import { inputClass } from "@/components/ui";
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick } from "@/lib/actions";
-import { Card, Badge } from "@/components/ui";
+import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick, voidChallan } from "@/lib/actions";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
-import { Plus, Check, X, FileText, Truck, Pencil, Trash2 } from "lucide-react";
+import { Plus, Check, X, FileText, Truck, Pencil, Trash2, Undo2 } from "lucide-react";
 
 type Line = { colour: string; qty: number };
 type ChallanLink = { id: number; challanNo: string | null; status: string };
@@ -19,6 +19,8 @@ type Order = {
   receivedDate: Date | string | null; poNumber: string | null; poStage: string;
   // Change 18 Part C: the inward challans this order was received on.
   challans: ChallanLink[];
+  // Change 22 Part A: Σ locked challan line qty — what has actually arrived.
+  receivedQty: number;
 };
 type Pick = { id: number; name: string };
 type FabricPick = { id: number; name: string; unit?: string };
@@ -177,9 +179,12 @@ export function FabricOrderManager({
    * Change 18 Part A: receiving is logging an inward challan, not a one-click "Receive".
    * The draft opens pre-filled from the PO so quantities can be corrected to the real
    * delivery; LOCKING that challan is what puts fabric into stock.
+   *
+   * Change 22 Part A: the "already received, log another?" confirm is gone — a RECEIVED
+   * order no longer offers this as its primary action at all, so reaching it is now an
+   * explicit choice ("log another delivery") rather than a mis-click.
    */
   async function logInward(o: Order) {
-    if (o.status === "RECEIVED" && !confirm("This PO is already received. Log another delivery challan against it?")) return;
     setBusy(true);
     try {
       const { id } = await draftChallanFromFabricOrder({ id: o.id });
@@ -191,6 +196,15 @@ export function FabricOrderManager({
   }
 
   /**
+   * Change 22 Part A: reverse a receipt. voidChallan already reverses every posted line and
+   * drops the order back to ORDER_PLACED when no other locked challan holds it received.
+   */
+  async function reverseReceipt(c: ChallanLink) {
+    if (!confirm(`Reverse ${c.challanNo ?? `challan #${c.id}`} and take this stock back out?`)) return;
+    await act(() => voidChallan({ id: c.id }));
+  }
+
+  /**
    * Order lines store the canonical colorKey() value, which is not guaranteed to exist in
    * the Colour master. Without merging those back in, editing an order would render a blank
    * <select> for the unmatched colour and silently drop that line on save.
@@ -199,6 +213,63 @@ export function FabricOrderManager({
     const extra = [...new Set(lines.map((l) => l.colour).filter((c) => c && !colourList.some((x) => x.name === c)))];
     return [...colourList, ...extra.map((name, i) => ({ id: -1 - i, name, hex: null }))];
   }, [colourList, lines]);
+
+  // Change 23 Part C — the order list's own view state.
+  const supplierNames = useMemo(
+    () => [...new Set(orders.map((o) => o.supplier).filter((x): x is string => !!x))].sort(),
+    [orders]
+  );
+  const filters: FilterDef<Order>[] = useMemo(
+    () => [
+      {
+        key: "status",
+        label: "statuses",
+        options: ["PLANNING", "SAMPLE_PENDING", "ORDER_PLACED", "RECEIVED", "DISCARDED"].map((v) => ({ value: v, label: v.replace("_", " ") })),
+        match: (o, v) => o.status === v,
+      },
+      {
+        key: "stage",
+        label: "PO stages",
+        options: ["Draft", "PO Generated", "Sent"].map((v) => ({ value: v, label: v })),
+        match: (o, v) => o.poStage === v,
+      },
+      {
+        key: "supplier",
+        label: "suppliers",
+        options: supplierNames.map((n) => ({ value: n, label: n })),
+        match: (o, v) => o.supplier === v,
+      },
+      {
+        key: "delivery",
+        label: "deliveries",
+        options: [
+          { value: "pending", label: "Pending delivery" },
+          { value: "received", label: "Fully received" },
+          { value: "short", label: "Short delivered" },
+        ],
+        match: (o, v) =>
+          v === "received" ? o.receivedQty >= o.totalQty && o.receivedQty > 0
+          : v === "short" ? o.receivedQty > 0 && o.receivedQty < o.totalQty
+          : o.receivedQty === 0,
+      },
+    ],
+    [supplierNames]
+  );
+  const view = useTableView<Order>({
+    id: "fo",
+    rows: orders,
+    filters,
+    search: (o) => [o.fabric, o.supplier, o.poNumber, ...o.lines.map((l) => l.colour)],
+    date: (o) => o.expectedDate ?? o.receivedDate,
+    sorts: {
+      fabric: (o) => o.fabric,
+      qty: (o) => o.totalQty,
+      supplier: (o) => o.supplier ?? "",
+      status: (o) => o.status,
+      date: (o) => (o.expectedDate ? new Date(o.expectedDate) : null),
+    },
+    sum: (o) => o.totalQty,
+  });
 
   return (
     <>
@@ -293,7 +364,7 @@ export function FabricOrderManager({
         <Card className="panel-invert p-5">
           <h3 className="mb-4 t-xs font-bold uppercase tracking-wide text-t3">Order summary</h3>
           {!fabricId ? (
-            <div className="flex h-40 items-center justify-center text-center t-sm text-t3">Pick a fabric and add colours.</div>
+            <div className="flex h-40 items-center justify-center text-center t-sm text-t3">Select a fabric.</div>
           ) : (
             <>
               <div className="t-body font-semibold text-t1">{fabricList.find((f) => String(f.id) === fabricId)?.name}</div>
@@ -319,23 +390,26 @@ export function FabricOrderManager({
         </Card>
       </div>
 
-      {/* order list */}
-      <Card className="mt-4 overflow-hidden p-0">
+      {/* Change 23 Part C: a long order history is only usable once you can slice it —
+          search, status/stage/supplier filters, received-vs-pending, date range, sort. */}
+      <Card className="mt-4 p-5">
+        <TableToolbar view={view} filters={filters} searchPlaceholder="Search fabric, supplier, PO…" dateLabel="Order date" unit="ordered" />
+        <div className="overflow-x-auto">
         <table className="w-full t-sm">
           <thead>
             <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-4 py-2.5 font-semibold">Fabric</th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="fabric">Fabric</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">Colours</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Total</th>
-              <th className="px-4 py-2.5 font-semibold">Supplier</th>
-              <th className="px-4 py-2.5 font-semibold">PO</th>
+              <th className="px-4 py-2.5 text-right"><SortHeader view={view} sortKey="qty" align="right">Total</SortHeader></th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="supplier">Supplier</SortHeader></th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="date">PO</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">Received on</th>
-              <th className="px-4 py-2.5 font-semibold">Status</th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="status">Status</SortHeader></th>
               <th className="px-4 py-2.5"></th>
             </tr>
           </thead>
           <tbody>
-            {orders.map((o) => (
+            {view.rows.map((o) => (
               <tr key={o.id} className={`border-b border-hairline last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
                 <td className="px-4 py-2.5 font-semibold">{o.fabric}</td>
                 <td className="px-4 py-2.5 text-t2">
@@ -343,18 +417,39 @@ export function FabricOrderManager({
                     {o.lines.map((l, i) => <span key={i} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs">{l.colour} {num(l.qty)}</span>)}
                   </div>
                 </td>
-                <td className="px-4 py-2.5 text-right tnum font-semibold">{num(o.totalQty)} {o.unit.toLowerCase()}</td>
+                <td className="px-4 py-2.5 text-right tnum font-semibold">
+                  {num(o.totalQty)} {o.unit.toLowerCase()}
+                  {/* Change 22 Part A: received-so-far vs ordered, so a short delivery is
+                      obvious and the owner knows more is still due. */}
+                  {o.receivedQty > 0 && (
+                    <div className={`t-xs font-medium ${o.receivedQty < o.totalQty ? "text-warn" : "text-ok"}`}>
+                      {num(o.receivedQty)} received
+                      {o.receivedQty < o.totalQty && ` · ${num(Math.round((o.totalQty - o.receivedQty) * 100) / 100)} due`}
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-2.5 text-t2">{o.supplier ?? "—"}</td>
                 <td className="px-4 py-2.5"><Badge tone={STAGE_TONE[o.poStage] ?? "default"}>{o.poNumber ?? o.poStage}</Badge></td>
                 <td className="px-4 py-2.5">
                   {o.challans.length === 0 ? (
                     <span className="text-faint">—</span>
                   ) : (
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-col gap-1">
                       {o.challans.map((c) => (
-                        <Link key={c.id} href={`/challan-doc/${c.id}`} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs font-semibold text-primary-ink hover:underline tnum">
-                          {c.challanNo ?? `Draft #${c.id}`}
-                        </Link>
+                        <span key={c.id} className="flex items-center gap-1">
+                          <Link href={`/challan-doc/${c.id}`} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs font-semibold text-primary-ink hover:underline tnum">
+                            {c.challanNo ?? `Draft #${c.id}`}
+                          </Link>
+                          {/* Change 22 Part A: if we have to edit the log, edit the challan.
+                              /challan-doc already edits a LOCKED challan via editLockedChallan
+                              (void + reissue, same number, PO stays RECEIVED). */}
+                          {c.status === "LOCKED" && (
+                            <>
+                              <Link href={`/challan-doc/${c.id}`} title="Edit this challan" className="text-t3 hover:text-primary-ink"><Pencil size={12} /></Link>
+                              <button onClick={() => reverseReceipt(c)} disabled={busy} title="Reverse this receipt" className="text-t3 hover:text-danger disabled:opacity-40"><Undo2 size={12} /></button>
+                            </>
+                          )}
+                        </span>
                       ))}
                     </div>
                   )}
@@ -364,16 +459,30 @@ export function FabricOrderManager({
                   <div className="flex flex-wrap justify-end gap-1.5">
                     {!o.poNumber && <button onClick={() => act(() => generatePO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Generate PO</button>}
                     {o.poNumber && <Link href={`/po/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Open PO</Link>}
-                    {o.status !== "DISCARDED" && <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-ok hover:bg-ok-soft"><Truck size={12} /> Log Inward Challan</button>}
+                    {/* Change 22 Part A: once RECEIVED, logging another inward is no longer
+                        the primary action — the row's job is now edit / reverse (in the
+                        CHALLAN column). A genuine split delivery is still one click away,
+                        just demoted to a quiet secondary link. */}
+                    {o.status !== "DISCARDED" && o.status !== "RECEIVED" && (
+                      <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-ok hover:bg-ok-soft"><Truck size={12} /> Log Inward Challan</button>
+                    )}
+                    {o.status === "RECEIVED" && (
+                      <button onClick={() => logInward(o)} disabled={busy} className="t-xs font-medium text-t3 underline-offset-2 hover:text-primary-ink hover:underline disabled:opacity-40">log another delivery</button>
+                    )}
                     {canEdit(o) && <button onClick={() => startEdit(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2"><Pencil size={12} /> Edit</button>}
                     {canDelete(o) && <button onClick={() => remove(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-danger hover:bg-danger-soft"><Trash2 size={12} /> Delete</button>}
                   </div>
                 </td>
               </tr>
             ))}
-            {orders.length === 0 && <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">No fabric orders yet.</td></tr>}
+            {view.rows.length === 0 && (
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">
+                {orders.length === 0 ? "No fabric orders yet." : "No orders match these filters."}
+              </td></tr>
+            )}
           </tbody>
         </table>
+        </div>
       </Card>
     </>
   );

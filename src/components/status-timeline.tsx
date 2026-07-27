@@ -10,28 +10,36 @@ export function StatusTimeline({ steps }: { steps: TimelineStep[] }) {
   return (
     <Card className="mt-3.5 p-5">
       <h3 className="mb-4 t-body font-bold">Status Timeline</h3>
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-0">
+      <ol className="flex flex-col gap-3 md:flex-row md:gap-0">
         {steps.map((s, i) => (
-          <div key={s.label} className="flex flex-1 items-start gap-3 md:flex-col md:items-center md:text-center">
-            <div className="flex items-center md:w-full md:flex-col">
-              <div
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full t-xs font-bold ${
-                  s.done ? "bg-primary text-accent-on" : "border border-dashed border-border bg-surface-2 text-faint"
+          <li key={s.label} className="flex flex-1 items-center gap-3 md:flex-col md:items-stretch md:gap-0">
+            {/* Rail: half-segment · dot · half-segment, so the line meets each dot's centre. */}
+            <div className="flex items-center md:w-full">
+              <span
+                className={`hidden h-px flex-1 md:block ${
+                  i === 0 ? "bg-transparent" : s.done ? "bg-primary/35" : "bg-border"
+                }`}
+              />
+              <span
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full t-xs font-semibold transition-colors ${
+                  s.done ? "bg-primary text-accent-on" : "border border-dashed border-border bg-surface text-faint"
                 }`}
               >
-                {s.done ? <Check size={14} /> : i + 1}
-              </div>
-              {i < steps.length - 1 && (
-                <div className={`hidden h-0.5 w-full md:block ${steps[i + 1].done ? "bg-primary" : "bg-border"}`} />
-              )}
+                {s.done ? <Check size={13} strokeWidth={3} /> : i + 1}
+              </span>
+              <span
+                className={`hidden h-px flex-1 md:block ${
+                  i === steps.length - 1 ? "bg-transparent" : steps[i + 1].done ? "bg-primary/35" : "bg-border"
+                }`}
+              />
             </div>
-            <div className="md:mt-1.5">
-              <div className={`t-sm font-semibold ${s.done ? "text-ink" : "text-faint"}`}>{s.label}</div>
-              <div className="t-xs text-muted">{s.done && s.date ? fmtDate(s.date) : "not logged yet"}</div>
+            <div className="min-w-0 md:mt-2.5 md:px-2 md:text-center">
+              <div className={`truncate t-sm font-semibold ${s.done ? "text-ink" : "text-faint"}`}>{s.label}</div>
+              <div className="truncate t-xs text-muted">{s.done && s.date ? fmtDate(s.date) : "not logged yet"}</div>
             </div>
-          </div>
+          </li>
         ))}
-      </div>
+      </ol>
     </Card>
   );
 }

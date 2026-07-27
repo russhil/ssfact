@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createTrim, updateTrim } from "@/lib/actions";
-import { Card, Badge } from "@/components/ui";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { StockAdjust } from "@/components/stock-adjust";
 import { LookupSelect } from "@/components/masters/lookup-select";
 import { num } from "@/lib/format";
 import { Plus, Settings2, Check } from "lucide-react";
@@ -61,6 +62,50 @@ export function TrimMasterManager({
     return m;
   }, [trims]);
   const lowCount = useMemo(() => trims.filter(isLow).length, [trims]);
+
+  // Change 23 Part F — search + supplier and below-reorder filters on top of the
+  // category tabs, plus click-to-sort. "Below reorder" is the practical
+  // what-do-I-need-to-buy view, reading the same isLow() the REORDER tab does.
+  const supplierNames = useMemo(
+    () => [...new Set(trims.map((t) => t.supplier).filter((x): x is string => !!x))].sort(),
+    [trims]
+  );
+  const filters: FilterDef<TrimMasterRow>[] = useMemo(
+    () => [
+      {
+        key: "supplier",
+        label: "suppliers",
+        options: supplierNames.map((n) => ({ value: n, label: n })),
+        match: (t, v) => t.supplier === v,
+      },
+      {
+        key: "level",
+        label: "stock levels",
+        options: [
+          { value: "reorder", label: "Below reorder level" },
+          { value: "ok", label: "Above reorder level" },
+        ],
+        match: (t, v) => (v === "reorder" ? isLow(t) : !isLow(t)),
+      },
+    ],
+    [supplierNames]
+  );
+  const view = useTableView<TrimMasterRow>({
+    id: "tm",
+    rows,
+    filters,
+    search: (t) => [t.name, t.category, t.family, t.supplier],
+    sorts: {
+      name: (t) => t.name,
+      supplier: (t) => t.supplier ?? "",
+      rate: (t) => t.ratePerUnit,
+      reorder: (t) => t.reorderLevel,
+      current: (t) => t.current,
+      // "how far under the trigger am I" — the buy-list order
+      gap: (t) => (t.reorderLevel != null ? t.current - t.reorderLevel : t.current),
+    },
+    sum: (t) => t.current,
+  });
 
   async function add() {
     if (!f.name?.trim()) return;
@@ -131,26 +176,32 @@ export function TrimMasterManager({
         </Card>
       )}
 
-      <Card className="overflow-hidden p-0">
+      <Card className="p-5">
+        <TableToolbar view={view} filters={filters} searchPlaceholder="Search trim, category, supplier…" showDate={false} unit="in store" />
+        <div className="overflow-x-auto">
         <table className="w-full t-sm">
           <thead>
             <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-4 py-2.5 font-semibold">Trim</th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="name">Trim</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">Category</th>
-              <th className="px-4 py-2.5 font-semibold">Supplier</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Rate</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Reorder</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Current</th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="supplier">Supplier</SortHeader></th>
+              <th className="px-4 py-2.5 text-right"><SortHeader view={view} sortKey="rate" align="right">Rate</SortHeader></th>
+              <th className="px-4 py-2.5 text-right"><SortHeader view={view} sortKey="gap" align="right">Reorder</SortHeader></th>
+              <th className="px-4 py-2.5 text-right"><SortHeader view={view} sortKey="current" align="right">Current</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">Status</th>
               <th className="px-4 py-2.5"></th>
             </tr>
           </thead>
           <tbody>
-            {rows.slice(0, 500).map((t) => (
+            {view.rows.slice(0, 500).map((t) => (
               <TrimRow key={t.id} t={t} units={units} onSaved={() => router.refresh()} />
             ))}
+            {view.rows.length === 0 && (
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">No trims match these filters.</td></tr>
+            )}
           </tbody>
         </table>
+        </div>
       </Card>
     </>
   );
@@ -191,7 +242,13 @@ function TrimRow({ t, units, onSaved }: { t: TrimMasterRow; units: LookupRow[]; 
         <td className={`px-4 py-2.5 text-right tnum font-semibold ${t.current <= 0 ? "text-danger" : low ? "text-warn" : ""}`}>{num(t.current)}</td>
         <td className="px-4 py-2.5">{t.current <= 0 ? <Badge tone="danger">Indent</Badge> : low ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}</td>
         <td className="px-4 py-2.5 text-right">
-          <button onClick={() => setEditing((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2"><Settings2 size={12} /> Edit</button>
+          <span className="inline-flex items-center gap-1.5">
+            {/* Change 22 Part E: trims finally get the ledger-backed correction fabric had —
+                the only doors into trim stock were a locked challan and the UI-less legacy
+                recordTrimReceipt. */}
+            <StockAdjust target={{ kind: "trim", trimItemId: t.id }} name={t.name} current={t.current} unit={t.unit} />
+            <button onClick={() => setEditing((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2"><Settings2 size={12} /> Edit</button>
+          </span>
         </td>
       </tr>
       {editing && (

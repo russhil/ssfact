@@ -157,6 +157,7 @@ model Vendor {
   stitchAssignments StitchAssignment[]
   materialChallans  MaterialChallan[]
   cuttingLayers     CuttingLayer[] // Change 14: a layer is issued to a vendor
+  finishingJobs     FinishingJob[] // Change 20: print/emb/wash job-work given to this vendor
 }
 
 model CuttingMaster {
@@ -301,6 +302,7 @@ model JobCard {
   layers            CuttingLayer[]
   stitchAssignments StitchAssignment[]
   materialChallans  MaterialChallan[]  @relation("JobCardChallans") // Change 17 Part C
+  finishingJobs     FinishingJob[] // Change 20: print/emb/wash given out per layer
 
   @@index([vendorId])
   @@index([productId])
@@ -337,6 +339,8 @@ model CuttingLayer {
 
   cells      CuttingLayerCell[]
   dispatches DispatchEvent[]    @relation("DispatchLayers") // Change 14: dispatched against these layers
+  // Change 20: finishing job-work given out against this lay (same pattern as dispatch).
+  finishingJobs FinishingJob[]   @relation("FinishingLayers")
 
   @@index([jobCardId])
   @@index([vendorId])
@@ -418,6 +422,10 @@ model DispatchEvent {
   challan    String? // legacy free-text challan ref (kept for back-compat)
   dispatchNo String?        @unique // Change 17 Part I: own "DC-2026-001" series (finished garments)
   note       String?
+  // Change 22 Part B: a voided dispatch keeps its DC- number and its document (mirrors
+  // MaterialChallan.voidedAt) — history is never hard-deleted. Voided events are excluded
+  // from every roll-up, the vendor log, and the finished-goods export.
+  voidedAt   DateTime?
   arrangedBy String? // who logged the dispatch (defaults to logged-in user)
   reason     DispatchReason @default(ORDER) // ORDER / SALE / OTHER (Change 10, Part H)
   jobCard    JobCard        @relation(fields: [jobCardId], references: [id])
@@ -499,6 +507,9 @@ model StockMovement {
   qty       Float
   date      DateTime
   note      String?
+  // Change 22 Part E: why stock moved on a hand adjustment — COUNT / DAMAGE / WASTAGE /
+  // OPENING / OTHER. Null on ordinary issue/receipt traffic.
+  reason    String?
   color     String? // null for legacy/colourless movements
   fabric    Fabric       @relation(fields: [fabricId], references: [id])
   fabricId  Int
@@ -801,6 +812,10 @@ model TrimMovement {
   invoice    String?
   rate       Float?
   vendor     String?
+  // Change 22 Part E: trims finally carry the same note + adjustment reason fabric has,
+  // so postMaterialMovement stops silently dropping the note on the trim branch.
+  note       String?
+  reason     String?
   trimItem   TrimItem     @relation(fields: [trimItemId], references: [id])
   trimItemId Int
 
@@ -912,4 +927,78 @@ model MaterialChallanLine {
   @@index([challanId])
   @@index([fabricId])
   @@index([trimItemId])
+}
+
+// ── Change 20 — finishing as job-work ────────────────────────────────────────
+//
+// Finishing (print / embroidery / wash / sublimation) is real work the factory gives
+// OUT to a vendor and gets BACK, mostly layer by layer. The software only carried three
+// booleans on the job card, which recorded THAT finishing was needed but not who did it,
+// which layers went out, or how much came back — so "every job-work I gave vendor X,
+// with bills and quantities sorted" was unanswerable.
+//
+// It mirrors the dispatch model (events linked to layers), so it rides a proven pattern.
+//
+// ★ This is a TRACKING ledger, not a stock ledger. Finished garments live in the ERP
+// (Change 21) and fabric/trims were deducted upstream (Change 19). A FinishingJob must
+// never touch FabricColor.currentStock, TrimItem.currentStock or JobCard.dispatchedQty.
+
+enum FinishingProcess {
+  PRINT
+  EMBROIDERY
+  WASH
+  SUBLIMATION
+  LASER
+  OTHER
+}
+
+enum FinishingStatus {
+  OPEN // issued (qty out), not fully back
+  CLOSED // fully received back
+}
+
+model FinishingJob {
+  id      Int              @id @default(autoincrement())
+  docNo   String?          @unique // "JW-2026-001" — allocated on issue (mirrors DC-/CH-)
+  process FinishingProcess
+  status  FinishingStatus  @default(OPEN)
+
+  vendor    Vendor  @relation(fields: [vendorId], references: [id])
+  vendorId  Int
+  jobCard   JobCard @relation(fields: [jobCardId], references: [id])
+  jobCardId Int
+
+  // usually layer-wise; may span several layers of the same card (same pattern as DispatchLayers)
+  layers CuttingLayer[] @relation("FinishingLayers")
+
+  issuedDate   DateTime  @default(now())
+  receivedDate DateTime? // set on the first receipt
+  qtyOut       Float // pieces sent for finishing
+  qtyBack      Float     @default(0) // accumulates across receipts; may differ from out
+
+  // commercial tracking so vendor bills reconcile
+  rate   Float? // ₹ per piece (owner-visible only, canSeeCost)
+  billNo String? // vendor's bill/invoice ref
+  note   String?
+
+  // optional size×colour breakup of what went out; the header qty is authoritative
+  lines FinishingJobLine[]
+
+  createdAt DateTime @default(now())
+
+  @@index([vendorId])
+  @@index([jobCardId])
+  @@index([process])
+}
+
+model FinishingJobLine {
+  id      Int          @id @default(autoincrement())
+  job     FinishingJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId   Int
+  colour  String? // colorKey; null = colour-less
+  size    String
+  qtyOut  Float
+  qtyBack Float        @default(0)
+
+  @@index([jobId])
 }

@@ -45,10 +45,10 @@ export function MastersTabs({
 
       <Card className="p-5">
         {tab === "categories" && <CategoryTree tree={tree} />}
-        {tab === "units" && <MasterListManager kind="UNIT" rows={units} hint="Units used on fabric & trim (MTR, KG, PCS…)." />}
-        {tab === "supplier_types" && <MasterListManager kind="SUPPLIER_TYPE" rows={supplierTypes} hint="Supplier classifications." />}
-        {tab === "trim_categories" && <MasterListManager kind="TRIM_CATEGORY" rows={trimCategories} hint="The trim master's 7 head categories." />}
-        {tab === "style_groups" && <MasterListManager kind="STYLE_GROUP" rows={styleGroups} hint="Optional grouping used on products." />}
+        {tab === "units" && <MasterListManager kind="UNIT" rows={units} hint="MTR, KG, PCS…" />}
+        {tab === "supplier_types" && <MasterListManager kind="SUPPLIER_TYPE" rows={supplierTypes} hint="Supplier classifications" />}
+        {tab === "trim_categories" && <MasterListManager kind="TRIM_CATEGORY" rows={trimCategories} hint="Trim head categories" />}
+        {tab === "style_groups" && <MasterListManager kind="STYLE_GROUP" rows={styleGroups} hint="Product groupings" />}
         {tab === "colours" && <ColourManager colours={colours} />}
       </Card>
     </div>
@@ -62,7 +62,7 @@ function ColourManager({ colours }: { colours: Colour[] }) {
   const run = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); router.refresh(); } finally { setBusy(false); } };
   return (
     <div>
-      <p className="mb-2 t-sm text-muted">Shared colour master (also editable inline from fabric orders).</p>
+      
       <div className="mb-3 flex gap-2">
         <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && name.trim() && run(async () => { await createColour({ name }); setName(""); })} placeholder="Add a colour…" className="w-64 rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
         <button onClick={() => name.trim() && run(async () => { await createColour({ name }); setName(""); })} disabled={busy || !name.trim()} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 t-body font-semibold text-accent-on disabled:opacity-40"><Plus size={14} /> Add</button>

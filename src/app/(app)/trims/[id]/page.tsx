@@ -8,6 +8,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
 import { ImageUploader } from "@/components/image-uploader";
 import { SourcingPanel } from "@/components/sourcing-panel";
+import { StockAdjust } from "@/components/stock-adjust";
 import { num, fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -24,9 +25,10 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
   const images = await db.imageAsset.findMany({ where: { trimItemId: trimId }, orderBy: { sortOrder: "asc" } });
   // Change 18 Part E: trim PO history (trims have no per-supplier rate record of their own).
   const sourcing = canSeeCost ? await getTrimSourcing(trimId) : null;
-  const trimMaster = canSeeCost
-    ? await db.trimItem.findUnique({ where: { id: trimId }, select: { ratePerUnit: true, unit: true } })
-    : null;
+  // The unit is needed by the stock-adjust control for everyone who can edit; the rate is
+  // cost data and stays owner-only.
+  const master = await db.trimItem.findUnique({ where: { id: trimId }, select: { ratePerUnit: true, unit: true } });
+  const trimMaster = canSeeCost ? master : null;
 
   return (
     <div className="p-6">
@@ -38,6 +40,19 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
         <h1 className="t-display font-bold tracking-tight">{stock.name}</h1>
         {stock.family && <span className="t-sm text-faint">{stock.family}</span>}
         {stock.status === "short" ? <Badge tone="danger">Indent</Badge> : stock.status === "low" ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}
+        {/* Change 22 Part E: count the rack, write off damage, set an opening figure —
+            posted through the ledger with a reason, never a silent overwrite. */}
+        {canEdit && (
+          <span className="ml-auto">
+            <StockAdjust
+              target={{ kind: "trim", trimItemId: stock.id }}
+              name={stock.name}
+              current={stock.current}
+              unit={master?.unit ?? null}
+              size="md"
+            />
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-4 gap-3.5">
@@ -53,7 +68,7 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
           </Card>
         ))}
       </div>
-      <p className="mt-2 t-xs text-faint">Current is the latest physical count from the store register — opening ± movements may not fully reconcile.</p>
+      
 
       {sourcing && (
         <SourcingPanel pos={sourcing.pos} unit={trimMaster?.unit ?? ""} poHref="/pot" estimate={trimMaster?.ratePerUnit ?? null} />
@@ -85,6 +100,9 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
               <th className="px-5 py-2.5 font-semibold">Type</th>
               <th className="px-5 py-2.5 font-semibold">Invoice</th>
               <th className="px-5 py-2.5 font-semibold">Vendor</th>
+              {/* Change 22 Part E: an adjustment says WHY here — the ledger and the balance
+                  can no longer disagree without a recorded reason. */}
+              <th className="px-5 py-2.5 font-semibold">Reason</th>
               <th className="px-5 py-2.5 text-right font-semibold">Qty</th>
             </tr>
           </thead>
@@ -97,6 +115,16 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
                 </td>
                 <td className="px-5 py-2.5 text-t2">{m.invoice ?? "—"}</td>
                 <td className="px-5 py-2.5 text-t2">{m.vendor ?? "—"}</td>
+                <td className="px-5 py-2.5 text-t2">
+                  {m.reason ? (
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <Badge tone={m.reason === "DAMAGE" || m.reason === "WASTAGE" ? "warn" : "default"}>{m.reason}</Badge>
+                      {m.note && <span className="t-xs text-faint">{m.note}</span>}
+                    </span>
+                  ) : (
+                    <span className="text-faint">{m.note ?? "—"}</span>
+                  )}
+                </td>
                 <td className={`px-5 py-2.5 text-right font-bold tnum ${m.type === "ISSUE" ? "text-danger" : "text-ok"}`}>
                   {m.type === "ISSUE" ? "−" : "+"}
                   {num(m.qty)}
@@ -105,7 +133,7 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
             ))}
             {ledger.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-muted">No movements recorded for this item.</td>
+                <td colSpan={6} className="px-5 py-10 text-center text-muted">No movements.</td>
               </tr>
             )}
           </tbody>

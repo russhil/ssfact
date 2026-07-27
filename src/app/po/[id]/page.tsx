@@ -4,6 +4,7 @@ import { getFabricOrder } from "@/lib/masters";
 import { getCurrentUser } from "@/lib/auth";
 import { num, inr, fmtDate } from "@/lib/format";
 import { POActions } from "@/components/po-actions";
+import { BrandLetterhead } from "@/components/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -33,8 +34,8 @@ export default async function POPage({ params }: { params: Promise<{ id: string 
 
       <div className="flex items-start justify-between border-b-2 border-ink pb-3">
         <div>
-          <h1 className="text-[20px] font-extrabold tracking-tight">Sport Sun</h1>
-          <p className="mt-0.5 text-[13px] font-bold tracking-wide">PURCHASE ORDER</p>
+          <BrandLetterhead />
+          <h1 className="mt-1.5 text-[13px] font-bold tracking-wide">PURCHASE ORDER</h1>
         </div>
         <div className="text-right">
           <div className="text-[16px] font-bold">{poNo}</div>

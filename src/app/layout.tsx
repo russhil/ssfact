@@ -1,12 +1,24 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Sportsun — Production OS",
+  title: "Sport Sun — Production OS",
   description: "Garment production & inventory ERP",
+  applicationName: "Sport Sun Production OS",
+  // favicon.ico / icon.png / apple-icon.png sit next to this file and are picked
+  // up by Next's file conventions; this only adds the ones it can't infer.
+  manifest: "/site.webmanifest",
+};
+
+/* Colours the mobile browser chrome to match the app shell in each theme. */
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#1a1a1e" },
+  ],
 };
 
 /**

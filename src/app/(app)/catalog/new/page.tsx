@@ -20,10 +20,7 @@ export default async function NewProductPage() {
       <Link href="/catalog" className="mb-4 inline-flex items-center gap-1.5 t-sm font-medium text-muted hover:text-ink">
         <ArrowLeft size={14} /> Product Master
       </Link>
-      <PageHeader
-        title="New Product"
-        subtitle="Add a style to the product master. Save first, then add colours, images and BOM on its page."
-      />
+      <PageHeader title="New Product" />
       <ProductMasterForm mode="create" canSeeCost={canSeeCost} headCategories={headCategories} fabrics={fabrics} />
     </div>
   );

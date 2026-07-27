@@ -51,10 +51,10 @@ export function SourcingPanel({
   return (
     <Card className="mt-3.5 p-5">
       <h3 className="t-body font-bold">
-        Sourcing <span className="font-medium text-faint">· rates we&apos;ve bought this at</span>
+        Sourcing
       </h3>
       <p className="mt-0.5 t-xs text-faint">
-        The master rate{estimate != null ? ` (${inr(estimate)}${per})` : ""} is an estimate used as the default.
+        Master rate{estimate != null ? `: ${inr(estimate)}${per}` : ""}
         The true rate lives on the purchase order.
       </p>
 

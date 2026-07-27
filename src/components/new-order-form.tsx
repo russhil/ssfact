@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Zap, Check, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Check, AlertTriangle } from "lucide-react";
 import { createProductionOrder } from "@/lib/actions";
 import type { ProductOption } from "@/lib/production";
 import { num } from "@/lib/format";
@@ -70,7 +70,6 @@ export function NewOrderForm({ products }: { products: ProductOption[] }) {
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="t-title font-bold tracking-tight">New Production Order</h1>
-          <p className="mt-0.5 t-sm text-muted">Target defaults to 2× monthly sale · duplicates are checked before saving</p>
         </div>
         <button
           onClick={() => save(false)}
@@ -88,7 +87,7 @@ export function NewOrderForm({ products }: { products: ProductOption[] }) {
 
           <div className="relative mb-3.5">
             <label className="mb-1.5 block t-xs font-semibold text-t1">
-              Product <span className="text-primary">— start typing the SKU or name</span>
+              Product
             </label>
             <input
               value={query}
@@ -159,8 +158,7 @@ export function NewOrderForm({ products }: { products: ProductOption[] }) {
 
           {!picked ? (
             <div className="flex h-48 flex-col items-center justify-center text-center t-sm text-t3">
-              <Zap size={22} className="mb-2 opacity-60" />
-              Pick a product — we check for an existing active order before you commit.
+              Select a product.
             </div>
           ) : dup ? (
             <div>
@@ -169,7 +167,7 @@ export function NewOrderForm({ products }: { products: ProductOption[] }) {
               </div>
               <p className="mt-2 t-sm leading-relaxed text-t2">
                 <b className="text-t1">{picked.name}</b> ({picked.skuCode}) already has order{" "}
-                <b className="text-t1">{blocked?.orderNo ?? picked.activeOrderNo}</b> in progress. Raising another would double the cut.
+                <b className="text-t1">{blocked?.orderNo ?? picked.activeOrderNo}</b> in progress.
               </p>
               <button
                 onClick={() => save(true)}
@@ -192,12 +190,6 @@ export function NewOrderForm({ products }: { products: ProductOption[] }) {
         </div>
       </div>
 
-      <div className="mt-3.5 flex items-center gap-3 rounded-card border border-ok/30 bg-ok-soft px-4 py-3 t-sm text-ok">
-        <Zap size={18} className="shrink-0 text-ok" />
-        <span>
-          The owner&apos;s two locked rules, enforced in software: order <b>2× the monthly sale</b>, and <b>never raise a duplicate</b> active order for the same article.
-        </span>
-      </div>
     </div>
   );
 }

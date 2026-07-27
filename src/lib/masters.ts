@@ -67,11 +67,22 @@ function poStageOf(o: { poNumber: string | null; sentAt: Date | null }): "Draft"
 // are excluded — a reversed receipt is not a receipt.
 const CHALLAN_LINK = {
   where: { voidedAt: null },
-  select: { id: true, challanNo: true, status: true },
+  // Change 22 Part A: line qty comes along so an order row can show received-so-far vs
+  // ordered — a short delivery has to be obvious without opening the challan.
+  select: { id: true, challanNo: true, status: true, lines: { select: { qty: true } } },
   orderBy: { id: "asc" as const },
 };
-export type OrderChallanLink = { id: number; challanNo: string | null; status: string };
+export type OrderChallanLink = { id: number; challanNo: string | null; status: string; lines: { qty: number }[] };
 const receivedOnOf = (cs: OrderChallanLink[]) => cs.find((c) => c.status === "LOCKED")?.challanNo ?? null;
+/**
+ * Change 22 Part A — what has physically arrived against a purchase order: the summed line
+ * qty of its LOCKED (non-voided) inward challans. Drafts are prepared, not delivered, so
+ * they don't count. Locking a challan is the only thing that puts goods into stock.
+ */
+const receivedQtyOf = (cs: OrderChallanLink[]) =>
+  Math.round(
+    cs.filter((c) => c.status === "LOCKED").reduce((a, c) => a + c.lines.reduce((x, l) => x + l.qty, 0), 0) * 100
+  ) / 100;
 
 export async function getFabricOrders() {
   const orders = await db.fabricOrder.findMany({
@@ -91,7 +102,7 @@ export async function getFabricOrders() {
       lines, totalQty, colourCount: lines.length, unit: o.unit, rate: o.rate, status: o.status as string,
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
       poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
-      challans, receivedOn: receivedOnOf(challans),
+      challans, receivedOn: receivedOnOf(challans), receivedQty: receivedQtyOf(challans),
     };
   });
 }
@@ -126,7 +137,7 @@ export async function getTrimOrders() {
       totalQty: o.qty, unit: o.unit ?? o.trimItem.unit ?? null, rate: o.rate, status: o.status as string,
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
       poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
-      challans, receivedOn: receivedOnOf(challans),
+      challans, receivedOn: receivedOnOf(challans), receivedQty: receivedQtyOf(challans),
     };
   });
 }
@@ -394,7 +405,9 @@ export async function getVendorLayers(vendorId: number) {
       cells: true,
       cuttingMaster: { select: { name: true } },
       jobCard: { include: { product: true } },
+      // Change 22 B.1: the vendor log and the layer balances ignore voided dispatches.
       dispatches: {
+        where: { voidedAt: null },
         orderBy: { date: "asc" },
         include: { lines: true, layers: { select: { id: true, layerNo: true, label: true } } },
       },

@@ -195,7 +195,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
       {/* Change 15 Part D: BOM job-card-wise (each card's actual trim consumption, separate) */}
       {p.jobBoms.length > 0 && (
         <Card className="mt-3.5 p-5">
-          <h3 className="mb-3 t-body font-bold">BOM by Job Card <span className="font-medium text-faint">· actual consumption per card</span></h3>
+          <h3 className="mb-3 t-body font-bold">BOM by Job Card</h3>
           <div className="space-y-3">
             {p.jobBoms.map((jb) => (
               <div key={jb.slug} className="rounded-xl border border-border p-3">
@@ -264,7 +264,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
 
       {!p.production && p.boms.length === 0 && p.orders.length === 0 && (
         <Card className="mt-3.5 p-8 text-center t-sm text-muted">
-          This SKU isn’t linked to the production workbook and has no BOM or live orders yet.
+          No BOM or live orders for this SKU.
         </Card>
       )}
     </div>

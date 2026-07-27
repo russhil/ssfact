@@ -83,7 +83,7 @@ export function ImageUploader({
             <Camera size={18} /> Camera
           </button>
         </div>
-        <p className="mt-2 t-micro text-faint">Drag &amp; drop, paste, pick a file{multiple ? "s" : ""}, or use the camera on phone.</p>
+        
         {err && <p className="mt-1 t-micro text-danger">{err}</p>}
       </div>
 

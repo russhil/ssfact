@@ -11,7 +11,7 @@ export default async function PendingTrimsPage() {
 
   return (
     <div className="p-6">
-      <PageHeader title="Pending Trims" subtitle="Trims short of store stock across active job cards — a live arrange/buy list. Cutting is never blocked; this is what to chase." />
+      <PageHeader title="Pending Trims" subtitle="Trims short of store stock across active job cards" />
 
       <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-3">
         <Card className="p-4">
@@ -25,7 +25,7 @@ export default async function PendingTrimsPage() {
       </div>
 
       {rows.length === 0 ? (
-        <Card className="p-10 text-center t-body text-muted">No trims short right now — every active card is covered. 🎉</Card>
+        <Card className="p-10 text-center t-body text-muted">No trims short.</Card>
       ) : (
         <Card className="overflow-hidden p-0">
           <table className="w-full t-sm">

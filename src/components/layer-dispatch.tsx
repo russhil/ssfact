@@ -220,7 +220,7 @@ export function LayerDispatch({
                   </td>
                 ))}</tr></tbody>
               </table>
-              <p className="mt-1 t-micro text-faint">Sale is colour-less — any size, not clamped to the cut.</p>
+              
             </div>
           ) : (
             <div className="overflow-x-auto">

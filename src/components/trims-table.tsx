@@ -90,7 +90,7 @@ export function TrimsTable({ rows, families }: { rows: TrimStock[]; families: st
         </table>
       </div>
       <p className="mt-2 t-xs text-faint">
-        {Math.min(shown.length, 400)} of {shown.length} shown{shown.length > 400 ? " · refine your search to see more" : ""} · trims/accessories store
+        {Math.min(shown.length, 400)} of {shown.length} shown
       </p>
     </div>
   );

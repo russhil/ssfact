@@ -135,7 +135,7 @@ export function ChallanDocActions({
     return (
       <div className="no-print mb-4 rounded-xl border border-dashed border-border bg-surface-2/50 p-3">
         <div className="mb-2 t-xs font-bold uppercase tracking-wide text-muted">
-          Draft — editable <span className="font-medium normal-case tracking-normal text-faint">· correct the quantities to what physically arrived, then lock</span>
+          Draft — editable
         </div>
         {lines.length > 0 && (
           <div className="mb-2 space-y-1">
@@ -241,7 +241,7 @@ export function ChallanDocActions({
           </div>
           <div className="mt-2 flex items-center gap-2">
             <button onClick={saveEdit} disabled={busy} className="rounded-lg bg-primary px-3.5 py-2 t-body font-semibold text-accent-on hover:opacity-90 disabled:opacity-40">{busy ? "Saving…" : "Save changes (re-post)"}</button>
-            <span className="t-xs text-faint">Old movements reverse and the new lines post — stock stays exact.</span>
+            
           </div>
         </div>
       )}

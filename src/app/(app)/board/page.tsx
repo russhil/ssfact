@@ -15,7 +15,7 @@ export default async function BoardPage() {
     <div className="p-6">
       <PageHeader
         title="Production Board"
-        subtitle="Every order on one screen — most overdue first. Cut · dispatched · stitching balance · fabric · ETD · stage."
+        subtitle="Most overdue first"
       />
       <ProductionBoard rows={rows} filterOptions={filterOptions} canSeeCost={canSeeCost} />
     </div>

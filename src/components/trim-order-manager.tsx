@@ -5,10 +5,10 @@ import { inputClass } from "@/components/ui";
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createTrimOrder, updateTrimOrder, deleteTrimOrder, draftChallanFromTrimOrder, generateTrimPO } from "@/lib/actions";
-import { Card, Badge } from "@/components/ui";
+import { createTrimOrder, updateTrimOrder, deleteTrimOrder, draftChallanFromTrimOrder, generateTrimPO, voidChallan } from "@/lib/actions";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
 import { num, inr } from "@/lib/format";
-import { Plus, X, FileText, Truck, Pencil, Trash2 } from "lucide-react";
+import { Plus, X, FileText, Truck, Pencil, Trash2, Undo2 } from "lucide-react";
 
 /**
  * Change 18 Part B — the trim mirror of FabricOrderManager.
@@ -27,6 +27,8 @@ type Order = {
   totalQty: number; unit: string | null; rate: number | null; status: string;
   expectedDate: Date | string | null; receivedDate: Date | string | null;
   poNumber: string | null; poStage: string; challans: ChallanLink[];
+  // Change 22 Part A: Σ locked challan line qty — what has actually arrived.
+  receivedQty: number;
 };
 type Pick = { id: number; name: string };
 type TrimPick = { id: number; name: string; unit: string | null; stock: number; rate: number | null };
@@ -171,9 +173,12 @@ export function TrimOrderManager({
     try { await fn(); router.refresh(); } catch (e) { alert((e as Error).message); } finally { setBusy(false); }
   }
 
-  /** Receiving is logging an inward challan — locking it is what lands the stock. */
+  /**
+   * Receiving is logging an inward challan — locking it is what lands the stock.
+   * Change 22 Part A: the "already received, log another?" confirm is gone — a RECEIVED
+   * order no longer offers this as its primary action, so getting here is a deliberate act.
+   */
   async function logInward(o: Order) {
-    if (o.status === "RECEIVED" && !confirm("This PO is already received. Log another delivery challan against it?")) return;
     setBusy(true);
     try {
       const { id } = await draftChallanFromTrimOrder({ id: o.id });
@@ -183,6 +188,69 @@ export function TrimOrderManager({
       setBusy(false);
     }
   }
+
+  /** Change 22 Part A: reverse a receipt — voidChallan reverses the ledger and drops the
+   *  order back to ORDER_PLACED when no other locked challan holds it received. */
+  async function reverseReceipt(c: ChallanLink) {
+    if (!confirm(`Reverse ${c.challanNo ?? `challan #${c.id}`} and take this stock back out?`)) return;
+    await act(() => voidChallan({ id: c.id }));
+  }
+
+  // Change 23 Part C — the order list's own view state.
+  const supplierNames = useMemo(
+    () => [...new Set(orders.map((o) => o.supplier).filter((x): x is string => !!x))].sort(),
+    [orders]
+  );
+  const filters: FilterDef<Order>[] = useMemo(
+    () => [
+      {
+        key: "status",
+        label: "statuses",
+        options: ["PLANNING", "SAMPLE_PENDING", "ORDER_PLACED", "RECEIVED", "DISCARDED"].map((v) => ({ value: v, label: v.replace("_", " ") })),
+        match: (o, v) => o.status === v,
+      },
+      {
+        key: "stage",
+        label: "PO stages",
+        options: ["Draft", "PO Generated", "Sent"].map((v) => ({ value: v, label: v })),
+        match: (o, v) => o.poStage === v,
+      },
+      {
+        key: "supplier",
+        label: "suppliers",
+        options: supplierNames.map((n) => ({ value: n, label: n })),
+        match: (o, v) => o.supplier === v,
+      },
+      {
+        key: "delivery",
+        label: "deliveries",
+        options: [
+          { value: "pending", label: "Pending delivery" },
+          { value: "received", label: "Fully received" },
+          { value: "short", label: "Short delivered" },
+        ],
+        match: (o, v) =>
+          v === "received" ? o.receivedQty >= o.totalQty && o.receivedQty > 0
+          : v === "short" ? o.receivedQty > 0 && o.receivedQty < o.totalQty
+          : o.receivedQty === 0,
+      },
+    ],
+    [supplierNames]
+  );
+  const view = useTableView<Order>({
+    id: "to",
+    rows: orders,
+    filters,
+    search: (o) => [o.trim, o.supplier, o.poNumber, o.remarks],
+    date: (o) => o.expectedDate ?? o.receivedDate,
+    sorts: {
+      trim: (o) => o.trim,
+      qty: (o) => o.totalQty,
+      supplier: (o) => o.supplier ?? "",
+      status: (o) => o.status,
+    },
+    sum: (o) => o.totalQty,
+  });
 
   return (
     <>
@@ -243,7 +311,7 @@ export function TrimOrderManager({
             </button>
             {splitOpen && (
               <div className="mt-2 space-y-1.5">
-                <p className="t-xs text-faint">For trims ordered colour- or size-wise. Leave blank for a flat order — the total above then drives the order.</p>
+                <p className="t-xs text-faint">Leave blank for a flat order.</p>
                 {split.map((l, i) => (
                   <div key={i} className="flex items-center gap-1.5">
                     <input list="trim-order-colours" value={l.colour} onChange={(e) => setSplitRow(i, { colour: e.target.value })} placeholder="colour" className={`${inp} w-32`} />
@@ -286,23 +354,26 @@ export function TrimOrderManager({
         </Card>
       </div>
 
-      {/* order list */}
-      <Card className="mt-4 overflow-hidden p-0">
+      {/* Change 23 Part C: search, status/stage/supplier + received-vs-pending filters,
+          date range and click-to-sort — the trim mirror of the fabric order list. */}
+      <Card className="mt-4 p-5">
+        <TableToolbar view={view} filters={filters} searchPlaceholder="Search trim, supplier, PO…" dateLabel="Order date" unit="ordered" />
+        <div className="overflow-x-auto">
         <table className="w-full t-sm">
           <thead>
             <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-4 py-2.5 font-semibold">Trim</th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="trim">Trim</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">Split</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Total</th>
-              <th className="px-4 py-2.5 font-semibold">Supplier</th>
+              <th className="px-4 py-2.5 text-right"><SortHeader view={view} sortKey="qty" align="right">Total</SortHeader></th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="supplier">Supplier</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">PO</th>
               <th className="px-4 py-2.5 font-semibold">Received on</th>
-              <th className="px-4 py-2.5 font-semibold">Status</th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="status">Status</SortHeader></th>
               <th className="px-4 py-2.5"></th>
             </tr>
           </thead>
           <tbody>
-            {orders.map((o) => (
+            {view.rows.map((o) => (
               <tr key={o.id} className={`border-b border-hairline last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
                 <td className="px-4 py-2.5 font-semibold">{o.trim}</td>
                 <td className="px-4 py-2.5 text-t2">
@@ -316,16 +387,34 @@ export function TrimOrderManager({
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-2.5 text-right tnum font-semibold">{num(o.totalQty)} {(o.unit ?? "").toLowerCase()}</td>
+                <td className="px-4 py-2.5 text-right tnum font-semibold">
+                  {num(o.totalQty)} {(o.unit ?? "").toLowerCase()}
+                  {/* Change 22 Part A: received-so-far vs ordered. */}
+                  {o.receivedQty > 0 && (
+                    <div className={`t-xs font-medium ${o.receivedQty < o.totalQty ? "text-warn" : "text-ok"}`}>
+                      {num(o.receivedQty)} received
+                      {o.receivedQty < o.totalQty && ` \u00b7 ${num(Math.round((o.totalQty - o.receivedQty) * 100) / 100)} due`}
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-2.5 text-t2">{o.supplier ?? "—"}</td>
                 <td className="px-4 py-2.5"><Badge tone={STAGE_TONE[o.poStage] ?? "default"}>{o.poNumber ?? o.poStage}</Badge></td>
                 <td className="px-4 py-2.5">
                   {o.challans.length === 0 ? <span className="text-faint">—</span> : (
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-col gap-1">
                       {o.challans.map((c) => (
-                        <Link key={c.id} href={`/challan-doc/${c.id}`} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs font-semibold text-primary-ink hover:underline tnum">
-                          {c.challanNo ?? `Draft #${c.id}`}
-                        </Link>
+                        <span key={c.id} className="flex items-center gap-1">
+                          <Link href={`/challan-doc/${c.id}`} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs font-semibold text-primary-ink hover:underline tnum">
+                            {c.challanNo ?? `Draft #${c.id}`}
+                          </Link>
+                          {/* Change 22 Part A: edit the log by editing the challan; reverse it to take the stock back out. */}
+                          {c.status === "LOCKED" && (
+                            <>
+                              <Link href={`/challan-doc/${c.id}`} title="Edit this challan" className="text-t3 hover:text-primary-ink"><Pencil size={12} /></Link>
+                              <button onClick={() => reverseReceipt(c)} disabled={busy} title="Reverse this receipt" className="text-t3 hover:text-danger disabled:opacity-40"><Undo2 size={12} /></button>
+                            </>
+                          )}
+                        </span>
                       ))}
                     </div>
                   )}
@@ -335,16 +424,29 @@ export function TrimOrderManager({
                   <div className="flex flex-wrap justify-end gap-1.5">
                     {!o.poNumber && <button onClick={() => act(() => generateTrimPO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Generate PO</button>}
                     {o.poNumber && <Link href={`/pot/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Open PO</Link>}
-                    {o.status !== "DISCARDED" && <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-ok hover:bg-ok-soft"><Truck size={12} /> Log Inward Challan</button>}
+                    {/* Change 22 Part A: RECEIVED rows stop offering "Log Inward" as the primary
+                        action — edit / reverse live in the CHALLAN column; a split delivery is a
+                        demoted secondary link. */}
+                    {o.status !== "DISCARDED" && o.status !== "RECEIVED" && (
+                      <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-ok hover:bg-ok-soft"><Truck size={12} /> Log Inward Challan</button>
+                    )}
+                    {o.status === "RECEIVED" && (
+                      <button onClick={() => logInward(o)} disabled={busy} className="t-xs font-medium text-t3 underline-offset-2 hover:text-primary-ink hover:underline disabled:opacity-40">log another delivery</button>
+                    )}
                     {canEdit(o) && <button onClick={() => startEdit(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2"><Pencil size={12} /> Edit</button>}
                     {canDelete(o) && <button onClick={() => remove(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-danger hover:bg-danger-soft"><Trash2 size={12} /> Delete</button>}
                   </div>
                 </td>
               </tr>
             ))}
-            {orders.length === 0 && <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">No trim orders yet.</td></tr>}
+            {view.rows.length === 0 && (
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">
+                {orders.length === 0 ? "No trim orders yet." : "No orders match these filters."}
+              </td></tr>
+            )}
           </tbody>
         </table>
+        </div>
       </Card>
     </>
   );

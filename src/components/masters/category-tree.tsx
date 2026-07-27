@@ -19,7 +19,7 @@ export function CategoryTree({ tree }: { tree: Head[] }) {
 
   return (
     <div>
-      <p className="mb-2 t-sm text-muted">Head categories with sub-categories nested under them. Add a head, add subs, rename, re-parent or deactivate.</p>
+      
       <div className="mb-3 flex gap-2">
         <input value={head} onChange={(e) => setHead(e.target.value)} onKeyDown={(e) => e.key === "Enter" && head.trim() && run(async () => { await createLookup({ kind: "HEAD_CATEGORY", label: head }); setHead(""); })} placeholder="Add head category…" className="w-64 rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
         <button onClick={() => head.trim() && run(async () => { await createLookup({ kind: "HEAD_CATEGORY", label: head }); setHead(""); })} disabled={busy || !head.trim()} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 t-body font-semibold text-accent-on disabled:opacity-40"><Plus size={14} /> Head</button>

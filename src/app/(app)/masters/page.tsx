@@ -16,7 +16,7 @@ export default async function MastersPage() {
 
   return (
     <div className="p-6">
-      <PageHeader title="Masters" subtitle="One place to manage every reusable dropdown list — add, rename or deactivate. Renaming keeps a stable key, so existing records stay valid." />
+      <PageHeader title="Masters" subtitle="Reusable dropdown lists" />
       <MastersTabs tree={tree} units={units} supplierTypes={supplierTypes} trimCategories={trimCategories} styleGroups={styleGroups} colours={colours} />
     </div>
   );

@@ -128,5 +128,6 @@ export function vendorLabel(names: string[]): string {
 /** The include fragment every layer-aware roll-up query needs. */
 export const LAYER_VENDOR_INCLUDE = {
   layers: { select: { id: true, cells: { select: { qty: true } }, vendor: { select: { name: true } } } },
-  dispatches: { select: { qty: true, layers: { select: { id: true } } } },
+  // Change 22 B.1: voided dispatches are excluded from every roll-up.
+  dispatches: { where: { voidedAt: null }, select: { qty: true, layers: { select: { id: true } } } },
 } as const;
