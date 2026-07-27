@@ -50,17 +50,20 @@ copy taken with a hot WAL can be unopenable.
 
 Env overrides: `BACKUP_DIR` (default `backups/`), `BACKUP_KEEP` (default 14).
 
-Nightly, on the server:
+Nightly, on the server. Installed as `/etc/cron.d/ssfact-backup` (a file with a user
+field — `crontab -` reads stdin, which an SSH heredoc will eat):
 
 ```cron
-0 2 * * * cd /srv/ssfact && /usr/bin/npm run backup >> /var/log/ssfact-backup.log 2>&1
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+0 2 * * * root cd /opt/sportsun-factory && npm run backup >> /var/log/ssfact-backup.log 2>&1
 ```
 
 Backups sit on the same disk as the database, so that alone is not disaster recovery.
 Push them off-box on the same schedule:
 
 ```cron
-15 2 * * * rsync -az /srv/ssfact/backups/ user@offsite:/backups/ssfact/
+15 2 * * * root rsync -az /opt/sportsun-factory/backups/ user@offsite:/backups/ssfact/
 ```
 
 Admins can also pull a copy on demand from **Settings → Download backup** (`/settings`)
