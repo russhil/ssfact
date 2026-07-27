@@ -7,14 +7,12 @@ import {
   addFabricSupplier,
   removeFabricSupplier,
   addFabricColor,
-  setFabricColorStock,
 } from "@/lib/actions";
 import { Card } from "@/components/ui";
 import { num } from "@/lib/format";
-import { Plus, X, Check } from "lucide-react";
+import { Plus, X } from "lucide-react";
 
 type Supplier = { id: number; name: string; rate: number | null };
-type ColorRow = { id: number; color: string; opening: number; current: number };
 /** Change 18 Part D: suppliers come from the ONE shared Supplier master. */
 type SupplierOption = { id: number; name: string };
 
@@ -29,7 +27,6 @@ export function FabricMasterForm({
   ratePerUnit,
   suppliers,
   supplierOptions = [],
-  colors,
 }: {
   fabricId: number;
   unit: string;
@@ -39,7 +36,6 @@ export function FabricMasterForm({
   ratePerUnit: number | null;
   suppliers: Supplier[];
   supplierOptions?: SupplierOption[];
-  colors: ColorRow[];
 }) {
   const router = useRouter();
   const [g, setG] = useState(gsm != null ? String(gsm) : "");
@@ -145,17 +141,10 @@ export function FabricMasterForm({
         </div>
       </div>
 
-      {/* per-colour stock editor */}
-      {colors.length > 0 && (
-        <div className="mt-4">
-          <div className="mb-1.5 t-micro font-semibold uppercase tracking-wide text-faint">Per-colour stock ({unit.toLowerCase()})</div>
-          <div className="grid gap-1.5">
-            {colors.map((c) => (
-              <ColorStockRow key={c.id} row={c} onSave={(opening, current) => run(() => setFabricColorStock({ fabricColorId: c.id, openingStock: opening, currentStock: current }))} busy={busy} />
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Change 22 Part E: the blunt per-colour stock editor is retired. It overwrote the
+          balance without writing a StockMovement — no reason, no audit, and the ledger and
+          the balance could silently disagree. Corrections now go through the ledger-backed
+          "Adjust" control on the Stock by Colour table above. */}
       <div className="mt-2 flex items-center gap-2">
         <input value={newColor} onChange={(e) => setNewColor(e.target.value)} placeholder="Add colour"
           className="w-52 rounded-lg border border-border px-2.5 py-1.5 t-sm outline-none focus:border-primary" />
@@ -167,27 +156,6 @@ export function FabricMasterForm({
         </button>
       </div>
     </Card>
-  );
-}
-
-function ColorStockRow({ row, onSave, busy }: { row: ColorRow; onSave: (opening: number, current: number) => void; busy: boolean }) {
-  const [opening, setOpening] = useState(String(row.opening));
-  const [current, setCurrent] = useState(String(row.current));
-  const dirty = +opening !== row.opening || +current !== row.current;
-  return (
-    <div className="flex items-center gap-2 t-sm">
-      <span className="w-32 truncate font-semibold text-t1">{row.color}</span>
-      <input type="number" value={opening} onChange={(e) => setOpening(e.target.value)}
-        className="w-28 rounded-md border border-border px-2 py-1 text-right tnum outline-none focus:border-primary" />
-      <span className="text-faint">opening</span>
-      <input type="number" value={current} onChange={(e) => setCurrent(e.target.value)}
-        className="w-28 rounded-md border border-border px-2 py-1 text-right tnum outline-none focus:border-primary" />
-      <span className="text-faint">current</span>
-      <button onClick={() => onSave(+opening, +current)} disabled={busy || !dirty}
-        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold hover:bg-surface-2 disabled:opacity-30">
-        <Check size={12} /> Save
-      </button>
-    </div>
   );
 }
 

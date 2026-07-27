@@ -418,6 +418,10 @@ model DispatchEvent {
   challan    String? // legacy free-text challan ref (kept for back-compat)
   dispatchNo String?        @unique // Change 17 Part I: own "DC-2026-001" series (finished garments)
   note       String?
+  // Change 22 Part B: a voided dispatch keeps its DC- number and its document (mirrors
+  // MaterialChallan.voidedAt) — history is never hard-deleted. Voided events are excluded
+  // from every roll-up, the vendor log, and the finished-goods export.
+  voidedAt   DateTime?
   arrangedBy String? // who logged the dispatch (defaults to logged-in user)
   reason     DispatchReason @default(ORDER) // ORDER / SALE / OTHER (Change 10, Part H)
   jobCard    JobCard        @relation(fields: [jobCardId], references: [id])
@@ -499,6 +503,9 @@ model StockMovement {
   qty       Float
   date      DateTime
   note      String?
+  // Change 22 Part E: why stock moved on a hand adjustment — COUNT / DAMAGE / WASTAGE /
+  // OPENING / OTHER. Null on ordinary issue/receipt traffic.
+  reason    String?
   color     String? // null for legacy/colourless movements
   fabric    Fabric       @relation(fields: [fabricId], references: [id])
   fabricId  Int
@@ -801,6 +808,10 @@ model TrimMovement {
   invoice    String?
   rate       Float?
   vendor     String?
+  // Change 22 Part E: trims finally carry the same note + adjustment reason fabric has,
+  // so postMaterialMovement stops silently dropping the note on the trim branch.
+  note       String?
+  reason     String?
   trimItem   TrimItem     @relation(fields: [trimItemId], references: [id])
   trimItemId Int
 

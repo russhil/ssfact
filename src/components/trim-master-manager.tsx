@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createTrim, updateTrim } from "@/lib/actions";
 import { Card, Badge } from "@/components/ui";
+import { StockAdjust } from "@/components/stock-adjust";
 import { LookupSelect } from "@/components/masters/lookup-select";
 import { num } from "@/lib/format";
 import { Plus, Settings2, Check } from "lucide-react";
@@ -191,7 +192,13 @@ function TrimRow({ t, units, onSaved }: { t: TrimMasterRow; units: LookupRow[]; 
         <td className={`px-4 py-2.5 text-right tnum font-semibold ${t.current <= 0 ? "text-danger" : low ? "text-warn" : ""}`}>{num(t.current)}</td>
         <td className="px-4 py-2.5">{t.current <= 0 ? <Badge tone="danger">Indent</Badge> : low ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}</td>
         <td className="px-4 py-2.5 text-right">
-          <button onClick={() => setEditing((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2"><Settings2 size={12} /> Edit</button>
+          <span className="inline-flex items-center gap-1.5">
+            {/* Change 22 Part E: trims finally get the ledger-backed correction fabric had —
+                the only doors into trim stock were a locked challan and the UI-less legacy
+                recordTrimReceipt. */}
+            <StockAdjust target={{ kind: "trim", trimItemId: t.id }} name={t.name} current={t.current} unit={t.unit} />
+            <button onClick={() => setEditing((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2"><Settings2 size={12} /> Edit</button>
+          </span>
         </td>
       </tr>
       {editing && (

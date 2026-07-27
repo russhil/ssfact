@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
 import { FabricMasterForm } from "@/components/fabric-master-form";
 import { SourcingPanel } from "@/components/sourcing-panel";
+import { StockAdjust } from "@/components/stock-adjust";
 import { num, pct, fmtDate } from "@/lib/format";
 import { jobItem } from "@/lib/job-display";
 import { ArrowLeft } from "lucide-react";
@@ -94,6 +95,7 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
                 <th className="px-5 py-2.5 text-right font-semibold">Current</th>
                 <th className="px-5 py-2.5 font-semibold">Utilisation</th>
                 <th className="px-5 py-2.5 font-semibold">Status</th>
+                {canEdit && <th className="px-5 py-2.5"></th>}
               </tr>
             </thead>
             <tbody>
@@ -115,6 +117,18 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
                     <td className="px-5 py-2.5">
                       {c.status === "Indent" ? <Badge tone="danger">Indent</Badge> : c.status === "Low" ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}
                     </td>
+                    {/* Change 22 Part E: ledger-backed correction with a reason, replacing
+                        the silent setFabricColorStock overwrite. */}
+                    {canEdit && (
+                      <td className="px-5 py-2.5 text-right">
+                        <StockAdjust
+                          target={{ kind: "fabric", fabricId: stock.id, colour: c.color }}
+                          name={`${stock.name} · ${c.color}`}
+                          current={c.current}
+                          unit={stock.unit}
+                        />
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -133,12 +147,6 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
           ratePerUnit={stock.ratePerUnit}
           suppliers={stock.suppliers}
           supplierOptions={supplierOptions}
-          colors={stock.colors.map((c) => ({
-            id: c.id,
-            color: c.color,
-            opening: Math.round(c.opening * 100) / 100,
-            current: Math.round(c.current * 100) / 100,
-          }))}
         />
       )}
 
@@ -154,6 +162,8 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
               <th className="px-5 py-2.5 font-semibold">Colour</th>
               <th className="px-5 py-2.5 font-semibold">Job Card</th>
               <th className="px-5 py-2.5 font-semibold">Style</th>
+              {/* Change 22 Part E: a hand adjustment records WHY it moved stock. */}
+              <th className="px-5 py-2.5 font-semibold">Reason / note</th>
               <th className="px-5 py-2.5 text-right font-semibold">Qty</th>
             </tr>
           </thead>
@@ -175,6 +185,16 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
                   )}
                 </td>
                 <td className="px-5 py-2.5 text-t2">{m.jobCard ? jobItem(m.jobCard) : "—"}</td>
+                <td className="px-5 py-2.5 text-t2">
+                  {m.reason ? (
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <Badge tone={m.reason === "DAMAGE" || m.reason === "WASTAGE" ? "warn" : "default"}>{m.reason}</Badge>
+                      {m.note && <span className="t-xs text-faint">{m.note}</span>}
+                    </span>
+                  ) : (
+                    <span className="text-faint">{m.note ?? "—"}</span>
+                  )}
+                </td>
                 <td className={`px-5 py-2.5 text-right font-bold tnum ${m.type === "ISSUE" ? "text-danger" : "text-ok"}`}>
                   {m.type === "ISSUE" ? "−" : "+"}
                   {num(m.qty)}
@@ -183,7 +203,7 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
             ))}
             {ledger.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-muted">No movements yet.</td>
+                <td colSpan={7} className="px-5 py-10 text-center text-muted">No movements yet.</td>
               </tr>
             )}
           </tbody>

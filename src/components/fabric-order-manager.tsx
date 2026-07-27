@@ -5,10 +5,10 @@ import { inputClass } from "@/components/ui";
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick } from "@/lib/actions";
+import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick, voidChallan } from "@/lib/actions";
 import { Card, Badge } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
-import { Plus, Check, X, FileText, Truck, Pencil, Trash2 } from "lucide-react";
+import { Plus, Check, X, FileText, Truck, Pencil, Trash2, Undo2 } from "lucide-react";
 
 type Line = { colour: string; qty: number };
 type ChallanLink = { id: number; challanNo: string | null; status: string };
@@ -19,6 +19,8 @@ type Order = {
   receivedDate: Date | string | null; poNumber: string | null; poStage: string;
   // Change 18 Part C: the inward challans this order was received on.
   challans: ChallanLink[];
+  // Change 22 Part A: Σ locked challan line qty — what has actually arrived.
+  receivedQty: number;
 };
 type Pick = { id: number; name: string };
 type FabricPick = { id: number; name: string; unit?: string };
@@ -177,9 +179,12 @@ export function FabricOrderManager({
    * Change 18 Part A: receiving is logging an inward challan, not a one-click "Receive".
    * The draft opens pre-filled from the PO so quantities can be corrected to the real
    * delivery; LOCKING that challan is what puts fabric into stock.
+   *
+   * Change 22 Part A: the "already received, log another?" confirm is gone — a RECEIVED
+   * order no longer offers this as its primary action at all, so reaching it is now an
+   * explicit choice ("log another delivery") rather than a mis-click.
    */
   async function logInward(o: Order) {
-    if (o.status === "RECEIVED" && !confirm("This PO is already received. Log another delivery challan against it?")) return;
     setBusy(true);
     try {
       const { id } = await draftChallanFromFabricOrder({ id: o.id });
@@ -188,6 +193,15 @@ export function FabricOrderManager({
       alert((e as Error).message);
       setBusy(false);
     }
+  }
+
+  /**
+   * Change 22 Part A: reverse a receipt. voidChallan already reverses every posted line and
+   * drops the order back to ORDER_PLACED when no other locked challan holds it received.
+   */
+  async function reverseReceipt(c: ChallanLink) {
+    if (!confirm(`Reverse ${c.challanNo ?? `challan #${c.id}`} and take this stock back out?`)) return;
+    await act(() => voidChallan({ id: c.id }));
   }
 
   /**
@@ -343,18 +357,39 @@ export function FabricOrderManager({
                     {o.lines.map((l, i) => <span key={i} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs">{l.colour} {num(l.qty)}</span>)}
                   </div>
                 </td>
-                <td className="px-4 py-2.5 text-right tnum font-semibold">{num(o.totalQty)} {o.unit.toLowerCase()}</td>
+                <td className="px-4 py-2.5 text-right tnum font-semibold">
+                  {num(o.totalQty)} {o.unit.toLowerCase()}
+                  {/* Change 22 Part A: received-so-far vs ordered, so a short delivery is
+                      obvious and the owner knows more is still due. */}
+                  {o.receivedQty > 0 && (
+                    <div className={`t-xs font-medium ${o.receivedQty < o.totalQty ? "text-warn" : "text-ok"}`}>
+                      {num(o.receivedQty)} received
+                      {o.receivedQty < o.totalQty && ` · ${num(Math.round((o.totalQty - o.receivedQty) * 100) / 100)} due`}
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-2.5 text-t2">{o.supplier ?? "—"}</td>
                 <td className="px-4 py-2.5"><Badge tone={STAGE_TONE[o.poStage] ?? "default"}>{o.poNumber ?? o.poStage}</Badge></td>
                 <td className="px-4 py-2.5">
                   {o.challans.length === 0 ? (
                     <span className="text-faint">—</span>
                   ) : (
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-col gap-1">
                       {o.challans.map((c) => (
-                        <Link key={c.id} href={`/challan-doc/${c.id}`} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs font-semibold text-primary-ink hover:underline tnum">
-                          {c.challanNo ?? `Draft #${c.id}`}
-                        </Link>
+                        <span key={c.id} className="flex items-center gap-1">
+                          <Link href={`/challan-doc/${c.id}`} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs font-semibold text-primary-ink hover:underline tnum">
+                            {c.challanNo ?? `Draft #${c.id}`}
+                          </Link>
+                          {/* Change 22 Part A: if we have to edit the log, edit the challan.
+                              /challan-doc already edits a LOCKED challan via editLockedChallan
+                              (void + reissue, same number, PO stays RECEIVED). */}
+                          {c.status === "LOCKED" && (
+                            <>
+                              <Link href={`/challan-doc/${c.id}`} title="Edit this challan" className="text-t3 hover:text-primary-ink"><Pencil size={12} /></Link>
+                              <button onClick={() => reverseReceipt(c)} disabled={busy} title="Reverse this receipt" className="text-t3 hover:text-danger disabled:opacity-40"><Undo2 size={12} /></button>
+                            </>
+                          )}
+                        </span>
                       ))}
                     </div>
                   )}
@@ -364,7 +399,16 @@ export function FabricOrderManager({
                   <div className="flex flex-wrap justify-end gap-1.5">
                     {!o.poNumber && <button onClick={() => act(() => generatePO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Generate PO</button>}
                     {o.poNumber && <Link href={`/po/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Open PO</Link>}
-                    {o.status !== "DISCARDED" && <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-ok hover:bg-ok-soft"><Truck size={12} /> Log Inward Challan</button>}
+                    {/* Change 22 Part A: once RECEIVED, logging another inward is no longer
+                        the primary action — the row's job is now edit / reverse (in the
+                        CHALLAN column). A genuine split delivery is still one click away,
+                        just demoted to a quiet secondary link. */}
+                    {o.status !== "DISCARDED" && o.status !== "RECEIVED" && (
+                      <button onClick={() => logInward(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-ok hover:bg-ok-soft"><Truck size={12} /> Log Inward Challan</button>
+                    )}
+                    {o.status === "RECEIVED" && (
+                      <button onClick={() => logInward(o)} disabled={busy} className="t-xs font-medium text-t3 underline-offset-2 hover:text-primary-ink hover:underline disabled:opacity-40">log another delivery</button>
+                    )}
                     {canEdit(o) && <button onClick={() => startEdit(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2"><Pencil size={12} /> Edit</button>}
                     {canDelete(o) && <button onClick={() => remove(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-danger hover:bg-danger-soft"><Trash2 size={12} /> Delete</button>}
                   </div>
