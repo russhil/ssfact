@@ -35,6 +35,28 @@ export const DEFAULT_SIZE_RATIO: [string, number][] = [
 ];
 
 /**
+ * Change 26: the one size axis. A lay may cut sizes this list has never heard of
+ * (the client invents them), so this only orders — it never restricts. Unknown
+ * sizes rank last and sort alphabetically among themselves.
+ */
+export const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL", "6XL"];
+
+export const sizeRank = (s: string): number => {
+  const i = SIZE_ORDER.indexOf(s.toUpperCase());
+  return i === -1 ? 99 : i;
+};
+
+/** Comparator for size strings — use everywhere a size list is sorted. */
+export const orderSizes = (a: string, b: string): number =>
+  sizeRank(a) - sizeRank(b) || a.localeCompare(b);
+
+/**
+ * Canonical form of a hand-typed size. Free text is allowed (see SIZE_ORDER), but
+ * " xl" and "XL" must not become two separate columns forever.
+ */
+export const sizeKey = (s: string): string => s.trim().toUpperCase();
+
+/**
  * Split a total qty across weighted buckets so the parts sum back to exactly `total`
  * (integer rounding, last bucket absorbs the remainder).
  */

@@ -7,10 +7,12 @@ import { useRouter } from "next/navigation";
 import { addDispatch } from "@/lib/actions";
 import { num } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { SIZE_ORDER, orderSizes } from "@/lib/job-labels";
 
 const inp = inputClass("sm");
-const DEFAULT_SIZES = ["S", "M", "L", "XL", "2XL", "3XL"];
-const sizeRank = (s: string) => { const i = DEFAULT_SIZES.indexOf(s.toUpperCase()); return i === -1 ? 99 : i; };
+// Change 26: a lay may cut sizes beyond the old hardcoded S–3XL list, so the SALE
+// fallback (used only when no layer is selected) spans the full size axis.
+const DEFAULT_SIZES = SIZE_ORDER;
 
 export type DispatchLayer = {
   id: number;
@@ -82,7 +84,7 @@ export function LayerDispatch({
       }
     return {
       colours: [...colSet].sort((a, b) => a.localeCompare(b)),
-      sizes: [...sizeSet].sort((a, b) => sizeRank(a) - sizeRank(b) || a.localeCompare(b)),
+      sizes: [...sizeSet].sort(orderSizes),
       cutCell: (c: string, s: string) => cutMap.get(key(c, s)) ?? 0,
       poolCut: pool,
     };

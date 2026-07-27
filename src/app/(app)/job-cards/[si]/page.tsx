@@ -18,7 +18,7 @@ import { LayerActions } from "@/components/layer-actions";
 import { FinishingPanel } from "@/components/finishing-panel";
 import { JobTrimChallanButton } from "@/components/job-trim-challan-button";
 import { num, inr, fmtDate, pct } from "@/lib/format";
-import { STAGE_LABEL, stageTone, normStage } from "@/lib/job-labels";
+import { STAGE_LABEL, stageTone, normStage, SIZE_ORDER, orderSizes } from "@/lib/job-labels";
 import { jobItem, jobStyle, jobMrp } from "@/lib/job-display";
 import { JobStageSelect } from "@/components/job-stage-select";
 import { JobQualityCard } from "@/components/job-quality-card";
@@ -26,11 +26,6 @@ import { ArrowLeft, Plus } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-const SIZE_ORDER = ["S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"];
-const orderSizes = (a: string, b: string) => {
-  const ia = SIZE_ORDER.indexOf(a), ib = SIZE_ORDER.indexOf(b);
-  return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
-};
 
 export default async function JobDetail({ params }: { params: Promise<{ si: string }> }) {
   const { si } = await params;
