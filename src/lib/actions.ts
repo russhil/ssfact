@@ -6,6 +6,7 @@ import { requireRole, hashPassword, canSeeCost as canSeeCostFor } from "@/lib/au
 import type { SessionPayload } from "@/lib/session";
 import { logAudit, computeChanges } from "@/lib/audit";
 import { colorKey } from "@/lib/colour";
+import { sizeKey } from "@/lib/job-labels";
 import { num } from "@/lib/format";
 import { getJobTrimIssues } from "@/lib/jobs";
 import { revalidatePath } from "next/cache";
@@ -184,8 +185,9 @@ export async function createJobCard(input: NewJobInput) {
       ...l,
       layerNo: i + 1,
       cells: l.cells
-        .filter((c) => c.qty > 0)
-        .map((c) => ({ colour: colorKey(c.colour), size: c.size, qty: c.qty })),
+        // Change 26 E: sizes are hand-typed per lay — canonicalise like colours.
+        .filter((c) => c.qty > 0 && sizeKey(c.size) !== "")
+        .map((c) => ({ colour: colorKey(c.colour), size: sizeKey(c.size), qty: c.qty })),
     }))
     .filter((l) => l.cells.length > 0);
   const hasLayers = layers.length > 0;
@@ -893,9 +895,12 @@ export async function addCuttingLayer(input: {
   cells: { colour: string; size: string; qty: number }[];
 }) {
   await requireRole("ADMIN", "STAFF");
+  // Change 26 E: sizes are hand-typed per lay now, so canonicalise them the way colours
+  // already were — otherwise " xl" and "XL" become two columns on the card forever.
+  // Deliberately NOT whitelisted against SIZE_ORDER: the client does invent sizes.
   const cells = input.cells
-    .filter((c) => c.qty > 0)
-    .map((c) => ({ colour: colorKey(c.colour), size: c.size, qty: c.qty }));
+    .filter((c) => c.qty > 0 && sizeKey(c.size) !== "")
+    .map((c) => ({ colour: colorKey(c.colour), size: sizeKey(c.size), qty: c.qty }));
   if (!cells.length) throw new Error("Layer needs at least one cell");
 
   const job = await db.jobCard.findUnique({
@@ -3481,8 +3486,8 @@ export async function updateCuttingLayer(input: {
 
   const oldTotal = layer.cells.reduce((a, c) => a + c.qty, 0);
   const cells = input.cells
-    ?.filter((c) => c.qty > 0)
-    .map((c) => ({ colour: colorKey(c.colour), size: c.size, qty: c.qty }));
+    ?.filter((c) => c.qty > 0 && sizeKey(c.size) !== "") // Change 26 E
+    .map((c) => ({ colour: colorKey(c.colour), size: sizeKey(c.size), qty: c.qty }));
   if (cells && cells.length === 0) throw new Error("A layer needs at least one cell — remove the layer instead");
   const newTotal = cells ? cells.reduce((a, c) => a + c.qty, 0) : oldTotal;
 

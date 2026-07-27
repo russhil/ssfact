@@ -9,6 +9,7 @@ import { PrintButton } from "@/components/print-button";
 import { MessageCircle } from "lucide-react";
 import { BrandLetterhead } from "@/components/brand";
 import { docTitle } from "@/components/po-doc";
+import { sizeRank } from "@/lib/job-labels";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
@@ -20,8 +21,6 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: docTitle(e?.dispatchNo ?? null, `Dispatch #${id}`) };
 }
 
-const SIZE_ORDER = ["S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"];
-const sizeRank = (s: string) => { const i = SIZE_ORDER.indexOf(s.toUpperCase()); return i === -1 ? 99 : i; };
 
 export default async function DispatchDocPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

@@ -8,15 +8,11 @@ import { FinishingLog } from "@/components/finishing-log";
 import { db } from "@/lib/db";
 import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
 import { num, pct, fmtDate } from "@/lib/format";
+import { orderSizes } from "@/lib/job-labels";
 import { ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-const SIZE_ORDER = ["S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"];
-const orderSizes = (a: string, b: string) => {
-  const ia = SIZE_ORDER.indexOf(a), ib = SIZE_ORDER.indexOf(b);
-  return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
-};
 
 export default async function VendorDetail({ params }: { params: Promise<{ name: string }> }) {
   const { name } = await params;
