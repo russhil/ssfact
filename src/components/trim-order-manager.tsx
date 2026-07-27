@@ -311,7 +311,7 @@ export function TrimOrderManager({
             </button>
             {splitOpen && (
               <div className="mt-2 space-y-1.5">
-                <p className="t-xs text-faint">For trims ordered colour- or size-wise. Leave blank for a flat order — the total above then drives the order.</p>
+                <p className="t-xs text-faint">Leave blank for a flat order.</p>
                 {split.map((l, i) => (
                   <div key={i} className="flex items-center gap-1.5">
                     <input list="trim-order-colours" value={l.colour} onChange={(e) => setSplitRow(i, { colour: e.target.value })} placeholder="colour" className={`${inp} w-32`} />

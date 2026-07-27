@@ -20,11 +20,11 @@ import { SlidersHorizontal } from "lucide-react";
  */
 
 const REASONS: { value: AdjustReason; label: string; hint: string }[] = [
-  { value: "COUNT", label: "Physical count", hint: "Rack counted — correct the book figure to what's there." },
+  { value: "COUNT", label: "Physical count", hint: "Correct the book figure to the counted figure." },
   { value: "DAMAGE", label: "Damage", hint: "Stock damaged and written off." },
-  { value: "WASTAGE", label: "Wastage", hint: "Consumed as wastage, not against a job card." },
-  { value: "OPENING", label: "Opening stock", hint: "First count — also becomes the utilisation baseline." },
-  { value: "OTHER", label: "Other", hint: "Anything else — say what in the note." },
+  { value: "WASTAGE", label: "Wastage", hint: "Consumed as wastage." },
+  { value: "OPENING", label: "Opening stock", hint: "Sets the utilisation baseline." },
+  { value: "OTHER", label: "Other", hint: "State the reason in the note." },
 ];
 
 type Target =
@@ -91,7 +91,7 @@ export function StockAdjust({
 
   return (
     <>
-      <Button variant="ghost" size={size} onClick={() => setOpen(true)} title="Adjust stock with a reason">
+      <Button variant="ghost" size={size} onClick={() => setOpen(true)} title="Adjust stock">
         <SlidersHorizontal size={13} /> Adjust
       </Button>
 
@@ -156,7 +156,7 @@ export function StockAdjust({
           </Select>
         </Field>
 
-        <Field label="Note" hint="Optional — who counted, which rack, invoice ref.">
+        <Field label="Note" hint="Optional">
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="—" />
         </Field>
 
@@ -179,7 +179,7 @@ export function StockAdjust({
             </div>
             {after < 0 && (
               <p className="mt-1.5 t-xs text-danger">
-                This leaves a negative balance. That&apos;s allowed — it means more has gone out than came in.
+                This leaves a negative balance.
               </p>
             )}
           </div>

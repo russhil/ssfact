@@ -364,7 +364,7 @@ export function FabricOrderManager({
         <Card className="panel-invert p-5">
           <h3 className="mb-4 t-xs font-bold uppercase tracking-wide text-t3">Order summary</h3>
           {!fabricId ? (
-            <div className="flex h-40 items-center justify-center text-center t-sm text-t3">Pick a fabric and add colours.</div>
+            <div className="flex h-40 items-center justify-center text-center t-sm text-t3">Select a fabric.</div>
           ) : (
             <>
               <div className="t-body font-semibold text-t1">{fabricList.find((f) => String(f.id) === fabricId)?.name}</div>

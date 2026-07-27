@@ -17,7 +17,7 @@ export default async function UsersPage() {
     <div className="p-6">
       <PageHeader
         title="Users"
-        subtitle="Logins and roles. Deactivate rather than delete — a disabled login keeps its history and can be switched back on."
+        subtitle="Logins and roles"
       />
       <UserManager
         users={users}

@@ -25,7 +25,7 @@ export default async function ChallansPage({ searchParams }: { searchParams: Pro
   const initialDirection = sp.direction === "INWARD" ? "INWARD" : "OUTWARD";
   return (
     <div className="p-6">
-      <PageHeader title="Materials Challans" subtitle="Inward from suppliers · outward to vendors — one master inventory ledger" />
+      <PageHeader title="Materials Challans" subtitle="Inward from suppliers · outward to vendors" />
       <ChallanManager
         fabrics={fabrics}
         trims={trims}

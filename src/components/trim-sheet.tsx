@@ -65,7 +65,7 @@ export function TrimSheet({
   return (
     <Card className="mt-3.5 overflow-hidden p-0">
       <div className="border-b border-border px-5 py-3 t-body font-bold">
-        Trim Sheet <span className="font-medium text-faint">· required (frozen plan) vs issued · issued = locked outward challans · drafts read as pending</span>
+        Trim Sheet <span className="font-medium text-faint">· required vs issued</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full t-sm">

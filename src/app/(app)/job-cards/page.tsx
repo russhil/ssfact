@@ -17,8 +17,8 @@ export default async function JobCardsPage() {
         title="Job Cards"
         subtitle={
           isVendor
-            ? "Your cutting-to-receipt orders, linked to style and fabric."
-            : "Every cutting-to-receipt order, linked to its style, vendor and fabric."
+            ? "Your orders"
+            : "All orders"
         }
         actions={
           isVendor ? undefined : (

@@ -11,7 +11,7 @@ import { STAGES, STAGE_LABEL, splitByRatio, DEFAULT_SIZE_RATIO, type Stage } fro
 import { Badge } from "@/components/ui";
 import { useMemoKeyboardList } from "@/components/use-keyboard-list";
 import { num, inr } from "@/lib/format";
-import { Zap, Check, AlertTriangle, ArrowLeft, Plus, X, Layers, Image as ImageIcon } from "lucide-react";
+import { Check, AlertTriangle, ArrowLeft, Plus, X, Layers, Image as ImageIcon } from "lucide-react";
 
 const COLORLESS = "—";
 const cellKey = (size: string, color: string) => `${size}|||${color}`;
@@ -508,7 +508,7 @@ export function NewJobCardForm({
             <div className="relative mb-3.5">
               <div className="mb-1.5 flex items-center justify-between">
                 <label className="block t-xs font-semibold text-t1">
-                  Product <span className="text-primary">— start typing SKU, style or item</span>
+                  Product
                 </label>
                 <button type="button" onClick={enableMto} className="t-xs font-semibold text-primary-ink hover:underline">
                   No catalogue product? Log made-to-order →
@@ -899,7 +899,7 @@ export function NewJobCardForm({
                   </div>
                 </div>
                 {bomRows.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-border py-3 text-center t-xs text-faint">No trims — load the preset or add rows.</p>
+                  <p className="rounded-lg border border-dashed border-border py-3 text-center t-xs text-faint">No trims.</p>
                 ) : (
                   <div className="overflow-x-auto rounded-lg border border-border">
                     <table className="w-full t-sm">
@@ -975,7 +975,7 @@ export function NewJobCardForm({
                   </div>
                 )}
                 {bomRows.some((r) => { const s = r.trimItemId != null ? trimById.get(r.trimItemId)?.currentStock ?? null : null; return s != null && bomRequired(r) > s; }) && (
-                  <p className="mt-1.5 t-xs text-danger">Some trims are short — the card still saves and is flagged in Pending Trims.</p>
+                  <p className="mt-1.5 t-xs text-danger">Some trims are short of stock.</p>
                 )}
               </div>
             </>
@@ -1003,12 +1003,11 @@ export function NewJobCardForm({
 
           {!picked ? (
             <div className="flex h-56 flex-col items-center justify-center text-center t-sm text-t3">
-              <Zap size={22} className="mb-2 opacity-60" />
-              Pick a product — we&apos;ll split fabric per colour and check each colour&apos;s live stock.
+              Select a product.
             </div>
           ) : fabricRows.length === 0 ? (
             <div className="flex h-40 flex-col items-center justify-center text-center t-sm text-t3">
-              Enter cut quantities to see the per-colour fabric requirement.
+              Enter cut quantities.
             </div>
           ) : (
             <>
@@ -1126,15 +1125,6 @@ export function NewJobCardForm({
         </div>
       </div>
 
-      {/* magic callout */}
-      <div className="mt-3.5 flex items-center gap-3 rounded-card border border-ok/30 bg-ok-soft px-4 py-3 t-sm text-ok">
-        <Zap size={18} className="shrink-0 text-ok" />
-        <span>
-          The real job card is cut in several <b>layers</b> — each its own size mix and fabric maths — and the order total is
-          the sum. Type each lay here; the grand total, per-colour and per-size roll-ups, and each colour&apos;s live stock all
-          update as you go, <b>before</b> you commit a single metre.
-        </span>
-      </div>
     </div>
   );
 }

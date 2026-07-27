@@ -292,6 +292,42 @@ body {
   .scrollbar-hide::-webkit-scrollbar { display: none; }
 }
 
+/* ---------- brand ----------
+   The supplied Sport Sun artwork is white ink on a flat orange plate, which
+   would vanish against the light theme. `public/brand/*` keeps only its alpha,
+   and these rules paint that alpha with currentColor — so one asset tracks
+   light, dark and the inverted panels with no second file and no `dark:`
+   variant. Colour it with any text-* utility on the element.
+
+   Deliberately outside @layer utilities: Tailwind tree-shakes that layer
+   against its source scan, which silently dropped these the first time round.
+
+   Each rule carries BOTH the fill and its mask. They must never be split into
+   a shared `.brand` plus a per-asset mask: if the mask half ever fails to ship,
+   the fill half paints the element as a solid orange rectangle — which is
+   exactly the artefact we are removing. Kept together, the worst case is an
+   invisible element, not a wrong one. */
+.brand-logo {
+  background-color: currentColor;
+  -webkit-mask: url("/brand/logo-full.png") center / contain no-repeat;
+          mask: url("/brand/logo-full.png") center / contain no-repeat;
+}
+.brand-sun {
+  background-color: currentColor;
+  -webkit-mask: url("/brand/sun.png") center / contain no-repeat;
+          mask: url("/brand/sun.png") center / contain no-repeat;
+}
+.brand-wordmark {
+  background-color: currentColor;
+  -webkit-mask: url("/brand/wordmark.png") center / contain no-repeat;
+          mask: url("/brand/wordmark.png") center / contain no-repeat;
+}
+.brand-mark {
+  background-color: currentColor;
+  -webkit-mask: url("/brand/mark.png") center / contain no-repeat;
+          mask: url("/brand/mark.png") center / contain no-repeat;
+}
+
 @keyframes rise {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: none; }

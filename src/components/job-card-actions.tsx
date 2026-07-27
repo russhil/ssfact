@@ -97,7 +97,7 @@ export function JobCardActions({ job, canSeeCost }: { job: JobCardEditable; canS
       "",
       "This will reverse every stock movement the card posted — the fabric it issued for cutting goes back to that colour's stock — and remove its layers, fabric lines, BOM snapshot and any draft trim challan.",
       "",
-      "The ledger keeps both the original movements and their reversal. This cannot be undone.",
+      "This cannot be undone.",
     ].join("\n");
     if (!confirm(warning)) return;
     setBusy(true);
@@ -138,7 +138,7 @@ export function JobCardActions({ job, canSeeCost }: { job: JobCardEditable; canS
         open={open}
         onClose={() => setOpen(false)}
         title={`Edit ${job.siNo}`}
-        subtitle="Header details only — quantities live on Add split / re-cut"
+        subtitle="Header details"
         width={440}
         footer={
           <>
@@ -160,7 +160,7 @@ export function JobCardActions({ job, canSeeCost }: { job: JobCardEditable; canS
           </Field>
         </div>
 
-        <Field label="Merchandiser" hint="Who is handling this card.">
+        <Field label="Merchandiser">
           <Input value={merch} onChange={(e) => setMerch(e.target.value)} placeholder="—" />
         </Field>
 
@@ -189,7 +189,7 @@ export function JobCardActions({ job, canSeeCost }: { job: JobCardEditable; canS
 
         {!job.hasProduct && (
           <>
-            <Field label="Item" hint="Made-to-order card — there's no catalogue product.">
+            <Field label="Item">
               <Input value={item} onChange={(e) => setItem(e.target.value)} placeholder="e.g. JHARKHAND TRACKSUIT" />
             </Field>
             <div className="grid grid-cols-2 gap-3">
@@ -233,7 +233,7 @@ export function JobCardActions({ job, canSeeCost }: { job: JobCardEditable; canS
                 against this card. Void {job.liveDispatches > 0 && job.lockedChallans > 0 ? "them" : "it"} first.
               </>
             ) : (
-              <>Reverses the fabric this card issued and removes its layers, lines and draft challan. The ledger keeps both postings.</>
+              <>Reverses the fabric this card issued and removes its layers, lines and draft challan.</>
             )}
           </p>
           <Button variant="danger" size="sm" className="mt-2" onClick={remove} disabled={busy || blocked}>

@@ -15,7 +15,7 @@ export default async function ProductionOrdersPage() {
     <div className="p-6">
       <PageHeader
         title="Production Orders"
-        subtitle="Plan production off the catalog — target qty defaults to 2× monthly sale; duplicate active orders are blocked."
+        subtitle="Planned production runs"
         actions={
           <Link
             href="/production-orders/new"

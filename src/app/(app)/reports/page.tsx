@@ -62,7 +62,7 @@ export default async function ReportsPage() {
       {/* Vendor fabric variance — who over-consumes our fabric, and what it costs */}
       <Card className="mt-3.5 overflow-hidden p-0">
         <div className="border-b border-border px-5 py-3 t-body font-bold">
-          Vendor Fabric Variance <span className="font-medium text-faint">· extra fabric taken beyond assumed (cards with actuals)</span>
+          Vendor Fabric Variance
         </div>
         {variance.length === 0 ? (
           <p className="px-5 py-8 text-center t-sm text-muted">No fabric actuals logged yet.</p>
@@ -140,7 +140,7 @@ export default async function ReportsPage() {
                   <td className="px-5 py-2 text-right tnum font-bold">{inr(f.monthlyCost)}</td>
                 </tr>
               ))}
-              {pipeline.length === 0 && <tr><td colSpan={3} className="px-5 py-8 text-center text-muted">Add monthly sale on production orders to forecast.</td></tr>}
+              {pipeline.length === 0 && <tr><td colSpan={3} className="px-5 py-8 text-center text-muted">No forecast data.</td></tr>}
             </tbody>
           </table>
         </Card>

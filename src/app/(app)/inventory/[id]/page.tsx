@@ -152,7 +152,7 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
 
       <Card className="mt-3.5 overflow-hidden p-0">
         <div className="border-b border-border px-5 py-3 t-body font-bold">
-          Stock Ledger <span className="font-medium text-faint">· every issue against this fabric</span>
+          Stock Ledger
         </div>
         <table className="w-full t-sm">
           <thead>

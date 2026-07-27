@@ -115,7 +115,7 @@ export function DispatchActions({ event, compact = false }: { event: DispatchEdi
         open={open}
         onClose={() => setOpen(false)}
         title={`Edit ${label}`}
-        subtitle="Keeps the DC number — the card balance is recomputed"
+        
         width={440}
         footer={
           <>
@@ -168,7 +168,7 @@ export function DispatchActions({ event, compact = false }: { event: DispatchEdi
             </div>
           </div>
         ) : (
-          <Field label="Quantity" hint="This event has no size × colour breakup.">
+          <Field label="Quantity">
             <Input
               type="number"
               step="any"
@@ -192,7 +192,7 @@ export function DispatchActions({ event, compact = false }: { event: DispatchEdi
           </span>
         </div>
 
-        <Field label="Challan ref" hint="Optional — the paper challan this matches.">
+        <Field label="Challan ref" hint="Optional">
           <Input value={challan} onChange={(e) => setChallan(e.target.value)} placeholder="—" />
         </Field>
         <Field label="Arranged by">

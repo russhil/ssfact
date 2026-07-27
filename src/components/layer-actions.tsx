@@ -149,7 +149,7 @@ export function LayerActions({
           </Field>
         </div>
 
-        <Field label="Stitching vendor" hint="The vendor doing the work on this lay.">
+        <Field label="Stitching vendor">
           <Input list="layer-vendors" value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="—" />
         </Field>
         <datalist id="layer-vendors">{vendors.map((v) => <option key={v} value={v} />)}</datalist>
@@ -187,11 +187,6 @@ export function LayerActions({
           </Field>
         </div>
 
-        <p className="t-xs text-t3">
-          The colour × size cells aren&apos;t edited here — a re-cut is a new lay, and changing
-          quantities after fabric has been issued belongs on the actuals form.
-        </p>
-
         <div className="mt-2 rounded-lg border border-danger/30 bg-danger-soft/40 p-3">
           <div className="t-xs font-bold uppercase tracking-wide text-danger">Remove this layer</div>
           <p className="mt-1 t-xs text-t2">
@@ -201,7 +196,7 @@ export function LayerActions({
                 dispatches first.
               </>
             ) : (
-              <>Takes {num(layer.total)} pcs off the card and returns the fabric this lay was issued.</>
+              <>Removes {num(layer.total)} pcs from the card and reverses the fabric issued.</>
             )}
           </p>
           <Button variant="danger" size="sm" className="mt-2" onClick={remove} disabled={busy || layer.dispatched > 0}>

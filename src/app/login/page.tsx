@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { BrandLockup } from "@/components/brand";
 import { Card } from "@/components/ui";
 import { LoginForm } from "@/components/login-form";
 import { getCurrentUser } from "@/lib/auth";
@@ -12,14 +13,8 @@ export default async function LoginPage() {
   return (
     <div className="grid min-h-screen place-items-center bg-app px-4 py-10">
       <div className="w-full max-w-sm rise">
-        <div className="mb-6 flex items-center justify-center gap-2.5">
-          <span className="grid size-9 place-items-center rounded-xl bg-accent t-head font-black text-accent-on">
-            S
-          </span>
-          <span className="leading-tight">
-            <span className="block t-title font-extrabold">Sportsun</span>
-            <span className="block t-xs text-t3">Production OS</span>
-          </span>
+        <div className="mb-6 flex justify-center">
+          <BrandLockup width={176} />
         </div>
 
         <Card className="px-6 py-7">

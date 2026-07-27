@@ -22,7 +22,7 @@ export default async function TrimOrdersPage() {
     <div className="p-6">
       <PageHeader
         title="Trim Orders"
-        subtitle="Procurement pipeline for trims and accessories. Generate a POT, then log the inward challan — locking that challan is what lands the stock."
+        subtitle="Purchase orders for trims and accessories"
       />
       <div className="mb-4 grid grid-cols-3 gap-3.5">
         <Card className="p-4"><div className="t-xs font-semibold uppercase tracking-wide text-muted">Planning</div><div className="mt-1.5 t-display font-extrabold tnum">{num(planning)}</div></Card>

@@ -75,7 +75,7 @@ export function ProductBomEditor({ productId, extId, lines, trims }: { productId
                 <td className="px-2 py-1.5 text-right"><button onClick={() => del(l.id)} disabled={busy} className="text-faint hover:text-danger"><X size={13} /></button></td>
               </tr>
             ))}
-            {lines.length === 0 && <tr><td colSpan={6} className="px-2 py-4 text-center t-sm text-muted">No BOM lines yet — add the product&apos;s trims below.</td></tr>}
+            {lines.length === 0 && <tr><td colSpan={6} className="px-2 py-4 text-center t-sm text-muted">No BOM lines.</td></tr>}
           </tbody>
         </table>
       </div>

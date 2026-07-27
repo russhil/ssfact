@@ -68,7 +68,7 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
           </Card>
         ))}
       </div>
-      <p className="mt-2 t-xs text-faint">Current is the latest physical count from the store register — opening ± movements may not fully reconcile.</p>
+      
 
       {sourcing && (
         <SourcingPanel pos={sourcing.pos} unit={trimMaster?.unit ?? ""} poHref="/pot" estimate={trimMaster?.ratePerUnit ?? null} />
@@ -133,7 +133,7 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
             ))}
             {ledger.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-muted">No movements recorded for this item.</td>
+                <td colSpan={6} className="px-5 py-10 text-center text-muted">No movements.</td>
               </tr>
             )}
           </tbody>

@@ -7,6 +7,7 @@ import { jobItem, jobStyle } from "@/lib/job-display";
 import { waLink } from "@/lib/share";
 import { PrintButton } from "@/components/print-button";
 import { MessageCircle } from "lucide-react";
+import { BrandLetterhead } from "@/components/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,8 @@ export default async function DispatchDocPage({ params }: { params: Promise<{ id
 
       <div className="flex items-start justify-between border-b-2 border-ink pb-3">
         <div>
-          <h1 className="text-[20px] font-extrabold tracking-tight">SPORTSUN — {title}</h1>
+          <BrandLetterhead />
+          <h1 className="mt-1.5 text-[13px] font-bold tracking-wide">{title}</h1>
           <p className="mt-0.5 text-[12px] text-muted">{jobItem(ev.jobCard)} · {jobStyle(ev.jobCard)}{vendor ? ` · ${vendor}` : ""}</p>
         </div>
         <div className="text-right">

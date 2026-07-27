@@ -22,7 +22,7 @@ export default async function DashboardPage() {
     <div className="p-6">
       <PageHeader
         title="Production Dashboard"
-        subtitle={`Live from ${num(kpis.totalJobs)} job cards. “Received” means stitched goods back in the warehouse — market dispatch to dealers is tracked separately in E-manage.`}
+        subtitle={`${num(kpis.totalJobs)} job cards`}
         actions={
           <ButtonLink href="/job-cards/new" variant="primary">
             <Plus size={15} strokeWidth={2.4} />
@@ -46,11 +46,7 @@ export default async function DashboardPage() {
       <div className="mt-3.5 grid grid-cols-1 gap-3.5 rise lg:grid-cols-[1.4fr_1fr]" style={{ animationDelay: "80ms" }}>
         <Panel title="Vendor dispatch progress" note="active jobs">
           {vendors.length === 0 ? (
-            <EmptyState
-              title="No active vendor workload"
-              hint="Vendor progress appears once job cards are cut and issued to a stitching unit."
-              className="py-8"
-            />
+            <EmptyState title="No active vendor workload" className="py-8" />
           ) : (
             <div className="flex flex-col gap-3">
               {vendors.map((v) => (
@@ -70,7 +66,6 @@ export default async function DashboardPage() {
             <EmptyState
               icon={<CheckCircle2 size={22} strokeWidth={1.8} />}
               title="Nothing overdue"
-              hint="Every active job card is still inside its planned ETD."
               className="py-8"
             />
           ) : (

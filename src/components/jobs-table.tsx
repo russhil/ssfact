@@ -163,12 +163,9 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
         keyOf={(r, i) => `${r.siNo}-${r.styleNo}-${i}`}
         empty={
           rows.length === 0 ? (
-            <EmptyState
-              title="No job cards yet"
-              hint="A job card is created when fabric is issued for cutting. Start one to begin tracking cut, stitch and receipt."
-            />
+            <EmptyState title="No job cards yet" />
           ) : (
-            <EmptyState title="No job cards match" hint="Try clearing the search or switching back to All." />
+            <EmptyState title="No job cards match" />
           )
         }
       />

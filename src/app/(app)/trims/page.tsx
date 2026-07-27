@@ -13,7 +13,7 @@ export default async function TrimsPage() {
     <div className="p-6">
       <PageHeader
         title="Trim Master"
-        subtitle="One unified trim master across the 7 categories — stock, supplier, rate & specs. Add a trim with ~4 fields; current = latest physical count."
+        subtitle="Stock, supplier, rate and specs"
       />
 
       <div className="mb-4 grid grid-cols-4 gap-3.5">

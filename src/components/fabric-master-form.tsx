@@ -137,7 +137,7 @@ export function FabricMasterForm({
             className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 t-sm font-semibold hover:bg-surface-2 disabled:opacity-40">
             <Plus size={13} /> Add
           </button>
-          <span className="t-xs text-faint">Rate here is what they quote — the master estimate above is separate.</span>
+          
         </div>
       </div>
 

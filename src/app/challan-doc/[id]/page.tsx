@@ -5,6 +5,7 @@ import { getChallan } from "@/lib/masters";
 import { getCurrentUser } from "@/lib/auth";
 import { num, inr, fmtDate } from "@/lib/format";
 import { ChallanDocActions } from "@/components/challan-doc-actions";
+import { BrandLetterhead } from "@/components/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -67,8 +68,8 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
 
       <div className="flex items-start justify-between border-b-2 border-ink pb-3">
         <div>
-          <h1 className="text-[20px] font-extrabold tracking-tight">Sport Sun</h1>
-          <p className="mt-0.5 text-[13px] font-bold tracking-wide">{docTitle}{c.voided ? " (VOID)" : ""}</p>
+          <BrandLetterhead />
+          <h1 className="mt-1.5 text-[13px] font-bold tracking-wide">{docTitle}{c.voided ? " (VOID)" : ""}</h1>
           <p className="mt-0.5 text-[11px] text-muted">
             {c.kind ?? "—"}
             {c.jobCardSiNo && <> · Job <Link href={`/job-cards/${c.jobCardId}`} className="no-print text-primary-ink hover:underline">{c.jobCardSiNo}</Link><span className="hidden print:inline">{c.jobCardSiNo}</span></>}

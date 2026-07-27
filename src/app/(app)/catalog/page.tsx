@@ -23,7 +23,7 @@ export default async function CatalogPage() {
     <div className="p-6">
       <PageHeader
         title="Catalog — Product Master"
-        subtitle="The full commercial range, from the product master. Pricing, lifecycle status, and live production at a glance."
+        subtitle="The full commercial range"
         actions={
           canEdit ? (
             <Link

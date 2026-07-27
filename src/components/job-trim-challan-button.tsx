@@ -38,7 +38,7 @@ export function JobTrimChallanButton({ jobCardId }: { jobCardId: number }) {
         onClick={() => raise(false)}
         disabled={busy}
         className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t2 hover:bg-surface-2 disabled:opacity-40"
-        title="Full BOM quantities, ignoring what has already been issued"
+        title="Full BOM quantities"
       >
         full BOM
       </button>

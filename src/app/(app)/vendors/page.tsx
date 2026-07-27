@@ -36,7 +36,7 @@ export default async function VendorsPage() {
 
   return (
     <div className="p-6">
-      <PageHeader title="Vendors" subtitle="Stitching units — in-house and external — ranked by volume and fill rate." />
+      <PageHeader title="Vendors" subtitle="Stitching units — in-house and external" />
       {canEdit && (
         <div className="mb-4">
           <VendorCuttingManager vendors={vendorList} masters={cuttingList} />

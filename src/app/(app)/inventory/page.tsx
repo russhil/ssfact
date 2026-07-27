@@ -27,7 +27,7 @@ export default async function InventoryPage() {
     <div className="p-6">
       <PageHeader
         title="Inventory"
-        subtitle="Live fabric stock — depletes automatically as job cards consume it."
+        subtitle="Live fabric stock"
       />
 
       {canEdit && (
