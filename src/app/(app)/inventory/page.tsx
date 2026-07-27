@@ -20,7 +20,9 @@ export default async function InventoryPage() {
     issued: s.issued,
     available: s.available,
     usedPct: s.usedPct,
-    colors: s.colors.map((c) => ({ id: c.id, color: c.color, current: c.current, status: c.status })),
+    // reorderLevel (Change 25 Part E) is what the "Below reorder" filter matches on —
+    // without it here the filter compiles but silently matches nothing.
+    colors: s.colors.map((c) => ({ id: c.id, color: c.color, current: c.current, status: c.status, reorderLevel: c.reorderLevel })),
   }));
 
   return (

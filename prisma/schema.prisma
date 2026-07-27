@@ -197,6 +197,9 @@ model FabricColor {
   color        String
   openingStock Float  @default(0)
   currentStock Float  @default(0)
+  // Change 25 Part E: per-colour reorder trigger, mirroring TrimItem.reorderLevel
+  // (Change 17 H). Low stock is currentStock <= reorderLevel; null = no trigger set.
+  reorderLevel Float?
   fabric       Fabric @relation(fields: [fabricId], references: [id], onDelete: Cascade)
   fabricId     Int
 

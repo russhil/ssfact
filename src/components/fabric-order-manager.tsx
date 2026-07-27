@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick, voidChallan } from "@/lib/actions";
 import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
+import { orderFlag } from "@/lib/order-flags";
 import { Plus, Check, X, FileText, Truck, Pencil, Trash2, Undo2, CornerUpLeft } from "lucide-react";
 
 type Line = { colour: string; qty: number };
@@ -256,6 +257,17 @@ export function FabricOrderManager({
           : v === "short" ? o.receivedQty > 0 && o.receivedQty < o.totalQty
           : o.receivedQty === 0,
       },
+      {
+        // Change 25 Part L: the flag comes from the shared orderFlag(), the same rule the
+        // dashboard's delayed-orders widget reads — that count and this list cannot disagree.
+        key: "delay",
+        label: "delays",
+        options: [
+          { value: "DELAYED", label: "Delayed only" },
+          { value: "NO_ETA", label: "No ETA" },
+        ],
+        match: (o, v) => orderFlag(o).flag === v,
+      },
     ],
     [supplierNames]
   );
@@ -273,6 +285,9 @@ export function FabricOrderManager({
       { header: "po_no", value: (o) => o.poNumber ?? o.poStage },
       { header: "received_on", value: (o) => o.challans.map((c) => c.challanNo ?? `Draft #${c.id}`).join("; ") },
       { header: "status", value: (o) => o.status.replace("_", " ") },
+      // the delay badge in the Status column
+      { header: "days_late", value: (o) => orderFlag(o).daysLate },
+      { header: "delivery_flag", value: (o) => orderFlag(o).flag },
     ],
   };
   const view = useTableView<Order>({
@@ -287,6 +302,7 @@ export function FabricOrderManager({
       supplier: (o) => o.supplier ?? "",
       status: (o) => o.status,
       date: (o) => (o.expectedDate ? new Date(o.expectedDate) : null),
+      daysLate: (o) => orderFlag(o).daysLate,
     },
     sum: (o) => o.totalQty,
   });
@@ -424,7 +440,14 @@ export function FabricOrderManager({
               <th className="px-4 py-2.5"><SortHeader view={view} sortKey="supplier">Supplier</SortHeader></th>
               <th className="px-4 py-2.5"><SortHeader view={view} sortKey="date">PO</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">Received on</th>
-              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="status">Status</SortHeader></th>
+              {/* Change 25 Part L: the delay badge rides in the Status cell, so the
+                  column carries a second sort for how late the order is. */}
+              <th className="px-4 py-2.5">
+                <span className="inline-flex items-center gap-2">
+                  <SortHeader view={view} sortKey="status">Status</SortHeader>
+                  <SortHeader view={view} sortKey="daysLate">Late</SortHeader>
+                </span>
+              </th>
               <th className="px-4 py-2.5"></th>
             </tr>
           </thead>
@@ -478,7 +501,12 @@ export function FabricOrderManager({
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-2.5"><Badge tone={STATUS_TONE[o.status] ?? "default"}>{o.status.replace("_", " ")}</Badge></td>
+                <td className="px-4 py-2.5">
+                  <span className="flex flex-wrap items-center gap-1">
+                    <Badge tone={STATUS_TONE[o.status] ?? "default"}>{o.status.replace("_", " ")}</Badge>
+                    <DelayBadge order={o} />
+                  </span>
+                </td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-wrap justify-end gap-1.5">
                     {!o.poNumber && <button onClick={() => act(() => generatePO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Generate PO</button>}
@@ -515,3 +543,11 @@ export function FabricOrderManager({
 const inp = inputClass("md", "w-full");
 /** A stored date rendered for an <input type="date">. */
 const dateInput = (d: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
+
+/** Change 25 Part L: the row's read of the shared delay rule. Nothing for a closed order. */
+function DelayBadge({ order }: { order: Order }) {
+  const { flag, daysLate } = orderFlag(order);
+  if (flag === "DELAYED") return <Badge tone="danger">{daysLate}d late</Badge>;
+  if (flag === "NO_ETA") return <Badge tone="warn">No ETA</Badge>;
+  return null;
+}

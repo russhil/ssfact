@@ -1,18 +1,34 @@
+import Link from "next/link";
 import { getDashboard } from "@/lib/queries";
 import { getJobs } from "@/lib/jobs";
-import { getVendorFabricVariance, getVendorPendency, getFabricPipeline } from "@/lib/insights";
+import {
+  getVendorFabricVariance,
+  getVendorPendency,
+  getFabricPipeline,
+  getQualityByVendor,
+  getOnTimeDelivery,
+  getJobMargins,
+} from "@/lib/insights";
+import { getCurrentUser, canSeeCost } from "@/lib/auth";
 import { Card, Bar, Badge, PageHeader } from "@/components/ui";
 import { num, pct, inr } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReportsPage() {
-  const [{ kpis }, jobs, variance, pendency, pipeline] = await Promise.all([
+  const me = await getCurrentUser();
+  const owner = canSeeCost(me);
+
+  const [{ kpis }, jobs, variance, pendency, pipeline, quality, onTime, margins] = await Promise.all([
     getDashboard(),
     getJobs(),
     getVendorFabricVariance(),
     getVendorPendency(),
     getFabricPipeline(),
+    getQualityByVendor(),
+    getOnTimeDelivery(),
+    // Change 25 Part F: margin is owner-only, so it is not even queried otherwise.
+    owner ? getJobMargins() : Promise.resolve([]),
   ]);
 
   const byItem = new Map<string, { item: string; cut: number; disp: number }>();
@@ -29,12 +45,14 @@ export default async function ReportsPage() {
     <div className="p-6">
       <PageHeader title="Reports" subtitle="Production summary across all job cards." />
 
-      <div className="mb-4 grid grid-cols-4 gap-3.5">
+      <div className="mb-4 grid grid-cols-5 gap-3.5">
         {[
           ["Total Job Cards", num(kpis.totalJobs)],
           ["Active", num(kpis.activeJobs)],
           ["Closed", num(kpis.closedJobs)],
           ["Overall Fill", pct(kpis.fillRate, 1)],
+          // Change 25 Part F
+          ["On-time Delivery", onTime.measured > 0 ? pct(onTime.rate, 1) : "—"],
         ].map(([l, v]) => (
           <Card key={l} className="p-4">
             <div className="t-xs font-semibold uppercase tracking-wide text-muted">{l}</div>
@@ -93,6 +111,138 @@ export default async function ReportsPage() {
           </table>
         )}
       </Card>
+
+      {/* Change 25 Part F — reject / alter / extra by vendor, and on-time by vendor */}
+      <div className="mt-3.5 grid grid-cols-1 gap-3.5 md:grid-cols-2">
+        <Card className="overflow-hidden p-0">
+          <div className="border-b border-border px-5 py-3 t-body font-bold">
+            Quality by Vendor <span className="font-medium text-faint">· reject · alter · extra</span>
+          </div>
+          {/* six numeric columns in a half-width card — scroll rather than clip */}
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[34rem] t-sm">
+            <thead>
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                <th className="px-5 py-2.5 font-semibold">Vendor</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Cut</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Reject</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Reject %</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Alter</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Extra</th>
+              </tr>
+            </thead>
+            <tbody>
+              {quality.slice(0, 12).map((q) => (
+                <tr key={q.vendor} className="border-b border-hairline last:border-0">
+                  <td className="px-5 py-2 font-semibold">{q.vendor}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{num(q.cut)}</td>
+                  <td className="px-5 py-2 text-right tnum">{num(q.reject)}</td>
+                  <td className="px-5 py-2 text-right">
+                    {q.rejectRate >= 0.03 ? (
+                      <Badge tone="danger">{pct(q.rejectRate, 1)}</Badge>
+                    ) : (
+                      <span className="tnum text-t2">{pct(q.rejectRate, 1)}</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{num(q.alter)}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{num(q.extra)}</td>
+                </tr>
+              ))}
+              {quality.length === 0 && (
+                <tr><td colSpan={6} className="px-5 py-8 text-center text-muted">No reject, alter or extra recorded.</td></tr>
+              )}
+            </tbody>
+          </table>
+          </div>
+        </Card>
+
+        <Card className="overflow-hidden p-0">
+          <div className="border-b border-border px-5 py-3 t-body font-bold">
+            On-time Delivery <span className="font-medium text-faint">· ETD vs last dispatch</span>
+          </div>
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[30rem] t-sm">
+            <thead>
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                <th className="px-5 py-2.5 font-semibold">Vendor</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Cards</th>
+                <th className="px-5 py-2.5 text-right font-semibold">On time</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Rate</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Avg days late</th>
+              </tr>
+            </thead>
+            <tbody>
+              {onTime.byVendor.slice(0, 12).map((v) => (
+                <tr key={v.vendor} className="border-b border-hairline last:border-0">
+                  <td className="px-5 py-2 font-semibold">{v.vendor}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{num(v.measured)}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{num(v.onTime)}</td>
+                  <td className="px-5 py-2 text-right">
+                    {v.rate < 0.8 ? <Badge tone="warn">{pct(v.rate)}</Badge> : <span className="tnum font-bold">{pct(v.rate)}</span>}
+                  </td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{v.avgDaysLate}</td>
+                </tr>
+              ))}
+              {onTime.byVendor.length === 0 && (
+                <tr><td colSpan={5} className="px-5 py-8 text-center text-muted">No card has both a planned ETD and a dispatch yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+          </div>
+        </Card>
+      </div>
+
+      {/* Change 25 Part F — per-job margin. Owner-only: not rendered and not queried
+          for anyone else, so cost never crosses the wire to a staff session. */}
+      {owner && (
+        <Card className="mt-3.5 overflow-hidden p-0">
+          <div className="border-b border-border px-5 py-3 t-body font-bold">
+            Job Margins <span className="font-medium text-faint">· evidenced cost vs dispatched value</span>
+          </div>
+          <table className="w-full t-sm">
+            <thead>
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                <th className="px-5 py-2.5 font-semibold">Job</th>
+                <th className="px-5 py-2.5 font-semibold">Vendor</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Fabric</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Trims</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Finishing</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Cost</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Value</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {margins.slice(0, 20).map((m) => (
+                <tr key={m.jobCardId} className="border-b border-hairline last:border-0">
+                  <td className="px-5 py-2">
+                    <Link href={`/job-cards/${m.jobCardId}`} className="font-bold text-primary-ink hover:underline">{m.siNo}</Link>
+                    <span className="ml-2 text-t3">{m.item}</span>
+                  </td>
+                  <td className="px-5 py-2 text-t2">{m.vendor}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{inr(m.fabricCost)}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{inr(m.trimCost)}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{inr(m.finishingCost)}</td>
+                  <td className="px-5 py-2 text-right tnum font-semibold">{inr(m.cost)}</td>
+                  <td className="px-5 py-2 text-right tnum font-semibold">{m.value > 0 ? inr(m.value) : "—"}</td>
+                  <td className="px-5 py-2 text-right">
+                    {m.value <= 0 ? (
+                      <span className="text-t3">—</span>
+                    ) : m.margin < 0 ? (
+                      <Badge tone="danger">{inr(m.margin)}</Badge>
+                    ) : (
+                      <span className="tnum font-bold text-ok">{inr(m.margin)} <span className="font-medium text-t3">{pct(m.marginPct)}</span></span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {margins.length === 0 && (
+                <tr><td colSpan={8} className="px-5 py-8 text-center text-muted">No job has a rated purchase or a dispatched value yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </Card>
+      )}
 
       <div className="mt-3.5 grid grid-cols-1 gap-3.5 md:grid-cols-2">
         {/* Vendor pendency */}

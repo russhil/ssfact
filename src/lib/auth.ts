@@ -44,3 +44,14 @@ export async function requireRole(...roles: Role[]): Promise<SessionPayload> {
   }
   return user;
 }
+
+/**
+ * Can this user see money — cost, rate, MRP, margin?
+ *
+ * Change 25 Part F: the rule was `role === "ADMIN"` re-derived inline in about ten
+ * pages and half a dozen actions, which meant there was no single place to change
+ * who sees cost. Behaviour is unchanged; it now has one home.
+ */
+export function canSeeCost(user: { role: Role } | null | undefined): boolean {
+  return user?.role === "ADMIN";
+}

@@ -1,15 +1,22 @@
 import { getDashboard } from "@/lib/queries";
+import { getLowStockAlerts, getDelayedOrders } from "@/lib/insights";
 import { Bar, Badge, ButtonLink, EmptyState, Panel, PageHeader, StatCard } from "@/components/ui";
 import { CountUp } from "@/components/count-up";
 import { TrendChart } from "@/components/trend-chart";
-import { num, pct } from "@/lib/format";
+import { num, pct, fmtDate } from "@/lib/format";
 import { CheckCircle2, Plus } from "lucide-react";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const { kpis, vendors, overdue, trend } = await getDashboard();
+  // Change 25 E/L: both widgets read the single selector that also drives the
+  // list filters, so the count here and the length of the filtered list agree.
+  const [{ kpis, vendors, overdue, trend }, lowStock, delayed] = await Promise.all([
+    getDashboard(),
+    getLowStockAlerts(),
+    getDelayedOrders(),
+  ]);
 
   const cards = [
     { label: "Total Cut", value: kpis.totalCut, foot: `${num(kpis.totalJobs)} job cards` },
@@ -81,6 +88,70 @@ export default async function DashboardPage() {
                     <span className="ml-2 text-t2">{o.item}</span>
                   </span>
                   <Badge tone="danger">{o.daysLate}d late</Badge>
+                </Link>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      <div className="mt-3.5 grid grid-cols-1 gap-3.5 rise lg:grid-cols-2" style={{ animationDelay: "120ms" }}>
+        {/* Change 25 Part E */}
+        <Panel title="Reorder now" note={lowStock.length ? `${num(lowStock.length)} at or below level` : undefined}>
+          {lowStock.length === 0 ? (
+            <EmptyState
+              icon={<CheckCircle2 size={22} strokeWidth={1.8} />}
+              title="Nothing below reorder level"
+              className="py-8"
+            />
+          ) : (
+            <div className="-my-1">
+              {lowStock.slice(0, 6).map((a) => (
+                <Link
+                  key={`${a.kind}-${a.id}`}
+                  href={a.href}
+                  className="flex items-center justify-between gap-3 border-b border-hairline py-2.5 t-sm transition-opacity duration-150 last:border-0 hover:opacity-70"
+                >
+                  <span className="min-w-0 truncate">
+                    <span className="font-semibold">{a.name}</span>
+                    {a.colour && <span className="ml-1.5 text-t3">{a.colour}</span>}
+                  </span>
+                  <span className="shrink-0 text-t3 tnum">
+                    {num(a.currentStock, 2)} / {num(a.reorderLevel, 2)} {a.unit}
+                  </span>
+                  <Badge tone="warn">−{num(a.gap, 2)}</Badge>
+                </Link>
+              ))}
+            </div>
+          )}
+        </Panel>
+
+        {/* Change 25 Part L */}
+        <Panel title="Delayed deliveries" note={delayed.length ? `${num(delayed.length)} open` : undefined}>
+          {delayed.length === 0 ? (
+            <EmptyState
+              icon={<CheckCircle2 size={22} strokeWidth={1.8} />}
+              title="No delayed orders"
+              className="py-8"
+            />
+          ) : (
+            <div className="-my-1">
+              {delayed.slice(0, 6).map((o) => (
+                <Link
+                  key={`${o.kind}-${o.id}`}
+                  href={o.href}
+                  className="flex items-center justify-between gap-3 border-b border-hairline py-2.5 t-sm transition-opacity duration-150 last:border-0 hover:opacity-70"
+                >
+                  <span className="min-w-0 truncate">
+                    <span className="font-semibold">{o.item}</span>
+                    {o.supplier && <span className="ml-1.5 text-t3">{o.supplier}</span>}
+                  </span>
+                  <span className="shrink-0 text-t3 tnum">{o.poNumber ?? fmtDate(o.expectedDate)}</span>
+                  {o.flag === "DELAYED" ? (
+                    <Badge tone="danger">{o.daysLate}d late</Badge>
+                  ) : (
+                    <Badge tone="warn">No ETA</Badge>
+                  )}
                 </Link>
               ))}
             </div>

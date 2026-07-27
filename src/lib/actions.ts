@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
-import { requireRole, hashPassword } from "@/lib/auth";
+import { requireRole, hashPassword, canSeeCost as canSeeCostFor } from "@/lib/auth";
 import { logAudit, computeChanges } from "@/lib/audit";
 import { colorKey } from "@/lib/colour";
 import { num } from "@/lib/format";
@@ -1005,6 +1005,46 @@ export async function updateFabricMaster(input: {
   return { ok: true };
 }
 
+/**
+ * Change 25 Part E — set (or clear) a fabric colour's reorder trigger. Mirrors the
+ * trim master's reorderLevel; null clears it so the colour stops being alerted on.
+ * Not a stock movement — this changes the threshold, never the balance.
+ */
+export async function setFabricReorderLevel(input: { fabricColorId: number; level: number | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const c = await db.fabricColor.findUnique({
+    where: { id: input.fabricColorId },
+    select: { id: true, color: true, reorderLevel: true, fabricId: true, fabric: { select: { name: true } } },
+  });
+  if (!c) throw new Error("Fabric colour not found");
+  const level = input.level != null && input.level >= 0 ? input.level : null;
+  if (level === c.reorderLevel) return { ok: true, unchanged: true as const };
+
+  await db.$transaction(async (tx) => {
+    await tx.fabricColor.update({
+      where: { id: c.id },
+      data: { reorderLevel: level, updatedById: user.userId },
+    });
+    await logAudit(tx, user, {
+      action: "setFabricReorderLevel",
+      entity: "FabricColor",
+      entityId: c.id,
+      entityLabel: `${c.fabric.name} · ${c.color}`,
+      summary:
+        level == null
+          ? `Cleared the reorder level on ${c.fabric.name} ${c.color}`
+          : `Set the reorder level on ${c.fabric.name} ${c.color} to ${num(level, 2)}`,
+      changes: { reorderLevel: { old: c.reorderLevel, new: level } },
+      meta: { fabricId: c.fabricId },
+    });
+  });
+
+  revalidatePath(`/inventory/${c.fabricId}`);
+  revalidatePath("/inventory");
+  revalidatePath("/");
+  return { ok: true };
+}
+
 export async function addFabricColor(input: { fabricId: number; color: string; openingStock?: number }) {
   await requireRole("ADMIN", "STAFF");
   const color = colorKey(input.color);
@@ -1935,7 +1975,7 @@ export async function createProduct(input: {
   if (!name) throw new Error("Product name is required");
 
   const sku = (input.skuCode ?? "").trim();
-  const canSeeCost = user.role === "ADMIN";
+  const canSeeCost = canSeeCostFor(user);
 
   // Retry on the unlikely extId unique collision (concurrent creates).
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -3039,7 +3079,7 @@ export async function updateJobCard(input: {
 
   const siNo = input.siNo?.trim();
   if (input.siNo !== undefined && !siNo) throw new Error("SI cannot be blank");
-  const owner = user.role === "ADMIN";
+  const owner = canSeeCostFor(user);
 
   const patch = {
       ...(siNo ? { siNo } : {}),
@@ -3430,7 +3470,7 @@ export async function createFinishingJob(input: {
   note?: string | null;
 }) {
   const user = await requireRole("ADMIN", "STAFF");
-  const canSeeCost = user.role === "ADMIN"; // rate is cost data, same gate as MRP
+  const canSeeCost = canSeeCostFor(user); // rate is cost data, same gate as MRP
 
   const job = await db.jobCard.findUnique({ where: { id: input.jobCardId }, select: { id: true, siNo: true } });
   if (!job) throw new Error("Job card not found");
@@ -3544,7 +3584,7 @@ export async function updateFinishingJob(input: {
   layerIds?: number[];
 }) {
   const user = await requireRole("ADMIN", "STAFF");
-  const canSeeCost = user.role === "ADMIN";
+  const canSeeCost = canSeeCostFor(user);
   const jw = await db.finishingJob.findUnique({
     where: { id: input.id },
     include: { vendor: { select: { name: true } } },

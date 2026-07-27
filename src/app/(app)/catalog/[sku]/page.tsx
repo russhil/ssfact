@@ -5,7 +5,7 @@ import { getProductDetail, STATUS_LABEL, statusTone } from "@/lib/catalog";
 import { listLookups, getFabricPickList } from "@/lib/masters";
 import { getTrimStock } from "@/lib/trims";
 import { PO_STATUS_LABEL, poStatusTone } from "@/lib/production";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
 import { ImageUploader } from "@/components/image-uploader";
 import { ProductMasterForm } from "@/components/product-master-form";
@@ -24,7 +24,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
   if (!p) notFound();
   const u = await getCurrentUser();
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
-  const canSeeCost = u?.role === "ADMIN"; // cost hidden from office/production view
+  const canSeeCost = canSee(u); // cost hidden from office/production view
   const [headCategories, fabrics, trims] = canEdit
     ? await Promise.all([listLookups("HEAD_CATEGORY"), getFabricPickList(), getTrimStock()])
     : [[], [], []];

@@ -2,11 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getFabricStock, getFabricLedger } from "@/lib/inventory";
 import { getFabricSourcing, getSuppliers } from "@/lib/masters";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
 import { FabricMasterForm } from "@/components/fabric-master-form";
 import { SourcingPanel } from "@/components/sourcing-panel";
 import { StockAdjust } from "@/components/stock-adjust";
+import { ReorderLevel } from "@/components/reorder-level";
 import { num, pct, fmtDate } from "@/lib/format";
 import { jobItem } from "@/lib/job-display";
 import { ArrowLeft } from "lucide-react";
@@ -21,7 +22,7 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
   const ledger = await getFabricLedger(fabricId);
   const u = await getCurrentUser();
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
-  const canSeeCost = u?.role === "ADMIN"; // sourcing rates are cost data — owner only
+  const canSeeCost = canSee(u); // sourcing rates are cost data — owner only
   const sourcing = canSeeCost ? await getFabricSourcing(fabricId) : null;
   // Change 18 Part D: the supplier picker draws on the ONE shared Supplier master.
   const supplierOptions = canEdit
@@ -93,6 +94,7 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
                 <th className="px-5 py-2.5 font-semibold">Colour</th>
                 <th className="px-5 py-2.5 text-right font-semibold">Opening</th>
                 <th className="px-5 py-2.5 text-right font-semibold">Current</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Reorder at</th>
                 <th className="px-5 py-2.5 font-semibold">Utilisation</th>
                 <th className="px-5 py-2.5 font-semibold">Status</th>
                 {canEdit && <th className="px-5 py-2.5"></th>}
@@ -106,6 +108,14 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
                     <td className="px-5 py-2.5 font-semibold text-t1">{c.color}</td>
                     <td className="px-5 py-2.5 text-right text-t2 tnum">{num(c.opening)}</td>
                     <td className={`px-5 py-2.5 text-right font-bold tnum ${c.current <= 0 ? "text-danger" : ""}`}>{num(c.current)}</td>
+                    {/* Change 25 Part E: the trigger sits beside the figure it guards. */}
+                    <td className="px-5 py-2.5 text-right">
+                      {canEdit ? (
+                        <ReorderLevel fabricColorId={c.id} level={c.reorderLevel} unit={stock.unit} />
+                      ) : (
+                        <span className="t-xs text-t3 tnum">{c.reorderLevel == null ? "—" : num(c.reorderLevel, 2)}</span>
+                      )}
+                    </td>
                     <td className="px-5 py-2.5">
                       <div className="flex items-center gap-2">
                         <div className="h-2 w-24 overflow-hidden rounded-full bg-surface-2">

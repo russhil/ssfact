@@ -23,8 +23,16 @@ export type FabricRow = {
   issued: number;
   available: number;
   usedPct: number;
-  colors: { id: number; color: string; current: number; status: string }[];
+  // Change 25 Part E: reorderLevel is the per-colour trigger from FabricColorStock.
+  // Optional only because /inventory still projects the colour down to four fields —
+  // the "Below reorder" filter stays empty until the page passes it through.
+  colors: { id: number; color: string; current: number; status: string; reorderLevel?: number | null }[];
 };
+
+/** Change 25 Part E — identical to getLowStockAlerts(): a null level is not tracked. */
+function belowReorder(c: { current: number; reorderLevel?: number | null }): boolean {
+  return c.reorderLevel != null && c.current <= c.reorderLevel;
+}
 
 /** One definition of "short" and "low", read by both the KPI cards and the filter. */
 export function stockStatus(s: { available: number; usedPct: number }): "short" | "low" | "ok" {
@@ -53,6 +61,15 @@ export function InventoryTable({ rows }: { rows: FabricRow[] }) {
           { value: "ok", label: "Healthy" },
         ],
         match: (r, v) => stockStatus(r) === v,
+      },
+      {
+        // Change 25 Part E: fabric stock is held per colour, so a fabric is on the buy
+        // list the moment ANY one of its colours hits its own trigger — the roll-up
+        // Available can look healthy while a single shade is out.
+        key: "reorder",
+        label: "stock",
+        options: [{ value: "LOW", label: "Below reorder" }],
+        match: (r) => r.colors.some(belowReorder),
       },
     ],
     []

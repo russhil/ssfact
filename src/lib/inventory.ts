@@ -17,6 +17,8 @@ export type FabricColorStock = {
   current: number;
   usedPct: number;
   status: StockStatus;
+  /** Change 25 Part E — null when no reorder trigger is set for this colour. */
+  reorderLevel: number | null;
 };
 
 export type FabricSupplierInfo = { id: number; name: string; rate: number | null };
@@ -63,6 +65,7 @@ export async function getFabricStock(): Promise<FabricStock[]> {
           current: c.currentStock,
           usedPct,
           status: stockStatus(c.currentStock, usedPct),
+          reorderLevel: c.reorderLevel,
         };
       });
 

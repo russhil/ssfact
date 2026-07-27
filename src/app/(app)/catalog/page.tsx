@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getProducts, getCatalogSummary } from "@/lib/catalog";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
 import { CatalogTable } from "@/components/catalog-table";
 import { Card, PageHeader } from "@/components/ui";
 import { num } from "@/lib/format";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function CatalogPage() {
   const [rows, summary, u] = await Promise.all([getProducts(), getCatalogSummary(), getCurrentUser()]);
-  const canSeeCost = u?.role === "ADMIN"; // office/production view hides cost
+  const canSeeCost = canSee(u); // office/production view hides cost
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
 
   const kpis: [string, string | number, string?][] = [

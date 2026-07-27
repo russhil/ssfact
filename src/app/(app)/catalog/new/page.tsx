@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { listLookups, getFabricPickList } from "@/lib/masters";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
 import { ProductMasterForm } from "@/components/product-master-form";
 import { PageHeader } from "@/components/ui";
 
@@ -12,7 +12,7 @@ export default async function NewProductPage() {
   const u = await getCurrentUser();
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
   if (!canEdit) notFound();
-  const canSeeCost = u?.role === "ADMIN";
+  const canSeeCost = canSee(u);
   const [headCategories, fabrics] = await Promise.all([listLookups("HEAD_CATEGORY"), getFabricPickList()]);
 
   return (
