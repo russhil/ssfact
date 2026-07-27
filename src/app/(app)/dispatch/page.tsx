@@ -3,6 +3,7 @@ import { getJobs } from "@/lib/jobs";
 import { getCurrentUser } from "@/lib/auth";
 import { DispatchForm } from "@/components/dispatch-form";
 import { DispatchLog } from "@/components/dispatch-log";
+import { FinishedGoodsExport } from "@/components/finished-goods-export";
 import { PageHeader } from "@/components/ui";
 import { jobItem } from "@/lib/job-display";
 
@@ -51,9 +52,14 @@ export default async function DispatchPage() {
 
   return (
     <div className="p-6">
-      <PageHeader title="Dispatch" subtitle="Log finished garments dispatched from vendors back to the warehouse — size×colour, against the cutting layers. Balances and the dashboard update instantly." />
+      <PageHeader title="Dispatch" subtitle="Finished garments returned from stitching vendors" />
       <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1fr_1.3fr]">
-        <DispatchForm jobs={openJobs} defaultArrangedBy={me?.displayName ?? ""} />
+        <div className="flex flex-col gap-3.5">
+          <DispatchForm jobs={openJobs} defaultArrangedBy={me?.displayName ?? ""} />
+          {/* Change 21: the one bridge to the ERP — a day's finished goods as a file,
+              instead of re-typing every size×colour cell off the paper challans. */}
+          {canEdit && <FinishedGoodsExport rows={dispatchRows} />}
+        </div>
 
         <DispatchLog rows={dispatchRows} canEdit={canEdit} />
       </div>
