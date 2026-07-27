@@ -100,15 +100,15 @@ export function AuditLog({
         view={view}
         filters={filters}
         searchPlaceholder="Search user, record, document no…"
-        dateLabel="Changed"
+        dateLabel="Date"
       />
       <div className="overflow-x-auto">
         <table className="w-full t-sm">
           <thead>
             <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
               <th className="w-6 px-2 py-2.5"></th>
-              <th className="px-3 py-2.5"><SortHeader view={view} sortKey="at">When</SortHeader></th>
-              <th className="px-3 py-2.5 font-semibold">What happened</th>
+              <th className="px-3 py-2.5"><SortHeader view={view} sortKey="at">Date &amp; time</SortHeader></th>
+              <th className="px-3 py-2.5 font-semibold">Change</th>
               <th className="px-3 py-2.5"><SortHeader view={view} sortKey="entity">Record</SortHeader></th>
               <th className="px-3 py-2.5"><SortHeader view={view} sortKey="action">Action</SortHeader></th>
             </tr>
@@ -164,7 +164,7 @@ export function AuditLog({
             {view.rows.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-3 py-8 text-center t-sm text-faint">
-                  Nothing recorded in this range.
+                  No entries in this range
                 </td>
               </tr>
             )}

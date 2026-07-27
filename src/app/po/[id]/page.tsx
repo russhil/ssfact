@@ -12,7 +12,11 @@ export default async function POPage({ params }: { params: Promise<{ id: string 
   const { id } = await params;
   const o = await getFabricOrder(Number(id));
   if (!o) notFound();
-  await getCurrentUser(); // gated by proxy; ensures session
+  // Change 25 Part B: this route used to call getCurrentUser() and throw the result
+  // away, so it was the one document page with no role check — /pot, /challan-doc and
+  // /dispatch-doc all gate. A PO carries supplier rates; it gets the same gate.
+  const u = await getCurrentUser();
+  if (!u || (u.role !== "ADMIN" && u.role !== "STAFF")) notFound();
   const hasRate = o.rate != null && o.rate > 0;
   const grand = hasRate ? o.totalQty * (o.rate as number) : null;
 

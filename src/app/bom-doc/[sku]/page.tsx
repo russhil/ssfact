@@ -13,7 +13,9 @@ export const dynamic = "force-dynamic";
 // Change 15 Part C/E: the product's master BOM in the shared "APPROVAL CHALLAN" print format.
 export default async function BomDocPage({ params }: { params: Promise<{ sku: string }> }) {
   const { sku } = await params;
-  await getCurrentUser();
+  // Change 25 Part B: was getCurrentUser() with the result discarded — no gate at all.
+  const u = await getCurrentUser();
+  if (!u || (u.role !== "ADMIN" && u.role !== "STAFF")) notFound();
   const p = await getProductDetail(decodeURIComponent(sku));
   if (!p) notFound();
 

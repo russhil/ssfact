@@ -152,7 +152,7 @@ export function AuditDiff({ row }: { row: AuditRow }) {
   const hasMeta = Object.keys(meta).length > 0;
 
   if (entries.length === 0 && !hasMeta) {
-    return <div className="px-3 py-2 t-xs italic text-faint">No field-level detail recorded.</div>;
+    return <div className="px-3 py-2 t-xs text-faint">No field-level detail</div>;
   }
 
   return (
@@ -166,7 +166,7 @@ export function AuditDiff({ row }: { row: AuditRow }) {
       )}
       {hasMeta && (
         <div>
-          <div className="mb-1.5 t-xs font-semibold uppercase tracking-wide text-faint">Context</div>
+          <div className="mb-1.5 t-xs font-semibold uppercase tracking-wide text-faint">Record</div>
           <PayloadKV meta={meta} />
         </div>
       )}

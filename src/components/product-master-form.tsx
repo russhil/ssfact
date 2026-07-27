@@ -5,6 +5,7 @@ import { inputClass } from "@/components/ui";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createProduct, updateProduct, addProductColor, removeProductColor } from "@/lib/actions";
+import { runAction } from "@/lib/action-result";
 import { Card, Badge } from "@/components/ui";
 import { LookupSelect } from "@/components/masters/lookup-select";
 import type { FabricPick } from "@/lib/masters";
@@ -84,11 +85,18 @@ export function ProductMasterForm({
   async function addColor() {
     if (!product || !newColor.trim()) return;
     setBusy(true);
-    try { await addProductColor({ productId: product.id, name: newColor }); setNewColor(""); router.refresh(); } finally { setBusy(false); }
+    // Change 25 Part B: was try/finally with no catch — a rejected action left the
+    // colour unsaved with nothing shown.
+    if (await runAction(() => addProductColor({ productId: product.id, name: newColor }))) {
+      setNewColor("");
+      router.refresh();
+    }
+    setBusy(false);
   }
   async function delColor(id: number) {
     setBusy(true);
-    try { await removeProductColor({ id }); router.refresh(); } finally { setBusy(false); }
+    if (await runAction(() => removeProductColor({ id }))) router.refresh();
+    setBusy(false);
   }
 
   return (

@@ -85,11 +85,14 @@ export function FabricOrderManager({
   async function confirmColour(i: number) {
     if (!colourDraft.trim()) { setAddColourRow(null); return; }
     setBusy(true);
+    // Change 25 Part B: was try/finally with no catch — a duplicate colour name threw
+    // and the row silently closed with the colour unset.
     try {
       const c = await createColour({ name: colourDraft });
       setColourList((p) => (p.some((x) => x.name === c.name) ? p : [...p, { id: c.id, name: c.name, hex: null }].sort((a, b) => a.name.localeCompare(b.name))));
       setLine(i, { colour: c.name });
-    } finally { setAddColourRow(null); setColourDraft(""); setBusy(false); }
+    } catch (e) { alert((e as Error).message); }
+    finally { setAddColourRow(null); setColourDraft(""); setBusy(false); }
   }
   async function confirmFabric() {
     if (!fabricDraft.trim()) { setAddFabric(false); return; }
@@ -105,7 +108,8 @@ export function FabricOrderManager({
       const withUnit: FabricPick = { id: f.id, name: f.name, unit };
       setFabricList((p) => (p.some((x) => x.id === f.id) ? p : [...p, withUnit].sort((a, b) => a.name.localeCompare(b.name))));
       setFabricId(String(f.id));
-    } finally { setAddFabric(false); setFabricDraft(""); setBusy(false); }
+    } catch (e) { alert((e as Error).message); }
+    finally { setAddFabric(false); setFabricDraft(""); setBusy(false); }
   }
 
   function resetForm() {

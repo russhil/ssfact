@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { uploadImage } from "@/lib/uploads";
 import { attachImages, removeImage } from "@/lib/actions";
+import { runAction } from "@/lib/action-result";
 import { ImagePlus, Camera, X, Loader2 } from "lucide-react";
 
 export type GalleryImage = { id: number; url: string; thumbUrl: string | null; caption: string | null };
@@ -49,7 +50,9 @@ export function ImageUploader({
 
   async function del(id: number) {
     setBusy(true);
-    try { await removeImage({ id }); router.refresh(); } finally { setBusy(false); }
+    // Change 25 Part B: was try/finally with no catch.
+    if (await runAction(() => removeImage({ id }), setErr)) router.refresh();
+    setBusy(false);
   }
 
   return (
