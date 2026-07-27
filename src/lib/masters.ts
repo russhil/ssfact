@@ -271,6 +271,81 @@ export async function listUsers(): Promise<UserRow[]> {
   return rows.map((u) => ({ ...u, role: u.role as UserRow["role"] }));
 }
 
+// ── Change 25 Part A — the audit log (read side) ──
+
+export type AuditRow = {
+  id: string;
+  at: Date;
+  userId: number | null;
+  username: string;
+  action: string;
+  entity: string;
+  entityId: string;
+  entityLabel: string | null;
+  summary: string;
+  changes: Record<string, { old: unknown; new: unknown }> | null;
+  meta: Record<string, unknown> | null;
+};
+
+const AUDIT_WINDOW_DAYS = 90;
+const AUDIT_MAX_ROWS = 1000;
+
+/**
+ * The recent audit window. Bounded because the /audit page filters client-side over
+ * rows the server already fetched (the Change 23 toolbar idiom) — an unbounded log
+ * would ship the whole table to the browser.
+ *
+ * `changes` / `meta` are stored as JSON text; a row whose JSON is unparseable comes
+ * back null rather than taking the page down.
+ */
+export async function getAuditLog(): Promise<AuditRow[]> {
+  const since = new Date(Date.now() - AUDIT_WINDOW_DAYS * 86_400_000);
+  const rows = await db.auditLog.findMany({
+    where: { at: { gte: since } },
+    orderBy: { at: "desc" },
+    take: AUDIT_MAX_ROWS,
+  });
+  const parse = <T,>(s: string | null): T | null => {
+    if (!s) return null;
+    try {
+      return JSON.parse(s) as T;
+    } catch {
+      return null;
+    }
+  };
+  return rows.map((r) => ({
+    id: r.id,
+    at: r.at,
+    userId: r.userId,
+    username: r.username,
+    action: r.action,
+    entity: r.entity,
+    entityId: r.entityId,
+    entityLabel: r.entityLabel,
+    summary: r.summary,
+    changes: parse<Record<string, { old: unknown; new: unknown }>>(r.changes),
+    meta: parse<Record<string, unknown>>(r.meta),
+  }));
+}
+
+/**
+ * Dropdown options for the /audit filters, derived from the WHOLE table rather than
+ * the fetched window — the same choice azadi makes, so the options don't collapse as
+ * you narrow the view.
+ */
+export async function getAuditFilterOptions() {
+  const [actions, entities, users] = await Promise.all([
+    db.auditLog.findMany({ distinct: ["action"], select: { action: true }, orderBy: { action: "asc" } }),
+    db.auditLog.findMany({ distinct: ["entity"], select: { entity: true }, orderBy: { entity: "asc" } }),
+    db.auditLog.findMany({ distinct: ["username"], select: { username: true }, orderBy: { username: "asc" } }),
+  ]);
+  return {
+    actions: actions.map((a) => a.action),
+    entities: entities.map((e) => e.entity),
+    users: users.map((u) => u.username),
+  };
+}
+
 export async function getCuttingMasterList() {
   const rows = await db.cuttingMaster.findMany({ include: { _count: { select: { jobCards: true } } }, orderBy: { name: "asc" } });
   return rows.map((c) => ({ id: c.id, name: c.name, active: (c as { active?: boolean }).active ?? true, jobs: c._count.jobCards }));

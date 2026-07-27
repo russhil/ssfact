@@ -3,7 +3,9 @@
 import { db } from "@/lib/db";
 import { Prisma } from "@/generated/prisma/client";
 import { requireRole, hashPassword } from "@/lib/auth";
+import { logAudit, computeChanges } from "@/lib/audit";
 import { colorKey } from "@/lib/colour";
+import { num } from "@/lib/format";
 import { getJobTrimIssues } from "@/lib/jobs";
 import { revalidatePath } from "next/cache";
 
@@ -671,10 +673,29 @@ export async function setJobStage(input: {
   jobCardId: number;
   stage: "FABRIC_AWAITED" | "CUTTING" | "ON_MACHINE" | "FINISHING" | "DISPATCH";
 }) {
-  await requireRole("ADMIN", "STAFF");
-  const job = await db.jobCard.update({
+  const user = await requireRole("ADMIN", "STAFF");
+  const before = await db.jobCard.findUnique({
     where: { id: input.jobCardId },
-    data: { stage: input.stage },
+    select: { stage: true, siNo: true },
+  });
+  if (!before) throw new Error("Job card not found");
+
+  const job = await db.$transaction(async (tx) => {
+    const j = await tx.jobCard.update({
+      where: { id: input.jobCardId },
+      data: { stage: input.stage, updatedById: user.userId },
+    });
+    if (before.stage !== input.stage) {
+      await logAudit(tx, user, {
+        action: "setJobStage",
+        entity: "JobCard",
+        entityId: j.id,
+        entityLabel: j.siNo,
+        summary: `Moved ${j.siNo} from ${before.stage} to ${input.stage}`,
+        changes: { stage: { old: before.stage, new: input.stage } },
+      });
+    }
+    return j;
   });
   revalidatePath("/board");
   revalidatePath("/job-cards");
@@ -2135,8 +2156,11 @@ export async function removeChallanLine(input: { id: number }) {
 
 /** Lock a challan: assign CH-IN/CH-OUT-YYYY-NNN and post every line to the shared ledger. Idempotent. */
 export async function lockChallan(input: { id: number }) {
-  await requireRole("ADMIN", "STAFF");
-  const c = await db.materialChallan.findUnique({ where: { id: input.id }, include: { lines: true } });
+  const user = await requireRole("ADMIN", "STAFF");
+  const c = await db.materialChallan.findUnique({
+    where: { id: input.id },
+    include: { lines: true, supplier: { select: { name: true } }, vendor: { select: { name: true } } },
+  });
   if (!c) throw new Error("Challan not found");
   if (c.status === "LOCKED") return { challanNo: c.challanNo }; // idempotent
   if (c.lines.length === 0) throw new Error("Add at least one line before locking");
@@ -2152,7 +2176,13 @@ export async function lockChallan(input: { id: number }) {
   await db.$transaction(async (tx) => {
     await tx.materialChallan.update({
       where: { id: c.id },
-      data: { status: "LOCKED", challanNo, lockedAt: now, kind: deriveChallanKind(c.lines) as any },
+      data: {
+        status: "LOCKED",
+        challanNo,
+        lockedAt: now,
+        kind: deriveChallanKind(c.lines) as any,
+        updatedById: user.userId,
+      },
     });
     for (const l of c.lines) {
       await postMaterialMovement(tx, {
@@ -2190,6 +2220,24 @@ export async function lockChallan(input: { id: number }) {
         });
       }
     }
+    const counterparty = c.supplier?.name ?? c.vendor?.name ?? "—";
+    await logAudit(tx, user, {
+      action: "lockChallan",
+      entity: "MaterialChallan",
+      entityId: c.id,
+      entityLabel: challanNo,
+      summary: `Locked ${challanNo} — ${c.lines.length} line(s) ${
+        c.direction === "INWARD" ? "in from" : "out to"
+      } ${counterparty}, posted to stock`,
+      changes: { status: { old: "DRAFT", new: "LOCKED" }, challanNo: { old: null, new: challanNo } },
+      meta: {
+        direction: c.direction,
+        counterparty,
+        fabricOrderId: c.fabricOrderId,
+        trimOrderId: c.trimOrderId,
+        lines: c.lines.map((l) => ({ fabricId: l.fabricId, trimItemId: l.trimItemId, colour: l.colour, qty: l.qty })),
+      },
+    });
   });
   revalidatePath("/challans");
   revalidatePath(`/challans/${c.id}`);
@@ -2202,8 +2250,11 @@ export async function lockChallan(input: { id: number }) {
 
 /** Void a LOCKED challan: reverse every posted movement. */
 export async function voidChallan(input: { id: number }) {
-  await requireRole("ADMIN", "STAFF");
-  const c = await db.materialChallan.findUnique({ where: { id: input.id }, include: { lines: true } });
+  const user = await requireRole("ADMIN", "STAFF");
+  const c = await db.materialChallan.findUnique({
+    where: { id: input.id },
+    include: { lines: true, supplier: { select: { name: true } }, vendor: { select: { name: true } } },
+  });
   if (!c) throw new Error("Challan not found");
   if (c.status !== "LOCKED" || c.voidedAt) return { ok: true, already: true as const };
   const reverse = c.direction === "INWARD" ? "OUT" : "IN"; // reverse of the original post
@@ -2245,7 +2296,22 @@ export async function voidChallan(input: { id: number }) {
         });
       }
     }
-    await tx.materialChallan.update({ where: { id: c.id }, data: { voidedAt: now } });
+    await tx.materialChallan.update({ where: { id: c.id }, data: { voidedAt: now, updatedById: user.userId } });
+    await logAudit(tx, user, {
+      action: "voidChallan",
+      entity: "MaterialChallan",
+      entityId: c.id,
+      entityLabel: c.challanNo,
+      summary: `Voided ${c.challanNo ?? `challan #${c.id}`} — reversed ${c.lines.length} posting(s) ${
+        c.direction === "INWARD" ? "out of" : "back into"
+      } stock`,
+      changes: { voidedAt: { old: null, new: now } },
+      meta: {
+        direction: c.direction,
+        counterparty: c.supplier?.name ?? c.vendor?.name ?? null,
+        lines: c.lines.map((l) => ({ fabricId: l.fabricId, trimItemId: l.trimItemId, colour: l.colour, qty: l.qty })),
+      },
+    });
   });
   revalidatePath("/challans");
   revalidatePath(`/challans/${c.id}`);
@@ -2398,7 +2464,7 @@ export async function editLockedChallan(input: {
   note?: string | null;
   jobCardId?: number | null;
 }) {
-  await requireRole("ADMIN", "STAFF");
+  const user = await requireRole("ADMIN", "STAFF");
   const c = await db.materialChallan.findUnique({ where: { id: input.id }, include: { lines: true } });
   if (!c) throw new Error("Challan not found");
   if (c.status !== "LOCKED") throw new Error("Only a locked challan is edited this way — use the draft editor");
@@ -2452,7 +2518,32 @@ export async function editLockedChallan(input: {
         kind: deriveChallanKind(newLines) as any,
         ...(input.note !== undefined ? { note: input.note } : {}),
         ...(input.jobCardId !== undefined ? { jobCardId: input.jobCardId } : {}),
+        updatedById: user.userId,
       } as any,
+    });
+    const lineTotal = (ls: { qty: number }[]) => Math.round(ls.reduce((a, l) => a + l.qty, 0) * 100) / 100;
+    await logAudit(tx, user, {
+      action: "editLockedChallan",
+      entity: "MaterialChallan",
+      entityId: c.id,
+      entityLabel: c.challanNo,
+      summary: `Edited locked ${c.challanNo ?? `challan #${c.id}`} — ${c.lines.length} → ${newLines.length} line(s), ${num(lineTotal(c.lines), 2)} → ${num(lineTotal(newLines), 2)} total`,
+      changes: {
+        lineCount: { old: c.lines.length, new: newLines.length },
+        total: { old: lineTotal(c.lines), new: lineTotal(newLines) },
+        ...(input.note !== undefined && input.note !== c.note ? { note: { old: c.note, new: input.note } } : {}),
+        ...(input.jobCardId !== undefined && input.jobCardId !== c.jobCardId
+          ? { jobCardId: { old: c.jobCardId, new: input.jobCardId } }
+          : {}),
+      },
+      meta: {
+        before_snapshot: {
+          lines: c.lines.map((l) => ({ fabricId: l.fabricId, trimItemId: l.trimItemId, colour: l.colour, qty: l.qty })),
+        },
+        after_preview: {
+          lines: newLines.map((l) => ({ fabricId: l.fabricId ?? null, trimItemId: l.trimItemId ?? null, colour: l.colour ?? null, qty: l.qty })),
+        },
+      },
     });
   });
 
@@ -2498,7 +2589,7 @@ function revalidateDispatch(jobCardId: number) {
  * The DC- number and the document survive as a voided record.
  */
 export async function voidDispatch(input: { id: number }) {
-  await requireRole("ADMIN", "STAFF");
+  const user = await requireRole("ADMIN", "STAFF");
   const e = await db.dispatchEvent.findUnique({
     where: { id: input.id },
     include: { jobCard: { select: { id: true, cutQty: true, dispatchedQty: true, status: true, siNo: true } } },
@@ -2513,10 +2604,31 @@ export async function voidDispatch(input: { id: number }) {
   const reopen = job.status === "CLOSED" && newDispatched < job.cutQty;
 
   await db.$transaction(async (tx) => {
-    await tx.dispatchEvent.update({ where: { id: e.id }, data: { voidedAt: new Date() } });
+    await tx.dispatchEvent.update({
+      where: { id: e.id },
+      data: { voidedAt: new Date(), updatedById: user.userId },
+    });
     await tx.jobCard.update({
       where: { id: job.id },
-      data: { dispatchedQty: newDispatched, ...(reopen ? { status: "ACTIVE" as const } : {}) },
+      data: {
+        dispatchedQty: newDispatched,
+        ...(reopen ? { status: "ACTIVE" as const } : {}),
+        updatedById: user.userId,
+      },
+    });
+    await logAudit(tx, user, {
+      action: "voidDispatch",
+      entity: "DispatchEvent",
+      entityId: e.id,
+      entityLabel: e.dispatchNo,
+      summary: `Voided ${e.dispatchNo ?? `dispatch #${e.id}`}, ${num(e.qty)} pcs back to ${job.siNo}${reopen ? " (card reopened)" : ""}`,
+      changes: {
+        // The DC keeps its qty and its document — voidedAt is what actually changed.
+        voidedAt: { old: null, new: new Date() },
+        "jobCard.dispatchedQty": { old: job.dispatchedQty, new: newDispatched },
+        ...(reopen ? { "jobCard.status": { old: "CLOSED", new: "ACTIVE" } } : {}),
+      },
+      meta: { siNo: job.siNo, jobCardId: job.id, reason: e.reason, date: e.date },
     });
   });
 
@@ -2540,10 +2652,10 @@ export async function editDispatch(input: {
   arrangedBy?: string | null;
   layerIds?: number[];
 }) {
-  await requireRole("ADMIN", "STAFF");
+  const user = await requireRole("ADMIN", "STAFF");
   const e = await db.dispatchEvent.findUnique({
     where: { id: input.id },
-    include: { jobCard: { select: { id: true, cutQty: true, dispatchedQty: true, status: true } } },
+    include: { jobCard: { select: { id: true, cutQty: true, dispatchedQty: true, status: true, siNo: true } } },
   });
   if (!e) throw new Error("Dispatch not found");
   if (e.voidedAt) throw new Error("This dispatch is voided — log a fresh one instead");
@@ -2577,11 +2689,31 @@ export async function editDispatch(input: {
         ...(input.arrangedBy !== undefined ? { arrangedBy: input.arrangedBy } : {}),
         // `set` (not `connect`) so removing a layer from the event actually removes it.
         ...(input.layerIds ? { layers: { set: input.layerIds.map((id) => ({ id })) } } : {}),
+        updatedById: user.userId,
       } as any,
     });
     await tx.jobCard.update({
       where: { id: job.id },
-      data: { dispatchedQty: newDispatched, status: closed ? "CLOSED" : "ACTIVE" },
+      data: { dispatchedQty: newDispatched, status: closed ? "CLOSED" : "ACTIVE", updatedById: user.userId },
+    });
+    await logAudit(tx, user, {
+      action: "editDispatch",
+      entity: "DispatchEvent",
+      entityId: e.id,
+      entityLabel: e.dispatchNo,
+      summary: `Edited ${e.dispatchNo ?? `dispatch #${e.id}`} on ${job.siNo} — ${num(e.qty)} → ${num(newQty)} pcs`,
+      changes: computeChanges(
+        { qty: e.qty, date: e.date, reason: e.reason, note: e.note, challan: e.challan, arrangedBy: e.arrangedBy },
+        {
+          qty: newQty,
+          ...(input.date ? { date: new Date(input.date) } : {}),
+          ...(input.reason ? { reason: input.reason } : {}),
+          ...(input.note !== undefined ? { note: input.note } : {}),
+          ...(input.challan !== undefined ? { challan: input.challan } : {}),
+          ...(input.arrangedBy !== undefined ? { arrangedBy: input.arrangedBy } : {}),
+        } as Record<string, unknown>,
+      ),
+      meta: { siNo: job.siNo, jobCardId: job.id, dispatchedQty: { old: job.dispatchedQty, new: newDispatched } },
     });
   });
 
@@ -2595,12 +2727,31 @@ export async function editDispatch(input: {
  * over-dispatch but work remains (or the reverse).
  */
 export async function setJobCardOpen(input: { id: number; open: boolean }) {
-  await requireRole("ADMIN", "STAFF");
-  const job = await db.jobCard.update({
+  const user = await requireRole("ADMIN", "STAFF");
+  const before = await db.jobCard.findUnique({
     where: { id: input.id },
-    data: { status: input.open ? "ACTIVE" : "CLOSED" },
-    select: { id: true, siNo: true, status: true },
+    select: { status: true, siNo: true },
   });
+  if (!before) throw new Error("Job card not found");
+  const next = input.open ? ("ACTIVE" as const) : ("CLOSED" as const);
+
+  const job = await db.$transaction(async (tx) => {
+    const j = await tx.jobCard.update({
+      where: { id: input.id },
+      data: { status: next, updatedById: user.userId },
+      select: { id: true, siNo: true, status: true },
+    });
+    await logAudit(tx, user, {
+      action: "setJobCardOpen",
+      entity: "JobCard",
+      entityId: j.id,
+      entityLabel: j.siNo,
+      summary: `${input.open ? "Reopened" : "Closed"} job card ${j.siNo}`,
+      changes: { status: { old: before.status, new: next } },
+    });
+    return j;
+  });
+
   revalidatePath("/");
   revalidatePath("/board");
   revalidatePath("/job-cards");
@@ -2645,10 +2796,10 @@ function layerFabricByColour(
  * an inverse movement is posted, so the ledger keeps a truthful history of both.
  */
 export async function deleteJobCard(input: { id: number }) {
-  await requireRole("ADMIN", "STAFF");
+  const user = await requireRole("ADMIN", "STAFF");
   const job = await db.jobCard.findUnique({
     where: { id: input.id },
-    select: { id: true, siNo: true },
+    select: { id: true, siNo: true, cutQty: true, dispatchedQty: true, stage: true, status: true, productId: true },
   });
   if (!job) throw new Error("Job card not found");
 
@@ -2711,6 +2862,22 @@ export async function deleteJobCard(input: { id: number }) {
     await tx.materialChallan.deleteMany({ where: { jobCardId: job.id, status: "DRAFT" } });
     await tx.materialChallan.updateMany({ where: { jobCardId: job.id }, data: { jobCardId: null } });
     await tx.jobCard.delete({ where: { id: job.id } });
+    // The row is gone but the log keeps the snapshot — AuditLog holds no FK to it.
+    await logAudit(tx, user, {
+      action: "deleteJobCard",
+      entity: "JobCard",
+      entityId: job.id,
+      entityLabel: job.siNo,
+      summary: `Deleted job card ${job.siNo} (${num(job.cutQty)} pcs cut), reversing ${
+        [...net.values()].filter((r) => Math.abs(r.qty) >= 0.005).length
+      } fabric posting(s)`,
+      meta: {
+        before_snapshot: { row: job },
+        reversed: [...net.values()]
+          .filter((r) => Math.abs(r.qty) >= 0.005)
+          .map((r) => ({ fabricId: r.fabricId, colour: r.colour, qty: Math.round(r.qty * 100) / 100 })),
+      },
+    });
   });
 
   revalidatePath("/");
@@ -2745,16 +2912,21 @@ export async function updateJobCard(input: {
   customMrp?: number | null;
 }) {
   const user = await requireRole("ADMIN", "STAFF");
-  const job = await db.jobCard.findUnique({ where: { id: input.id }, select: { id: true, productId: true } });
+  const job = await db.jobCard.findUnique({
+    where: { id: input.id },
+    select: {
+      id: true, productId: true, siNo: true, plannedEtd: true, merchandiser: true, remark: true,
+      needsPrint: true, needsLaser: true, needsEmb: true, customItem: true, customSku: true,
+      customStyle: true, mrp: true, customMrp: true,
+    },
+  });
   if (!job) throw new Error("Job card not found");
 
   const siNo = input.siNo?.trim();
   if (input.siNo !== undefined && !siNo) throw new Error("SI cannot be blank");
   const owner = user.role === "ADMIN";
 
-  await db.jobCard.update({
-    where: { id: job.id },
-    data: {
+  const patch = {
       ...(siNo ? { siNo } : {}),
       ...(input.plannedEtd !== undefined ? { plannedEtd: input.plannedEtd ? new Date(input.plannedEtd) : null } : {}),
       ...(input.merchandiser !== undefined ? { merchandiser: input.merchandiser } : {}),
@@ -2768,7 +2940,25 @@ export async function updateJobCard(input: {
       ...(!job.productId && input.customStyle !== undefined ? { customStyle: input.customStyle } : {}),
       ...(owner && input.mrp !== undefined ? { mrp: input.mrp } : {}),
       ...(owner && !job.productId && input.customMrp !== undefined ? { customMrp: input.customMrp } : {}),
-    } as any,
+  } as Record<string, unknown>;
+
+  const changes = computeChanges(job as unknown as Record<string, unknown>, patch);
+
+  await db.$transaction(async (tx) => {
+    await tx.jobCard.update({
+      where: { id: job.id },
+      data: { ...patch, updatedById: user.userId } as any,
+    });
+    await logAudit(tx, user, {
+      action: "updateJobCard",
+      entity: "JobCard",
+      entityId: job.id,
+      entityLabel: siNo || job.siNo,
+      summary: changes
+        ? `Edited ${Object.keys(changes).join(", ")} on job card ${job.siNo}`
+        : `Saved job card ${job.siNo} with no changes`,
+      changes,
+    });
   });
 
   revalidatePath("/job-cards");
@@ -2796,10 +2986,10 @@ export async function updateCuttingLayer(input: {
   sizeRatio?: string | null;
   cells?: { colour: string; size: string; qty: number }[];
 }) {
-  await requireRole("ADMIN", "STAFF");
+  const user = await requireRole("ADMIN", "STAFF");
   const layer = await db.cuttingLayer.findUnique({
     where: { id: input.id },
-    include: { cells: true },
+    include: { cells: true, jobCard: { select: { siNo: true } } },
   });
   if (!layer) throw new Error("Cutting layer not found");
 
@@ -2809,6 +2999,17 @@ export async function updateCuttingLayer(input: {
     .map((c) => ({ colour: colorKey(c.colour), size: c.size, qty: c.qty }));
   if (cells && cells.length === 0) throw new Error("A layer needs at least one cell — remove the layer instead");
   const newTotal = cells ? cells.reduce((a, c) => a + c.qty, 0) : oldTotal;
+
+  const patch = {
+        ...(input.cutDate !== undefined ? { cutDate: input.cutDate ? new Date(input.cutDate) : null } : {}),
+        ...(input.label !== undefined ? { label: input.label } : {}),
+        ...(input.rolls !== undefined ? { rolls: input.rolls } : {}),
+        ...(input.fabricMtr !== undefined ? { fabricMtr: input.fabricMtr } : {}),
+        ...(input.fabricIssued !== undefined ? { fabricIssued: input.fabricIssued } : {}),
+        ...(input.fabricBalance !== undefined ? { fabricBalance: input.fabricBalance } : {}),
+        ...(input.avgConsumption !== undefined ? { avgConsumption: input.avgConsumption } : {}),
+        ...(input.sizeRatio !== undefined ? { sizeRatio: input.sizeRatio } : {}),
+  } as Record<string, unknown>;
 
   await db.$transaction(async (tx) => {
     const vendorId = input.vendorName !== undefined ? await resolveVendorId(tx, input.vendorName) : undefined;
@@ -2822,22 +3023,32 @@ export async function updateCuttingLayer(input: {
       data: {
         ...(vendorId !== undefined && vendorId !== null ? { vendorId } : {}),
         ...(masterId !== undefined ? { cuttingMasterId: masterId } : {}),
-        ...(input.cutDate !== undefined ? { cutDate: input.cutDate ? new Date(input.cutDate) : null } : {}),
-        ...(input.label !== undefined ? { label: input.label } : {}),
-        ...(input.rolls !== undefined ? { rolls: input.rolls } : {}),
-        ...(input.fabricMtr !== undefined ? { fabricMtr: input.fabricMtr } : {}),
-        ...(input.fabricIssued !== undefined ? { fabricIssued: input.fabricIssued } : {}),
-        ...(input.fabricBalance !== undefined ? { fabricBalance: input.fabricBalance } : {}),
-        ...(input.avgConsumption !== undefined ? { avgConsumption: input.avgConsumption } : {}),
-        ...(input.sizeRatio !== undefined ? { sizeRatio: input.sizeRatio } : {}),
+        ...patch,
+        updatedById: user.userId,
       } as any,
     });
     if (newTotal !== oldTotal) {
       await tx.jobCard.update({
         where: { id: layer.jobCardId },
-        data: { cutQty: { increment: newTotal - oldTotal } } as any,
+        data: { cutQty: { increment: newTotal - oldTotal }, updatedById: user.userId } as any,
       });
     }
+    const changes = computeChanges(layer as unknown as Record<string, unknown>, patch);
+    await logAudit(tx, user, {
+      action: "updateCuttingLayer",
+      entity: "CuttingLayer",
+      entityId: layer.id,
+      entityLabel: `${layer.jobCard.siNo} · layer ${layer.layerNo}`,
+      summary:
+        newTotal !== oldTotal
+          ? `Edited layer ${layer.layerNo} on ${layer.jobCard.siNo} — cut ${num(oldTotal)} → ${num(newTotal)} pcs`
+          : `Edited layer ${layer.layerNo} on ${layer.jobCard.siNo}`,
+      changes: {
+        ...(changes ?? {}),
+        ...(newTotal !== oldTotal ? { "layer.cutQty": { old: oldTotal, new: newTotal } } : {}),
+      },
+      meta: { jobCardId: layer.jobCardId },
+    });
   });
 
   revalidatePath(`/job-cards/${layer.jobCardId}`);
@@ -2855,7 +3066,7 @@ export async function updateCuttingLayer(input: {
  * dispatch first) — you can't un-cut cloth that has already come back stitched.
  */
 export async function removeCuttingLayer(input: { id: number }) {
-  await requireRole("ADMIN", "STAFF");
+  const user = await requireRole("ADMIN", "STAFF");
   const layer = await db.cuttingLayer.findUnique({
     where: { id: input.id },
     include: {
@@ -2910,9 +3121,32 @@ export async function removeCuttingLayer(input: { id: number }) {
     if (layerTotal > 0) {
       await tx.jobCard.update({
         where: { id: layer.jobCard.id },
-        data: { cutQty: { decrement: layerTotal } } as any,
+        data: { cutQty: { decrement: layerTotal }, updatedById: user.userId } as any,
       });
     }
+    const reversedMtr = Math.round([...issued.values()].reduce((a, q) => a + q, 0) * 100) / 100;
+    await logAudit(tx, user, {
+      action: "removeCuttingLayer",
+      entity: "CuttingLayer",
+      entityId: layer.id,
+      entityLabel: `${layer.jobCard.siNo} · layer ${layer.layerNo}`,
+      summary: `Removed layer ${layer.layerNo} from ${layer.jobCard.siNo} — −${num(layerTotal)} pcs cut, ${num(reversedMtr, 2)} m fabric returned`,
+      meta: {
+        jobCardId: layer.jobCard.id,
+        before_snapshot: {
+          row: {
+            layerNo: layer.layerNo,
+            label: layer.label,
+            cutDate: layer.cutDate,
+            fabricMtr: layer.fabricMtr,
+            fabricIssued: layer.fabricIssued,
+            avgConsumption: layer.avgConsumption,
+            cells: layer.cells.map((c) => ({ colour: c.colour, size: c.size, qty: c.qty })),
+          },
+        },
+        reversed: [...issued.entries()].map(([colour, qty]) => ({ colour, qty })),
+      },
+    });
   });
 
   revalidatePath(`/job-cards/${layer.jobCard.id}`);
@@ -2937,12 +3171,12 @@ export async function adjustFabricStock(input: {
   reason: AdjustReason;
   note?: string | null;
 }) {
-  await requireRole("ADMIN", "STAFF");
+  const user = await requireRole("ADMIN", "STAFF");
   if (input.newQty == null && input.delta == null) throw new Error("Give a counted quantity or a delta");
   const colour = colorKey(input.colour);
   const fc = await db.fabricColor.findUnique({
     where: { fabricId_color: { fabricId: input.fabricId, color: colour } },
-    select: { id: true, currentStock: true },
+    select: { id: true, currentStock: true, fabric: { select: { name: true, unit: true } } },
   });
   if (!fc) throw new Error("That fabric colour is not in stock yet — add the colour first");
 
@@ -2962,8 +3196,23 @@ export async function adjustFabricStock(input: {
     });
     // OPENING is the first count: it also becomes the baseline the utilisation bar reads.
     if (input.reason === "OPENING" && input.newQty != null) {
-      await tx.fabricColor.update({ where: { id: fc.id }, data: { openingStock: input.newQty } });
+      await tx.fabricColor.update({
+        where: { id: fc.id },
+        data: { openingStock: input.newQty, updatedById: user.userId },
+      });
+    } else {
+      await tx.fabricColor.update({ where: { id: fc.id }, data: { updatedById: user.userId } });
     }
+    const after = Math.round((fc.currentStock + delta) * 100) / 100;
+    await logAudit(tx, user, {
+      action: "adjustFabricStock",
+      entity: "FabricColor",
+      entityId: fc.id,
+      entityLabel: `${fc.fabric.name} · ${colour}`,
+      summary: `Adjusted ${fc.fabric.name} ${colour} stock ${num(fc.currentStock, 2)} → ${num(after, 2)} ${fc.fabric.unit} (${input.reason})`,
+      changes: { currentStock: { old: fc.currentStock, new: after } },
+      meta: { reason: input.reason, delta, note: input.note ?? null, fabricId: input.fabricId },
+    });
   });
 
   revalidatePath(`/inventory/${input.fabricId}`);
@@ -2984,9 +3233,12 @@ export async function adjustTrimStock(input: {
   reason: AdjustReason;
   note?: string | null;
 }) {
-  await requireRole("ADMIN", "STAFF");
+  const user = await requireRole("ADMIN", "STAFF");
   if (input.newQty == null && input.delta == null) throw new Error("Give a counted quantity or a delta");
-  const t = await db.trimItem.findUnique({ where: { id: input.trimItemId }, select: { id: true, currentStock: true } });
+  const t = await db.trimItem.findUnique({
+    where: { id: input.trimItemId },
+    select: { id: true, currentStock: true, name: true, unit: true },
+  });
   if (!t) throw new Error("Trim item not found");
 
   const delta =
@@ -3001,6 +3253,17 @@ export async function adjustTrimStock(input: {
       trimItemId: input.trimItemId,
       note: input.note ?? null,
       reason: input.reason,
+    });
+    await tx.trimItem.update({ where: { id: t.id }, data: { updatedById: user.userId } });
+    const after = Math.round((t.currentStock + delta) * 100) / 100;
+    await logAudit(tx, user, {
+      action: "adjustTrimStock",
+      entity: "TrimItem",
+      entityId: t.id,
+      entityLabel: t.name,
+      summary: `Adjusted ${t.name} stock ${num(t.currentStock, 2)} → ${num(after, 2)} ${t.unit ?? "pcs"} (${input.reason})`,
+      changes: { currentStock: { old: t.currentStock, new: after } },
+      meta: { reason: input.reason, delta, note: input.note ?? null },
     });
   });
 

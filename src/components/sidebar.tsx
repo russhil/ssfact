@@ -7,6 +7,7 @@ import {
   BarChart3,
   Boxes,
   ClipboardList,
+  History,
   Factory,
   FileText,
   LayoutDashboard,
@@ -91,6 +92,7 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/masters", label: "Masters", icon: SlidersHorizontal, roles: STAFF },
       { href: "/users", label: "Users", icon: ShieldCheck, roles: ["ADMIN"] },
+      { href: "/audit", label: "Audit", icon: History, roles: ["ADMIN"] },
       { href: "/reports", label: "Reports", icon: BarChart3, roles: ["ADMIN"] },
     ],
   },

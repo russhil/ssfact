@@ -200,6 +200,17 @@ model FabricColor {
   fabric       Fabric @relation(fields: [fabricId], references: [id], onDelete: Cascade)
   fabricId     Int
 
+  // Change 25 Part A — audit stamps. `updatedAt` carries @default(now()) as well as
+  // @updatedAt so the migration can backfill existing rows (SQLite rebuilds the table
+  // and a bare required column would fail). Actor ids are nullable: legacy rows and
+  // back-compat call paths have no session.
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  createdBy   User?    @relation("FabricColorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById Int?
+  updatedBy   User?    @relation("FabricColorUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedById Int?
+
   @@unique([fabricId, color])
   @@index([fabricId])
 }
@@ -304,6 +315,14 @@ model JobCard {
   materialChallans  MaterialChallan[]  @relation("JobCardChallans") // Change 17 Part C
   finishingJobs     FinishingJob[] // Change 20: print/emb/wash given out per layer
 
+  // Change 25 Part A — audit stamps (see FabricColor for why @default(now()) @updatedAt).
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  createdBy   User?    @relation("JobCardCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById Int?
+  updatedBy   User?    @relation("JobCardUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedById Int?
+
   @@index([vendorId])
   @@index([productId])
 }
@@ -341,6 +360,14 @@ model CuttingLayer {
   dispatches DispatchEvent[]    @relation("DispatchLayers") // Change 14: dispatched against these layers
   // Change 20: finishing job-work given out against this lay (same pattern as dispatch).
   finishingJobs FinishingJob[]   @relation("FinishingLayers")
+
+  // Change 25 Part A — audit stamps.
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  createdBy   User?    @relation("CuttingLayerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById Int?
+  updatedBy   User?    @relation("CuttingLayerUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedById Int?
 
   @@index([jobCardId])
   @@index([vendorId])
@@ -434,6 +461,15 @@ model DispatchEvent {
   // Change 14 Part B: size×colour line breakup + the layers this dispatch was booked against.
   lines  DispatchLine[]
   layers CuttingLayer[] @relation("DispatchLayers")
+
+  // Change 25 Part A — audit stamps. `arrangedBy` stays: it's free text for who physically
+  // arranged the goods, which is not always the logged-in user who keyed the row.
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  createdBy   User?    @relation("DispatchEventCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById Int?
+  updatedBy   User?    @relation("DispatchEventUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedById Int?
 
   @@index([jobCardId])
 }
@@ -531,7 +567,55 @@ model User {
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
+  // Change 25 Part A — the actor side of every audit stamp. Named relations only
+  // because a model can point at User twice (created/updated); nothing reads these
+  // back-relations today, they exist to satisfy Prisma.
+  auditLogs           AuditLog[]
+  jobCardsCreated     JobCard[]         @relation("JobCardCreatedBy")
+  jobCardsUpdated     JobCard[]         @relation("JobCardUpdatedBy")
+  challansCreated     MaterialChallan[] @relation("MaterialChallanCreatedBy")
+  challansUpdated     MaterialChallan[] @relation("MaterialChallanUpdatedBy")
+  dispatchesCreated   DispatchEvent[]   @relation("DispatchEventCreatedBy")
+  dispatchesUpdated   DispatchEvent[]   @relation("DispatchEventUpdatedBy")
+  layersCreated       CuttingLayer[]    @relation("CuttingLayerCreatedBy")
+  layersUpdated       CuttingLayer[]    @relation("CuttingLayerUpdatedBy")
+  fabricOrdersCreated FabricOrder[]     @relation("FabricOrderCreatedBy")
+  fabricOrdersUpdated FabricOrder[]     @relation("FabricOrderUpdatedBy")
+  trimOrdersCreated   TrimOrder[]       @relation("TrimOrderCreatedBy")
+  trimOrdersUpdated   TrimOrder[]       @relation("TrimOrderUpdatedBy")
+  fabricColorsCreated FabricColor[]     @relation("FabricColorCreatedBy")
+  fabricColorsUpdated FabricColor[]     @relation("FabricColorUpdatedBy")
+  trimItemsCreated    TrimItem[]        @relation("TrimItemCreatedBy")
+  trimItemsUpdated    TrimItem[]        @relation("TrimItemUpdatedBy")
+
   @@index([role])
+}
+
+// Change 25 Part A — append-only accountability log. Written inside the same
+// $transaction as the mutation it describes (see src/lib/audit.ts), so the log and
+// the change commit together or not at all.
+//
+// `username` is denormalised on purpose: `userId` goes null when a login is deleted,
+// and "who did this" must survive that. `changes` / `meta` are JSON *strings* — this
+// schema stores JSON as TEXT everywhere (see CuttingLayer.sizeRatio), no Prisma Json.
+model AuditLog {
+  id          String   @id @default(cuid())
+  at          DateTime @default(now())
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId      Int?
+  username    String
+  action      String // "voidDispatch" | "adjustFabricStock" | …  (the action's own name)
+  entity      String // "DispatchEvent" | "JobCard" | …
+  entityId    String
+  entityLabel String? // "DC-2026-014" / "SI-1188" — what a human calls the row
+  summary     String // "Voided DC-2026-014, +12 pcs back to SI-1188"
+  changes     String? // JSON Record<field, { old, new }>
+  meta        String? // JSON free-form before/after snapshot
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([at])
+  @@index([action])
 }
 
 // ── Product = the single master (commercial catalog + production spec) ──
@@ -653,6 +737,14 @@ model TrimItem {
   challanLines MaterialChallanLine[]
   orders       TrimOrder[] // Change 18 Part B
 
+  // Change 25 Part A — audit stamps.
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  createdBy   User?    @relation("TrimItemCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById Int?
+  updatedBy   User?    @relation("TrimItemUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedById Int?
+
   @@index([normName])
   @@index([family])
   @@index([category])
@@ -746,6 +838,14 @@ model FabricOrder {
   // Change 18 Part C: the inward challans this PO was received on.
   challans      MaterialChallan[]
 
+  // Change 25 Part A — audit stamps.
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  createdBy   User?    @relation("FabricOrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById Int?
+  updatedBy   User?    @relation("FabricOrderUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedById Int?
+
   @@index([fabricId])
   @@index([supplierId])
   @@index([status])
@@ -785,6 +885,14 @@ model TrimOrder {
   sentAt        DateTime?
   lines         TrimOrderLine[]
   challans      MaterialChallan[]
+
+  // Change 25 Part A — audit stamps.
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  createdBy   User?    @relation("TrimOrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById Int?
+  updatedBy   User?    @relation("TrimOrderUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedById Int?
 
   @@index([trimItemId])
   @@index([supplierId])
@@ -898,6 +1006,13 @@ model MaterialChallan {
   voidedAt  DateTime?
   lines     MaterialChallanLine[]
   createdAt DateTime              @default(now())
+
+  // Change 25 Part A — audit stamps.
+  updatedAt   DateTime @default(now()) @updatedAt
+  createdBy   User?    @relation("MaterialChallanCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById Int?
+  updatedBy   User?    @relation("MaterialChallanUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedById Int?
 
   @@index([direction])
   @@index([vendorId])
