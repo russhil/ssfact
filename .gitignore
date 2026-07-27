@@ -47,3 +47,4 @@ next-env.d.ts
 # local image uploads (Change 06 local provider)
 .uploads/
 dev.db.bak-*
+backups/

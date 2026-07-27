@@ -1,5 +1,5 @@
 import { getProductionBoard } from "@/lib/board";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
 import { ProductionBoard } from "@/components/production-board";
 import { PageHeader } from "@/components/ui";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function BoardPage() {
   const u = await getCurrentUser();
   const scope = u?.role === "VENDOR" ? { vendorName: u.vendor ?? "" } : undefined;
-  const canSeeCost = u?.role === "ADMIN";
+  const canSeeCost = canSee(u);
   const { rows, filterOptions } = await getProductionBoard(scope);
 
   return (

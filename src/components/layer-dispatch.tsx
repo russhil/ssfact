@@ -202,7 +202,7 @@ export function LayerDispatch({
       )}
 
       {poolCut === 0 ? (
-        <p className="py-2 text-center t-xs text-muted">Nothing cut to dispatch{vendorFilter ? ` for ${vendorFilter}` : ""} yet.</p>
+        <p className="py-2 text-center t-xs text-muted">Nothing cut to dispatch{vendorFilter ? ` for ${vendorFilter}` : ""}</p>
       ) : (
         <>
           <div className="mb-2 t-xs text-muted">

@@ -106,7 +106,7 @@ export function FabricMasterForm({
         <div className="flex items-end">
           <button onClick={saveMaster} disabled={busy}
             className="w-full rounded-lg bg-primary px-3 py-2 t-sm font-semibold text-accent-on shadow-sm transition hover:opacity-90 disabled:opacity-40">
-            {savedMaster ? "Saved ✓" : "Save"}
+            {savedMaster ? "Saved" : "Save"}
           </button>
         </div>
       </div>
@@ -121,7 +121,7 @@ export function FabricMasterForm({
               <button onClick={() => run(() => removeFabricSupplier({ id: s.id }))} className="text-faint hover:text-danger"><X size={12} /></button>
             </span>
           ))}
-          {suppliers.length === 0 && <span className="t-xs text-faint">none yet</span>}
+          {suppliers.length === 0 && <span className="t-xs text-faint">none</span>}
         </div>
         <div className="mt-2 flex items-center gap-2">
           <select value={supId} onChange={(e) => setSupId(+e.target.value)}

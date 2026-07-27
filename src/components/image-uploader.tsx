@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { uploadImage } from "@/lib/uploads";
 import { attachImages, removeImage } from "@/lib/actions";
+import { runAction } from "@/lib/action-result";
 import { ImagePlus, Camera, X, Loader2 } from "lucide-react";
 
 export type GalleryImage = { id: number; url: string; thumbUrl: string | null; caption: string | null };
@@ -16,7 +17,9 @@ export function ImageUploader({
   images,
   label = "Photos",
 }: {
-  entity: "trim" | "fabric" | "fabricOrder" | "product";
+  // Change 25 Part H: trimOrder + challan are the two new attach points. Keep this in
+  // step with ImgEntity / IMG_FK in actions.ts — they are the same set.
+  entity: "trim" | "fabric" | "fabricOrder" | "product" | "trimOrder" | "challan";
   entityId: number;
   kind?: string;
   multiple?: boolean;
@@ -49,7 +52,9 @@ export function ImageUploader({
 
   async function del(id: number) {
     setBusy(true);
-    try { await removeImage({ id }); router.refresh(); } finally { setBusy(false); }
+    // Change 25 Part B: was try/finally with no catch.
+    if (await runAction(() => removeImage({ id }), setErr)) router.refresh();
+    setBusy(false);
   }
 
   return (

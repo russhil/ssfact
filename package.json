@@ -11,6 +11,7 @@
     "import": "python3 scripts/import_workbook.py",
     "import:catalog": "python3 scripts/import_catalog.py",
     "seed": "tsx prisma/seed.ts",
+    "backup": "tsx scripts/backup-db.ts",
     "db:wipe": "tsx scripts/reset-factory-data.ts",
     "db:snapshot": "tsx scripts/snapshot-baseline.ts",
     "db:reset": "prisma migrate reset --force && tsx prisma/seed-baseline.ts",
@@ -34,6 +35,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

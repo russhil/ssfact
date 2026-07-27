@@ -7,7 +7,7 @@ import type { LookupRow } from "@/lib/masters";
 
 const ADD = "__add__";
 
-/** Dropdown fed by a Lookup kind, with an inline "➕ Add new…" that persists + selects.
+/** Dropdown fed by a Lookup kind, with an inline "Add new…" that persists + selects.
  *  Stores the label string (back-compat with existing free-text columns). */
 export function LookupSelect({
   kind, options, value, onChange, placeholder = "Select…", className,
@@ -51,7 +51,7 @@ export function LookupSelect({
       <option value="">{placeholder}</option>
       {!hasValue && <option value={value}>{value}</option>}
       {opts.map((o) => <option key={o.id} value={o.label}>{o.label}</option>)}
-      <option value={ADD}>➕ Add new…</option>
+      <option value={ADD}>Add new…</option>
     </select>
   );
 }

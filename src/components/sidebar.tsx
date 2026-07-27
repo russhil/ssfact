@@ -6,7 +6,9 @@ import {
   AlertTriangle,
   BarChart3,
   Boxes,
+  Building2,
   ClipboardList,
+  History,
   Factory,
   FileText,
   LayoutDashboard,
@@ -15,6 +17,7 @@ import {
   Package,
   PackageCheck,
   Scissors,
+  Settings,
   ShieldCheck,
   ShoppingCart,
   SlidersHorizontal,
@@ -83,6 +86,7 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/vendors", label: "Vendors", icon: Factory, roles: STAFF },
       { href: "/suppliers", label: "Suppliers", icon: Users, roles: STAFF },
+      { href: "/buyers", label: "Buyers", icon: Building2, roles: STAFF },
       { href: "/catalog", label: "Product Master", icon: Package, roles: STAFF },
     ],
   },
@@ -91,7 +95,9 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/masters", label: "Masters", icon: SlidersHorizontal, roles: STAFF },
       { href: "/users", label: "Users", icon: ShieldCheck, roles: ["ADMIN"] },
+      { href: "/audit", label: "Audit", icon: History, roles: ["ADMIN"] },
       { href: "/reports", label: "Reports", icon: BarChart3, roles: ["ADMIN"] },
+      { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] },
     ],
   },
 ];

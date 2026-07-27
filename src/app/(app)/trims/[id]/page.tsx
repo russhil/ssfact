@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { getTrimStock, getTrimLedger } from "@/lib/trims";
 import { getTrimSourcing } from "@/lib/masters";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
 import { ImageUploader } from "@/components/image-uploader";
 import { SourcingPanel } from "@/components/sourcing-panel";
@@ -21,7 +21,7 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
   const ledger = await getTrimLedger(trimId);
   const u = await getCurrentUser();
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
-  const canSeeCost = u?.role === "ADMIN"; // sourcing rates are cost data — owner only
+  const canSeeCost = canSee(u); // sourcing rates are cost data — owner only
   const images = await db.imageAsset.findMany({ where: { trimItemId: trimId }, orderBy: { sortOrder: "asc" } });
   // Change 18 Part E: trim PO history (trims have no per-supplier rate record of their own).
   const sourcing = canSeeCost ? await getTrimSourcing(trimId) : null;
@@ -133,7 +133,7 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
             ))}
             {ledger.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-muted">No movements.</td>
+                <td colSpan={6} className="px-5 py-10 text-center text-muted">No movements</td>
               </tr>
             )}
           </tbody>

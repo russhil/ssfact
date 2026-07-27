@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createChallan, addChallanLine, lockChallan, voidChallan } from "@/lib/actions";
-import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
 import { X, Printer } from "lucide-react";
 
@@ -279,6 +279,20 @@ function ChallanList({ rows, tab }: { rows: ChallanRow[]; tab: "INWARD" | "OUTWA
     [parties, tab]
   );
 
+  const csv: CsvExport<ChallanRow> = {
+    filename: "challans",
+    columns: [
+      { header: "challan_no", value: (c) => c.challanNo ?? `Draft #${c.id}` },
+      { header: "status", value: (c) => c.status },
+      { header: "kind", value: (c) => c.kind },
+      { header: "challan_date", value: (c) => new Date(c.date) },
+      { header: tab === "INWARD" ? "supplier" : "vendor", value: (c) => c.counterparty },
+      { header: "si_no", value: (c) => c.jobCardSiNo },
+      { header: "lines", value: (c) => c.lineCount },
+      { header: "qty", value: (c) => c.totalQty },
+    ],
+  };
+
   const view = useTableView<ChallanRow>({
     id: "ch",
     rows,
@@ -304,10 +318,11 @@ function ChallanList({ rows, tab }: { rows: ChallanRow[]; tab: "INWARD" | "OUTWA
         filters={filters}
         searchPlaceholder="Search challan no, party, SI, note…"
         dateLabel="Challan date"
+        csv={csv}
       />
       {view.rows.length === 0 ? (
         <p className="py-6 text-center t-sm text-muted">
-          {rows.length === 0 ? "No challans yet." : "No challans match these filters."}
+          {rows.length === 0 ? "No challans" : "No challans match these filters"}
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -348,7 +363,6 @@ function ChallanRowItem({ c }: { c: ChallanRow }) {
       <td className="px-2 py-2">
         <Link href={`/challan-doc/${c.id}`} className="font-bold text-primary-ink hover:underline">{c.challanNo ?? `Draft #${c.id}`}</Link>{" "}
         <Badge tone={c.status === "LOCKED" ? "ok" : c.status === "VOID" ? "danger" : "warn"}>{c.status}</Badge>
-        {isDraft && <div className="mt-0.5 t-micro text-faint">number assigned on lock</div>}
       </td>
       <td className="px-2 py-2">{c.kind ? <Badge tone={KIND_TONE[c.kind] ?? "default"}>{c.kind}</Badge> : <span className="text-faint">—</span>}</td>
       <td className="px-2 py-2 text-t2 tnum">{fmtDate(c.date)}</td>

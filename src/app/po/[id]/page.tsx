@@ -1,20 +1,37 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { getFabricOrder } from "@/lib/masters";
 import { getCurrentUser } from "@/lib/auth";
 import { num, inr, fmtDate } from "@/lib/format";
 import { POActions } from "@/components/po-actions";
 import { BrandLetterhead } from "@/components/brand";
+import { DocShell, PoParties, PoTotals, PoSignatory, DocAttachments, docTitle } from "@/components/po-doc";
+import { ImageUploader } from "@/components/image-uploader";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Change 25 Part K.1 — name the exported PDF after the document, not the app. A draft
+ * with no PO number yet falls back to its order id so it is never the generic app name.
+ */
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const o = await getFabricOrder(Number(id));
+  return { title: docTitle(o?.poNumber ?? null, `Fabric Order #${id}`) };
+}
 
 export default async function POPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const o = await getFabricOrder(Number(id));
   if (!o) notFound();
-  await getCurrentUser(); // gated by proxy; ensures session
+  // Change 25 Part B: this route used to call getCurrentUser() and throw the result
+  // away, so it was the one document page with no role check — /pot, /challan-doc and
+  // /dispatch-doc all gate. A PO carries supplier rates; it gets the same gate.
+  const u = await getCurrentUser();
+  if (!u || (u.role !== "ADMIN" && u.role !== "STAFF")) notFound();
   const hasRate = o.rate != null && o.rate > 0;
-  const grand = hasRate ? o.totalQty * (o.rate as number) : null;
+  const subtotal = hasRate ? o.totalQty * (o.rate as number) : 0;
 
   const poNo = o.poNumber ?? "(draft — generate PO first)";
   const summary =
@@ -24,9 +41,7 @@ export default async function POPage({ params }: { params: Promise<{ id: string 
     (o.expectedDate ? `\nExpected: ${fmtDate(o.expectedDate)}` : "");
 
   return (
-    <div className="doc-light mx-auto max-w-[800px] bg-white p-8 text-[12px] text-ink">
-      <style>{`@media print { .no-print { display: none !important; } body { background: #fff; } } @page { margin: 14mm; }`}</style>
-
+    <DocShell>
       <div className="mb-4 flex items-center justify-between">
         <Link href="/fabric-orders" className="no-print text-[12px] font-medium text-muted hover:text-ink">← Fabric Orders</Link>
         <POActions orderId={o.id} email={o.supplier?.email ?? null} phone={o.supplier?.phone ?? null} subject={`Purchase Order ${o.poNumber ?? ""} — Sport Sun`} summary={summary} />
@@ -55,18 +70,13 @@ export default async function POPage({ params }: { params: Promise<{ id: string 
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-4 text-[12px]">
-        <div>
-          <div className="text-faint">To</div>
-          <div className="font-semibold">{o.supplier?.name ?? "—"}</div>
-          {o.supplier?.address && <div className="text-slate-600">{o.supplier.address}</div>}
-          {o.supplier?.phone && <div className="text-slate-600">{o.supplier.phone}</div>}
-        </div>
-        <div className="text-right">
-          <div className="text-faint">Fabric</div>
-          <div className="font-semibold">{o.fabric}{o.gsm ? ` · ${o.gsm} gsm` : ""}</div>
-          {o.expectedDate && <div className="text-slate-600">Expected: {fmtDate(o.expectedDate)}</div>}
-        </div>
+      {/* Change 25 Part G.3 — both parties in full */}
+      <PoParties supplier={o.supplier} buyer={o.buyer} shipTo={o.shipTo} />
+
+      <div className="mt-3 text-[12px]">
+        <span className="text-faint">Fabric </span>
+        <span className="font-semibold">{o.fabric}{o.gsm ? ` · ${o.gsm} gsm` : ""}</span>
+        {o.expectedDate && <span className="text-slate-600"> · Expected {fmtDate(o.expectedDate)}</span>}
       </div>
 
       <table className="mt-5 w-full border-collapse text-[12px]">
@@ -91,16 +101,33 @@ export default async function POPage({ params }: { params: Promise<{ id: string 
             <td className="px-2 py-1.5">Total</td>
             <td className="px-2 py-1.5 text-right tnum">{num(o.totalQty)}</td>
             {hasRate && <td className="px-2 py-1.5"></td>}
-            {hasRate && <td className="px-2 py-1.5 text-right tnum">{inr(grand)}</td>}
+            {hasRate && <td className="px-2 py-1.5 text-right tnum">{inr(subtotal)}</td>}
           </tr>
+          {/* Change 25 Part K.2 — only meaningful once the order carries a rate. */}
+          {hasRate && <PoTotals subtotal={subtotal} gstRate={o.gstRate} colSpan={3} />}
         </tbody>
       </table>
 
+      {/* Change 25 Part J — the remark column existed and was stored; it just never printed. */}
       {o.remarks && <p className="mt-4 text-[11px] text-slate-600">Remarks: {o.remarks}</p>}
-      <div className="mt-10 flex justify-between text-[11px]">
-        <div className="w-48 border-t border-ink pt-1 text-center">Authorised — Sport Sun</div>
-        <div className="w-48 border-t border-ink pt-1 text-center">Supplier acknowledgement</div>
+
+      <PoSignatory signatory={o.signatory} />
+
+      {/* Change 25 Part H.1 — the shade card the supplier sent, attached against the
+          order it belongs to. Pure UI: attachImages already mapped fabricOrder. */}
+      <div className="no-print mt-6 border-t border-slate-200 pt-4">
+        <ImageUploader
+          entity="fabricOrder"
+          entityId={o.id}
+          kind="shade_card"
+          multiple
+          images={o.images}
+          label="Shade card"
+        />
       </div>
-    </div>
+
+      {/* Change 25 Part K.3 — shade card becomes page 2 of the same PDF. */}
+      <DocAttachments images={o.images} label="Shade card" showThumbnails={false} />
+    </DocShell>
   );
 }

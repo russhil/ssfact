@@ -100,7 +100,7 @@ export function FinishingPanel({
 
       {rows.length === 0 ? (
         <p className="py-4 text-center t-sm text-muted">
-          No finishing given out for this card.
+          No finishing job-work on this card
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -322,7 +322,7 @@ function GiveSheet({
 
       {canSeeCost && (
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Rate (₹/pc)" hint="Owner only.">
+          <Field label="Rate (₹/pc)" hint="Owner only">
             <Input type="number" step="any" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="—" className="text-right tnum" />
           </Field>
           <Field label="Bill no">

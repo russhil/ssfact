@@ -6,8 +6,10 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createTrimOrder, updateTrimOrder, deleteTrimOrder, draftChallanFromTrimOrder, generateTrimPO, voidChallan } from "@/lib/actions";
-import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr } from "@/lib/format";
+import { orderFlag } from "@/lib/order-flags";
+import { GeneratePoButton, type BuyerOption, type SignatoryOption } from "@/components/generate-po";
 import { Plus, X, FileText, Truck, Pencil, Trash2, Undo2 } from "lucide-react";
 
 /**
@@ -39,9 +41,11 @@ const STATUS_TONE: Record<string, "primary" | "warn" | "ok" | "default" | "dange
 const STAGE_TONE: Record<string, "default" | "primary" | "ok"> = { Draft: "default", "PO Generated": "primary", Sent: "ok" };
 
 export function TrimOrderManager({
-  orders, trims, suppliers, colours, units,
+  orders, trims, suppliers, colours, units, buyers, signatories, meId, canOverrideSignatory,
 }: {
   orders: Order[]; trims: TrimPick[]; suppliers: Pick[]; colours: string[]; units: string[];
+  // Change 25 G.3 / I.2 / K.2 — issued from which firm, GST %, and who signs it.
+  buyers: BuyerOption[]; signatories: SignatoryOption[]; meId: number; canOverrideSignatory: boolean;
 }) {
   const router = useRouter();
   const [trimId, setTrimId] = useState<string>("");
@@ -234,9 +238,45 @@ export function TrimOrderManager({
           : v === "short" ? o.receivedQty > 0 && o.receivedQty < o.totalQty
           : o.receivedQty === 0,
       },
+      {
+        // Change 25 Part L: the flag comes from the shared orderFlag(), the same rule the
+        // dashboard's delayed-orders widget reads — that count and this list cannot disagree.
+        key: "delay",
+        label: "delays",
+        options: [
+          { value: "DELAYED", label: "Delayed only" },
+          { value: "NO_ETA", label: "No ETA" },
+        ],
+        match: (o, v) => orderFlag(o).flag === v,
+      },
     ],
     [supplierNames]
   );
+  const csv: CsvExport<Order> = {
+    filename: "trim-orders",
+    columns: [
+      { header: "trim", value: (o) => o.trim },
+      {
+        header: "split",
+        value: (o) =>
+          o.lines.length === 0
+            ? "flat"
+            : o.lines.map((l) => `${[l.colour, l.size].filter(Boolean).join(" ") || "—"} ${l.qty}`).join("; "),
+      },
+      { header: "total_qty", value: (o) => o.totalQty },
+      { header: "unit", value: (o) => o.unit },
+      // the received-vs-ordered sub-line under Total
+      { header: "received_qty", value: (o) => o.receivedQty },
+      { header: "due_qty", value: (o) => Math.round((o.totalQty - o.receivedQty) * 100) / 100 },
+      { header: "supplier", value: (o) => o.supplier },
+      { header: "po_no", value: (o) => o.poNumber ?? o.poStage },
+      { header: "received_on", value: (o) => o.challans.map((c) => c.challanNo ?? `Draft #${c.id}`).join("; ") },
+      { header: "status", value: (o) => o.status.replace("_", " ") },
+      // the delay badge in the Status column
+      { header: "days_late", value: (o) => orderFlag(o).daysLate },
+      { header: "delivery_flag", value: (o) => orderFlag(o).flag },
+    ],
+  };
   const view = useTableView<Order>({
     id: "to",
     rows: orders,
@@ -248,6 +288,7 @@ export function TrimOrderManager({
       qty: (o) => o.totalQty,
       supplier: (o) => o.supplier ?? "",
       status: (o) => o.status,
+      daysLate: (o) => orderFlag(o).daysLate,
     },
     sum: (o) => o.totalQty,
   });
@@ -311,7 +352,6 @@ export function TrimOrderManager({
             </button>
             {splitOpen && (
               <div className="mt-2 space-y-1.5">
-                <p className="t-xs text-faint">Leave blank for a flat order.</p>
                 {split.map((l, i) => (
                   <div key={i} className="flex items-center gap-1.5">
                     <input list="trim-order-colours" value={l.colour} onChange={(e) => setSplitRow(i, { colour: e.target.value })} placeholder="colour" className={`${inp} w-32`} />
@@ -357,7 +397,7 @@ export function TrimOrderManager({
       {/* Change 23 Part C: search, status/stage/supplier + received-vs-pending filters,
           date range and click-to-sort — the trim mirror of the fabric order list. */}
       <Card className="mt-4 p-5">
-        <TableToolbar view={view} filters={filters} searchPlaceholder="Search trim, supplier, PO…" dateLabel="Order date" unit="ordered" />
+        <TableToolbar view={view} filters={filters} searchPlaceholder="Search trim, supplier, PO…" dateLabel="Order date" unit="ordered" csv={csv} />
         <div className="overflow-x-auto">
         <table className="w-full t-sm">
           <thead>
@@ -368,14 +408,25 @@ export function TrimOrderManager({
               <th className="px-4 py-2.5"><SortHeader view={view} sortKey="supplier">Supplier</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">PO</th>
               <th className="px-4 py-2.5 font-semibold">Received on</th>
-              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="status">Status</SortHeader></th>
+              {/* Change 25 Part L: the delay badge rides in the Status cell, so the
+                  column carries a second sort for how late the order is. */}
+              <th className="px-4 py-2.5">
+                <span className="inline-flex items-center gap-2">
+                  <SortHeader view={view} sortKey="status">Status</SortHeader>
+                  <SortHeader view={view} sortKey="daysLate">Late</SortHeader>
+                </span>
+              </th>
               <th className="px-4 py-2.5"></th>
             </tr>
           </thead>
           <tbody>
             {view.rows.map((o) => (
               <tr key={o.id} className={`border-b border-hairline last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
-                <td className="px-4 py-2.5 font-semibold">{o.trim}</td>
+                <td className="px-4 py-2.5 font-semibold">
+                  {o.trim}
+                  {/* Change 25 Part J */}
+                  {o.remarks && <div className="t-xs font-normal text-t3">{o.remarks}</div>}
+                </td>
                 <td className="px-4 py-2.5 text-t2">
                   {o.lines.length === 0 ? <span className="text-faint">flat</span> : (
                     <div className="flex flex-wrap gap-1">
@@ -419,10 +470,26 @@ export function TrimOrderManager({
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-2.5"><Badge tone={STATUS_TONE[o.status] ?? "default"}>{o.status.replace("_", " ")}</Badge></td>
+                <td className="px-4 py-2.5">
+                  <span className="flex flex-wrap items-center gap-1">
+                    <Badge tone={STATUS_TONE[o.status] ?? "default"}>{o.status.replace("_", " ")}</Badge>
+                    <DelayBadge order={o} />
+                  </span>
+                </td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-wrap justify-end gap-1.5">
-                    {!o.poNumber && <button onClick={() => act(() => generateTrimPO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Generate PO</button>}
+                    {/* Change 25 — see the fabric manager: one dialog for firm, GST and signatory. */}
+                    {!o.poNumber && (
+                      <GeneratePoButton
+                        orderId={o.id}
+                        kind="TRIM"
+                        buyers={buyers}
+                        signatories={signatories}
+                        meId={meId}
+                        canOverrideSignatory={canOverrideSignatory}
+                        disabled={busy}
+                      />
+                    )}
                     {o.poNumber && <Link href={`/pot/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Open PO</Link>}
                     {/* Change 22 Part A: RECEIVED rows stop offering "Log Inward" as the primary
                         action — edit / reverse live in the CHALLAN column; a split delivery is a
@@ -441,7 +508,7 @@ export function TrimOrderManager({
             ))}
             {view.rows.length === 0 && (
               <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">
-                {orders.length === 0 ? "No trim orders yet." : "No orders match these filters."}
+                {orders.length === 0 ? "No trim orders" : "No orders match these filters"}
               </td></tr>
             )}
           </tbody>
@@ -455,6 +522,14 @@ export function TrimOrderManager({
 const inp = inputClass("md", "w-full");
 /** A stored date rendered for an <input type="date">. */
 const dateInput = (d: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
+
+/** Change 25 Part L: the row's read of the shared delay rule. Nothing for a closed order. */
+function DelayBadge({ order }: { order: Order }) {
+  const { flag, daysLate } = orderFlag(order);
+  if (flag === "DELAYED") return <Badge tone="danger">{daysLate}d late</Badge>;
+  if (flag === "NO_ETA") return <Badge tone="warn">No ETA</Badge>;
+  return null;
+}
 
 function Labelled({ label, children }: { label: string; children: React.ReactNode }) {
   return (

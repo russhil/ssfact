@@ -6,7 +6,7 @@ import { Card, Badge } from "@/components/ui";
 import { VendorDispatchLog, type VendorDispatchEvent } from "@/components/vendor-dispatch-log";
 import { FinishingLog } from "@/components/finishing-log";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
 import { num, pct, fmtDate } from "@/lib/format";
 import { ArrowLeft } from "lucide-react";
 
@@ -36,7 +36,7 @@ export default async function VendorDetail({ params }: { params: Promise<{ name:
     }),
   ]);
   const me = await getCurrentUser();
-  const canSeeCost = me?.role === "ADMIN";
+  const canSeeCost = canSee(me);
 
   // roll-ups across this vendor's layers
   const totalCut = layers.reduce((a, l) => a + l.cells.reduce((x, c) => x + c.qty, 0), 0);
@@ -79,7 +79,7 @@ export default async function VendorDetail({ params }: { params: Promise<{ name:
 
       {/* layer-by-layer */}
       {layers.length === 0 ? (
-        <Card className="p-6 text-center t-body text-muted">No cutting layers issued to this vendor.</Card>
+        <Card className="p-6 text-center t-body text-muted">No cutting layers issued to this vendor</Card>
       ) : (
         <div className="space-y-3">
           {layers.map((l) => (

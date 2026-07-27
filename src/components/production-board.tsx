@@ -288,7 +288,7 @@ export function ProductionBoard({
               })}
 
             {shown.length === 0 && (
-              <tr><td colSpan={colCount} className="px-2 py-10 text-center t-sm text-muted">No job cards match these filters.</td></tr>
+              <tr><td colSpan={colCount} className="px-2 py-10 text-center t-sm text-muted">No job cards match these filters</td></tr>
             )}
           </tbody>
         </table>
@@ -309,7 +309,7 @@ export function ProductionBoard({
             </div>
           </button>
         ))}
-        {shown.length === 0 && <p className="py-8 text-center t-sm text-muted">No job cards match these filters.</p>}
+        {shown.length === 0 && <p className="py-8 text-center t-sm text-muted">No job cards match these filters</p>}
       </div>
     </div>
   );

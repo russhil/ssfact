@@ -7,13 +7,25 @@ import { waLink } from "@/lib/share";
 import { PrintButton } from "@/components/print-button";
 import { MessageCircle } from "lucide-react";
 import { BrandLetterhead } from "@/components/brand";
+import { docTitle } from "@/components/po-doc";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
+
+/** Change 25 Part K.1 — named after the product whose BOM this is. */
+export async function generateMetadata({ params }: { params: Promise<{ sku: string }> }): Promise<Metadata> {
+  const { sku } = await params;
+  const decoded = decodeURIComponent(sku);
+  const p = await getProductDetail(decoded);
+  return { title: docTitle(p ? `BOM ${p.skuCode ?? decoded}` : null, `BOM ${decoded}`) };
+}
 
 // Change 15 Part C/E: the product's master BOM in the shared "APPROVAL CHALLAN" print format.
 export default async function BomDocPage({ params }: { params: Promise<{ sku: string }> }) {
   const { sku } = await params;
-  await getCurrentUser();
+  // Change 25 Part B: was getCurrentUser() with the result discarded — no gate at all.
+  const u = await getCurrentUser();
+  if (!u || (u.role !== "ADMIN" && u.role !== "STAFF")) notFound();
   const p = await getProductDetail(decodeURIComponent(sku));
   if (!p) notFound();
 
@@ -71,7 +83,7 @@ export default async function BomDocPage({ params }: { params: Promise<{ sku: st
               <td className="px-2 py-1.5 text-right tnum">{l.perPieceQty != null ? num(l.perPieceQty, 3) : "—"}</td>
             </tr>
           ))}
-          {lines.length === 0 && <tr><td colSpan={4} className="px-2 py-4 text-center text-muted">No BOM lines authored yet.</td></tr>}
+          {lines.length === 0 && <tr><td colSpan={4} className="px-2 py-4 text-center text-muted">No BOM lines</td></tr>}
         </tbody>
       </table>
 

@@ -50,9 +50,6 @@ export function FinishedGoodsExport({ rows }: { rows: DispatchRow[] }) {
   return (
     <Card className="p-5">
       <h3 className="t-body font-bold">Export finished goods (ERP)</h3>
-      <p className="mt-0.5 t-xs text-t3">
-        One row per dispatched size × colour cell. Read-only — downloading changes nothing here.
-      </p>
 
       <div className="mt-3 grid grid-cols-2 gap-3">
         <Field label="From">
@@ -63,7 +60,7 @@ export function FinishedGoodsExport({ rows }: { rows: DispatchRow[] }) {
         </Field>
       </div>
 
-      <Field label="Reason" className="mt-3" hint="Finished goods to the warehouse are ORDER.">
+      <Field label="Reason" className="mt-3">
         <Select value={reason} onChange={(e) => setReason(e.target.value)}>
           <option value="ORDER">ORDER only</option>
           <option value="SALE">SALE only</option>
@@ -84,7 +81,7 @@ export function FinishedGoodsExport({ rows }: { rows: DispatchRow[] }) {
         </span>
       </div>
       <p className="mt-1 t-xs text-t3">
-        {preview.docs} dispatch document{preview.docs === 1 ? "" : "s"}. Check this against the day before importing.
+        {preview.docs} dispatch document{preview.docs === 1 ? "" : "s"}
       </p>
 
       <Button

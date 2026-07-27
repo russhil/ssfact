@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { Badge, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Badge, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
@@ -51,6 +51,20 @@ export function VendorDispatchLog({
     [layers]
   );
 
+  const csv: CsvExport<VendorDispatchEvent> = {
+    filename: "vendor-dispatches",
+    columns: [
+      { header: "dispatch_date", value: (e) => new Date(e.date) },
+      { header: "si_no", value: (e) => e.siNo },
+      { header: "reason", value: (e) => e.reason },
+      { header: "layers", value: (e) => e.layerLabels.join("; ") },
+      { header: "challan", value: (e) => e.challan },
+      { header: "qty", value: (e) => e.qty },
+      // the size×colour cells shown under the row
+      { header: "cells", value: (e) => e.cells.join("; ") },
+    ],
+  };
+
   const view = useTableView<VendorDispatchEvent>({
     id: "vdl",
     rows: events,
@@ -70,11 +84,12 @@ export function VendorDispatchLog({
         searchPlaceholder="Search SI, layer, cell…"
         dateLabel="Dispatch date"
         unit="pcs"
+        csv={csv}
       />
 
       {view.rows.length === 0 ? (
         <p className="py-4 text-center t-sm text-muted">
-          {events.length === 0 ? "No dispatches yet." : "No dispatches match these filters."}
+          {events.length === 0 ? "No dispatches" : "No dispatches match these filters"}
         </p>
       ) : (
         <div className="space-y-1.5">

@@ -79,7 +79,7 @@ function MiniMaster({
             </div>
           );
         })}
-        {rows.length === 0 && <p className="py-4 text-center t-sm text-muted">None yet.</p>}
+        {rows.length === 0 && <p className="py-4 text-center t-sm text-muted">None</p>}
       </div>
     </Card>
   );

@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import { FinishingLog } from "@/components/finishing-log";
 import { num } from "@/lib/format";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function FinishingPage() {
   const user = await getCurrentUser();
-  const canSeeCost = user?.role === "ADMIN";
+  const canSeeCost = canSee(user);
 
   const jobs = await db.finishingJob.findMany({
     include: { vendor: { select: { name: true } }, jobCard: { select: { id: true, siNo: true } } },

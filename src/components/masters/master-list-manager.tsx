@@ -63,7 +63,7 @@ export function MasterListManager({ kind, rows, hint }: { kind: string; rows: Lo
                 </tr>
               );
             })}
-            {rows.length === 0 && <tr><td className="px-3 py-6 text-center text-muted">No values yet — add one above.</td></tr>}
+            {rows.length === 0 && <tr><td className="px-3 py-6 text-center text-muted">No values</td></tr>}
           </tbody>
         </table>
       </div>

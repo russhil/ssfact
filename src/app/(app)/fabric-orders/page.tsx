@@ -1,4 +1,5 @@
-import { getFabricOrders, getFabricPickList, getSuppliers, getColours } from "@/lib/masters";
+import { getFabricOrders, getFabricPickList, getSuppliers, getColours, getBuyerOptions, getSignatoryOptions } from "@/lib/masters";
+import { getCurrentUser, canSeeCost } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import { num } from "@/lib/format";
 import { FabricOrderManager } from "@/components/fabric-order-manager";
@@ -6,7 +7,12 @@ import { FabricOrderManager } from "@/components/fabric-order-manager";
 export const dynamic = "force-dynamic";
 
 export default async function FabricOrdersPage() {
-  const [orders, fabrics, suppliers, colours] = await Promise.all([getFabricOrders(), getFabricPickList(), getSuppliers(), getColours()]);
+  // Change 25 G.3/I/K.2 — the PO dialog needs the firms, their delivery addresses and
+  // who may be named as signatory.
+  const me = await getCurrentUser();
+  const [orders, fabrics, suppliers, colours, buyers, signatories] = await Promise.all([
+    getFabricOrders(), getFabricPickList(), getSuppliers(), getColours(), getBuyerOptions(), getSignatoryOptions(),
+  ]);
   const pending = orders.filter((o) => o.status === "ORDER_PLACED").length;
   const planning = orders.filter((o) => o.status === "PLANNING" || o.status === "SAMPLE_PENDING").length;
   const received = orders.filter((o) => o.status === "RECEIVED").length;
@@ -24,6 +30,10 @@ export default async function FabricOrdersPage() {
         fabrics={fabrics.map((f) => ({ id: f.id, name: f.name, unit: f.unit }))}
         suppliers={suppliers.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name }))}
         colours={colours}
+        buyers={buyers}
+        signatories={signatories}
+        meId={me?.userId ?? 0}
+        canOverrideSignatory={canSeeCost(me)}
       />
     </div>
   );

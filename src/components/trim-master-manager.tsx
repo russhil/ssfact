@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createTrim, updateTrim } from "@/lib/actions";
-import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { StockAdjust } from "@/components/stock-adjust";
 import { LookupSelect } from "@/components/masters/lookup-select";
 import { num } from "@/lib/format";
@@ -79,17 +79,39 @@ export function TrimMasterManager({
         match: (t, v) => t.supplier === v,
       },
       {
-        key: "level",
-        label: "stock levels",
+        // Change 25 Part E: ONE below-reorder rule, matching getLowStockAlerts() —
+        // `reorderLevel != null && current <= reorderLevel`. This deliberately replaces
+        // the previous "stock levels" filter, which used isLow()'s ≤ 0 fallback: two
+        // filters answering the same question with different rules meant picking one or
+        // the other silently changed the answer, and neither agreed with the dashboard.
+        // isLow() still drives the REORDER tab and the row badge, where the ≤ 0 fallback
+        // is wanted — a trim at zero is worth flagging even with no level set.
+        key: "reorder",
+        label: "stock",
         options: [
-          { value: "reorder", label: "Below reorder level" },
-          { value: "ok", label: "Above reorder level" },
+          { value: "LOW", label: "Below reorder" },
+          { value: "OK", label: "Above reorder" },
         ],
-        match: (t, v) => (v === "reorder" ? isLow(t) : !isLow(t)),
+        match: (t, v) => {
+          const below = t.reorderLevel != null && t.current <= t.reorderLevel;
+          return v === "LOW" ? below : !below;
+        },
       },
     ],
     [supplierNames]
   );
+  const csv: CsvExport<TrimMasterRow> = {
+    filename: "trims",
+    columns: [
+      { header: "trim", value: (t) => t.name },
+      { header: "category", value: (t) => t.category ?? t.family },
+      { header: "supplier", value: (t) => t.supplier },
+      { header: "rate", value: (t) => t.ratePerUnit },
+      { header: "reorder_level", value: (t) => t.reorderLevel },
+      { header: "current", value: (t) => t.current },
+      { header: "status", value: (t) => (t.current <= 0 ? "Indent" : isLow(t) ? "Low" : "OK") },
+    ],
+  };
   const view = useTableView<TrimMasterRow>({
     id: "tm",
     rows,
@@ -177,7 +199,7 @@ export function TrimMasterManager({
       )}
 
       <Card className="p-5">
-        <TableToolbar view={view} filters={filters} searchPlaceholder="Search trim, category, supplier…" showDate={false} unit="in store" />
+        <TableToolbar view={view} filters={filters} searchPlaceholder="Search trim, category, supplier…" showDate={false} unit="in store" csv={csv} />
         <div className="overflow-x-auto">
         <table className="w-full t-sm">
           <thead>
@@ -197,7 +219,7 @@ export function TrimMasterManager({
               <TrimRow key={t.id} t={t} units={units} onSaved={() => router.refresh()} />
             ))}
             {view.rows.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">No trims match these filters.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">No trims match these filters</td></tr>
             )}
           </tbody>
         </table>

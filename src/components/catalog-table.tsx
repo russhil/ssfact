@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import type { ProductRow } from "@/lib/catalog";
 import { STATUS_LABEL, statusTone } from "@/lib/catalog-labels";
-import { Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { inr } from "@/lib/format";
 
 export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: ProductRow[]; categories: string[]; canSeeCost?: boolean }) {
@@ -28,6 +28,27 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
     [categories]
   );
 
+  const csv: CsvExport<ProductRow> = {
+    filename: "catalog",
+    columns: [
+      { header: "sku", value: (r) => r.skuCode },
+      { header: "product", value: (r) => r.name },
+      { header: "category", value: (r) => r.headCategory },
+      // the table swaps MRP/wholesale for fabric/sampling when cost is hidden — so does this
+      ...(canSeeCost
+        ? [
+            { header: "mrp", value: (r: ProductRow) => r.mrp },
+            { header: "wholesale", value: (r: ProductRow) => r.wholesale },
+          ]
+        : [
+            { header: "fabric", value: (r: ProductRow) => r.fabricName },
+            { header: "sampling", value: (r: ProductRow) => r.samplingStatus },
+          ]),
+      { header: "where_in_production", value: (r) => r.whereInProduction },
+      { header: "status", value: (r) => STATUS_LABEL[r.status] ?? r.status },
+    ],
+  };
+
   const view = useTableView<ProductRow>({
     id: "cat",
     rows,
@@ -44,7 +65,7 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
 
   return (
     <div>
-      <TableToolbar view={view} filters={filters} searchPlaceholder="Search SKU, name, category…" showDate={false} />
+      <TableToolbar view={view} filters={filters} searchPlaceholder="Search SKU, name, category…" showDate={false} csv={csv} />
 
       <div className="overflow-hidden rounded-card border border-border bg-surface">
         <table className="w-full t-sm">
@@ -65,7 +86,7 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
                   <th className="px-4 py-2.5 font-semibold">Sampling</th>
                 </>
               )}
-              <th className="px-4 py-2.5 font-semibold">Where it is</th>
+              <th className="px-4 py-2.5 font-semibold">Stage</th>
               <th className="px-4 py-2.5 font-semibold">Status</th>
             </tr>
           </thead>
@@ -109,7 +130,6 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
           </tbody>
         </table>
       </div>
-      <p className="mt-2 t-xs text-faint">the commercial product master</p>
     </div>
   );
 }

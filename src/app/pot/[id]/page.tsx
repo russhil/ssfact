@@ -1,12 +1,22 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { getTrimOrder } from "@/lib/masters";
 import { getCurrentUser } from "@/lib/auth";
 import { num, inr, fmtDate } from "@/lib/format";
 import { POActions } from "@/components/po-actions";
 import { BrandLetterhead } from "@/components/brand";
+import { DocShell, PoParties, PoTotals, PoSignatory, DocAttachments, docTitle } from "@/components/po-doc";
+import { ImageUploader } from "@/components/image-uploader";
 
 export const dynamic = "force-dynamic";
+
+/** Change 25 Part K.1 — the PDF is named after the POT number, not the app. */
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const o = await getTrimOrder(Number(id));
+  return { title: docTitle(o?.poNumber ?? null, `Trim Order #${id}`) };
+}
 
 // Change 18 Part B: the trim purchase order document (POT-YYYY-NNN). Mirror of /po/[id];
 // lives outside the (app) group so it prints without the app chrome, hence its own gate.
@@ -19,7 +29,7 @@ export default async function TrimPOPage({ params }: { params: Promise<{ id: str
 
   const unit = (o.unit ?? "").toLowerCase();
   const hasRate = o.rate != null && o.rate > 0;
-  const grand = hasRate ? o.totalQty * (o.rate as number) : null;
+  const subtotal = hasRate ? o.totalQty * (o.rate as number) : 0;
   // A flat order prints as a single row; a split order prints its colour/size lines.
   const rows = o.lines.length > 0
     ? o.lines.map((l) => ({ label: [l.colour, l.size].filter(Boolean).join(" · ") || "—", qty: l.qty }))
@@ -33,9 +43,7 @@ export default async function TrimPOPage({ params }: { params: Promise<{ id: str
     (o.expectedDate ? `\nExpected: ${fmtDate(o.expectedDate)}` : "");
 
   return (
-    <div className="doc-light mx-auto max-w-[800px] bg-white p-8 text-[12px] text-ink">
-      <style>{`@media print { .no-print { display: none !important; } body { background: #fff; } } @page { margin: 14mm; }`}</style>
-
+    <DocShell>
       <div className="mb-4 flex items-center justify-between">
         <Link href="/trim-orders" className="no-print text-[12px] font-medium text-muted hover:text-ink">← Trim Orders</Link>
         <POActions
@@ -70,18 +78,13 @@ export default async function TrimPOPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-4 text-[12px]">
-        <div>
-          <div className="text-faint">To</div>
-          <div className="font-semibold">{o.supplier?.name ?? "—"}</div>
-          {o.supplier?.address && <div className="text-slate-600">{o.supplier.address}</div>}
-          {o.supplier?.phone && <div className="text-slate-600">{o.supplier.phone}</div>}
-        </div>
-        <div className="text-right">
-          <div className="text-faint">Trim</div>
-          <div className="font-semibold">{o.trim}</div>
-          {o.expectedDate && <div className="text-slate-600">Expected: {fmtDate(o.expectedDate)}</div>}
-        </div>
+      {/* Change 25 Part G.3 — both parties in full */}
+      <PoParties supplier={o.supplier} buyer={o.buyer} shipTo={o.shipTo} />
+
+      <div className="mt-3 text-[12px]">
+        <span className="text-faint">Trim </span>
+        <span className="font-semibold">{o.trim}</span>
+        {o.expectedDate && <span className="text-slate-600"> · Expected {fmtDate(o.expectedDate)}</span>}
       </div>
 
       <table className="mt-5 w-full border-collapse text-[12px]">
@@ -106,16 +109,25 @@ export default async function TrimPOPage({ params }: { params: Promise<{ id: str
             <td className="px-2 py-1.5">Total</td>
             <td className="px-2 py-1.5 text-right tnum">{num(o.totalQty)}</td>
             {hasRate && <td className="px-2 py-1.5"></td>}
-            {hasRate && <td className="px-2 py-1.5 text-right tnum">{inr(grand)}</td>}
+            {hasRate && <td className="px-2 py-1.5 text-right tnum">{inr(subtotal)}</td>}
           </tr>
+          {/* Change 25 Part K.2 */}
+          {hasRate && <PoTotals subtotal={subtotal} gstRate={o.gstRate} colSpan={3} />}
         </tbody>
       </table>
 
+      {/* Change 25 Part J */}
       {o.remarks && <p className="mt-4 text-[11px] text-slate-600">Remarks: {o.remarks}</p>}
-      <div className="mt-10 flex justify-between text-[11px]">
-        <div className="w-48 border-t border-ink pt-1 text-center">Authorised — Sport Sun</div>
-        <div className="w-48 border-t border-ink pt-1 text-center">Supplier acknowledgement</div>
+
+      <PoSignatory signatory={o.signatory} />
+
+      {/* Change 25 Part H.2 — sample photo against the trim order. */}
+      <div className="no-print mt-6 border-t border-slate-200 pt-4">
+        <ImageUploader entity="trimOrder" entityId={o.id} kind="trim" multiple images={o.images} label="Sample photos" />
       </div>
-    </div>
+
+      {/* Change 25 Part K.3 — a trim sample photo prints as a following page. */}
+      <DocAttachments images={o.images} label="Sample photo" showThumbnails={false} />
+    </DocShell>
   );
 }

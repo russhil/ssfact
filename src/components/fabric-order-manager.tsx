@@ -6,9 +6,11 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick, voidChallan } from "@/lib/actions";
-import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
-import { Plus, Check, X, FileText, Truck, Pencil, Trash2, Undo2 } from "lucide-react";
+import { orderFlag } from "@/lib/order-flags";
+import { GeneratePoButton, type BuyerOption, type SignatoryOption } from "@/components/generate-po";
+import { Plus, Check, X, FileText, Truck, Pencil, Trash2, Undo2, CornerUpLeft } from "lucide-react";
 
 type Line = { colour: string; qty: number };
 type ChallanLink = { id: number; challanNo: string | null; status: string };
@@ -16,6 +18,7 @@ type Order = {
   id: number; fabric: string; fabricId: number; supplier: string | null; supplierId: number | null;
   gsm: number | null; lines: Line[]; totalQty: number;
   colourCount: number; unit: string; rate: number | null; status: string; expectedDate: Date | string | null;
+  remarks: string | null;
   receivedDate: Date | string | null; poNumber: string | null; poStage: string;
   // Change 18 Part C: the inward challans this order was received on.
   challans: ChallanLink[];
@@ -33,9 +36,11 @@ const STAGE_TONE: Record<string, "default" | "primary" | "ok"> = { Draft: "defau
 const ADD = "__add__";
 
 export function FabricOrderManager({
-  orders, fabrics, suppliers, colours,
+  orders, fabrics, suppliers, colours, buyers, signatories, meId, canOverrideSignatory,
 }: {
   orders: Order[]; fabrics: FabricPick[]; suppliers: Pick[]; colours: ColourOpt[];
+  // Change 25 G.3 / I.2 / K.2 — issued from which firm, GST %, and who signs it.
+  buyers: BuyerOption[]; signatories: SignatoryOption[]; meId: number; canOverrideSignatory: boolean;
 }) {
   const router = useRouter();
   const [fabricList, setFabricList] = useState<FabricPick[]>(fabrics);
@@ -47,6 +52,9 @@ export function FabricOrderManager({
   const [expected, setExpected] = useState("");
   const [rate, setRate] = useState("");
   const [gsm, setGsm] = useState("");
+  // Change 25 Part J: the column and the create action always supported a remark;
+  // this form simply never rendered the input, so it could not be entered.
+  const [remarks, setRemarks] = useState("");
   // Change 17 Part G: unit is selectable per order, defaulting from the fabric master.
   const [unit, setUnit] = useState("MTR");
 
@@ -85,11 +93,14 @@ export function FabricOrderManager({
   async function confirmColour(i: number) {
     if (!colourDraft.trim()) { setAddColourRow(null); return; }
     setBusy(true);
+    // Change 25 Part B: was try/finally with no catch — a duplicate colour name threw
+    // and the row silently closed with the colour unset.
     try {
       const c = await createColour({ name: colourDraft });
       setColourList((p) => (p.some((x) => x.name === c.name) ? p : [...p, { id: c.id, name: c.name, hex: null }].sort((a, b) => a.name.localeCompare(b.name))));
       setLine(i, { colour: c.name });
-    } finally { setAddColourRow(null); setColourDraft(""); setBusy(false); }
+    } catch (e) { alert((e as Error).message); }
+    finally { setAddColourRow(null); setColourDraft(""); setBusy(false); }
   }
   async function confirmFabric() {
     if (!fabricDraft.trim()) { setAddFabric(false); return; }
@@ -105,12 +116,13 @@ export function FabricOrderManager({
       const withUnit: FabricPick = { id: f.id, name: f.name, unit };
       setFabricList((p) => (p.some((x) => x.id === f.id) ? p : [...p, withUnit].sort((a, b) => a.name.localeCompare(b.name))));
       setFabricId(String(f.id));
-    } finally { setAddFabric(false); setFabricDraft(""); setBusy(false); }
+    } catch (e) { alert((e as Error).message); }
+    finally { setAddFabric(false); setFabricDraft(""); setBusy(false); }
   }
 
   function resetForm() {
     setEditingId(null);
-    setFabricId(""); setSupplierId(""); setExpected(""); setRate(""); setGsm(""); setUnit("MTR");
+    setFabricId(""); setSupplierId(""); setExpected(""); setRate(""); setGsm(""); setUnit("MTR"); setRemarks("");
     setLines([{ colour: "", qty: 0 }]);
     setAddColourRow(null); setColourDraft(""); setAddFabric(false); setFabricDraft("");
   }
@@ -123,6 +135,7 @@ export function FabricOrderManager({
         fabricId: +fabricId, supplierId: supplierId ? +supplierId : null,
         expectedDate: expected || null, rate: rate ? +rate : null, gsm: gsm ? +gsm : null,
         unit: unit as "KG" | "MTR",
+        remarks: remarks.trim() || null,
         lines: filled,
       });
       resetForm();
@@ -137,6 +150,7 @@ export function FabricOrderManager({
     setExpected(dateInput(o.expectedDate));
     setRate(o.rate != null ? String(o.rate) : "");
     setGsm(o.gsm != null ? String(o.gsm) : "");
+    setRemarks(o.remarks ?? "");
     setUnit(o.unit);
     setLines([...o.lines.map((l) => ({ colour: l.colour, qty: l.qty })), { colour: "", qty: 0 }]);
     setAddColourRow(null); setAddFabric(false);
@@ -151,6 +165,7 @@ export function FabricOrderManager({
         id: editingId, supplierId: supplierId ? +supplierId : null,
         expectedDate: expected || null, rate: rate ? +rate : null, gsm: gsm ? +gsm : null,
         unit: unit as "KG" | "MTR",
+        remarks: remarks.trim() || null,
         lines: filled,
       });
       resetForm();
@@ -252,9 +267,39 @@ export function FabricOrderManager({
           : v === "short" ? o.receivedQty > 0 && o.receivedQty < o.totalQty
           : o.receivedQty === 0,
       },
+      {
+        // Change 25 Part L: the flag comes from the shared orderFlag(), the same rule the
+        // dashboard's delayed-orders widget reads — that count and this list cannot disagree.
+        key: "delay",
+        label: "delays",
+        options: [
+          { value: "DELAYED", label: "Delayed only" },
+          { value: "NO_ETA", label: "No ETA" },
+        ],
+        match: (o, v) => orderFlag(o).flag === v,
+      },
     ],
     [supplierNames]
   );
+  const csv: CsvExport<Order> = {
+    filename: "fabric-orders",
+    columns: [
+      { header: "fabric", value: (o) => o.fabric },
+      { header: "colours", value: (o) => o.lines.map((l) => `${l.colour} ${l.qty}`).join("; ") },
+      { header: "total_qty", value: (o) => o.totalQty },
+      { header: "unit", value: (o) => o.unit },
+      // the received-vs-ordered sub-line under Total
+      { header: "received_qty", value: (o) => o.receivedQty },
+      { header: "due_qty", value: (o) => Math.round((o.totalQty - o.receivedQty) * 100) / 100 },
+      { header: "supplier", value: (o) => o.supplier },
+      { header: "po_no", value: (o) => o.poNumber ?? o.poStage },
+      { header: "received_on", value: (o) => o.challans.map((c) => c.challanNo ?? `Draft #${c.id}`).join("; ") },
+      { header: "status", value: (o) => o.status.replace("_", " ") },
+      // the delay badge in the Status column
+      { header: "days_late", value: (o) => orderFlag(o).daysLate },
+      { header: "delivery_flag", value: (o) => orderFlag(o).flag },
+    ],
+  };
   const view = useTableView<Order>({
     id: "fo",
     rows: orders,
@@ -267,6 +312,7 @@ export function FabricOrderManager({
       supplier: (o) => o.supplier ?? "",
       status: (o) => o.status,
       date: (o) => (o.expectedDate ? new Date(o.expectedDate) : null),
+      daysLate: (o) => orderFlag(o).daysLate,
     },
     sum: (o) => o.totalQty,
   });
@@ -299,7 +345,7 @@ export function FabricOrderManager({
                 <select value={fabricId} disabled={!!editingId} onChange={(e) => (e.target.value === ADD ? setAddFabric(true) : pickFabric(e.target.value))} className={`${inp} disabled:bg-surface-2 disabled:text-t2`}>
                   <option value="">Fabric…</option>
                   {fabricList.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-                  {!editingId && <option value={ADD}>➕ Add new fabric…</option>}
+                  {!editingId && <option value={ADD}>Add new fabric…</option>}
                 </select>
               )}
             </div>
@@ -329,6 +375,11 @@ export function FabricOrderManager({
                 <option value="KG">KG</option>
               </select>
             </div>
+            {/* Change 25 Part J */}
+            <div className="col-span-2">
+              <label className="mb-1 block t-xs font-semibold text-t1">Remark</label>
+              <input value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="—" className={inp} />
+            </div>
           </div>
 
           {/* colour × qty */}
@@ -348,7 +399,7 @@ export function FabricOrderManager({
                       <select value={l.colour} onChange={(e) => onColour(i, e.target.value)} className={`${inp} flex-1`}>
                         <option value="">Colour…</option>
                         {colourOptions.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-                        <option value={ADD}>➕ Add new colour…</option>
+                        <option value={ADD}>Add new colour…</option>
                       </select>
                       <input type="number" value={l.qty || ""} placeholder="0" onChange={(e) => setLine(i, { qty: Math.max(0, +e.target.value) })} className="w-24 rounded-lg border border-border px-2.5 py-2 text-right t-body tnum outline-none focus:border-primary" />
                       <button onClick={() => removeLine(i)} className="text-faint hover:text-danger"><X size={14} /></button>
@@ -375,7 +426,7 @@ export function FabricOrderManager({
                     <span className="font-bold tnum">{num(l.qty)}</span>
                   </div>
                 ))}
-                {filled.length === 0 && <div className="t-sm text-t3">No colours yet.</div>}
+                {filled.length === 0 && <div className="t-sm text-t3">No colours</div>}
               </div>
               <div className="mt-3 flex items-end justify-between border-t border-hairline pt-3">
                 <span className="t-sm text-t2">{filled.length} colour{filled.length === 1 ? "" : "s"} · total</span>
@@ -393,7 +444,7 @@ export function FabricOrderManager({
       {/* Change 23 Part C: a long order history is only usable once you can slice it —
           search, status/stage/supplier filters, received-vs-pending, date range, sort. */}
       <Card className="mt-4 p-5">
-        <TableToolbar view={view} filters={filters} searchPlaceholder="Search fabric, supplier, PO…" dateLabel="Order date" unit="ordered" />
+        <TableToolbar view={view} filters={filters} searchPlaceholder="Search fabric, supplier, PO…" dateLabel="Order date" unit="ordered" csv={csv} />
         <div className="overflow-x-auto">
         <table className="w-full t-sm">
           <thead>
@@ -404,14 +455,25 @@ export function FabricOrderManager({
               <th className="px-4 py-2.5"><SortHeader view={view} sortKey="supplier">Supplier</SortHeader></th>
               <th className="px-4 py-2.5"><SortHeader view={view} sortKey="date">PO</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">Received on</th>
-              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="status">Status</SortHeader></th>
+              {/* Change 25 Part L: the delay badge rides in the Status cell, so the
+                  column carries a second sort for how late the order is. */}
+              <th className="px-4 py-2.5">
+                <span className="inline-flex items-center gap-2">
+                  <SortHeader view={view} sortKey="status">Status</SortHeader>
+                  <SortHeader view={view} sortKey="daysLate">Late</SortHeader>
+                </span>
+              </th>
               <th className="px-4 py-2.5"></th>
             </tr>
           </thead>
           <tbody>
             {view.rows.map((o) => (
               <tr key={o.id} className={`border-b border-hairline last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
-                <td className="px-4 py-2.5 font-semibold">{o.fabric}</td>
+                <td className="px-4 py-2.5 font-semibold">
+                  {o.fabric}
+                  {/* Change 25 Part J */}
+                  {o.remarks && <div className="t-xs font-normal text-t3">{o.remarks}</div>}
+                </td>
                 <td className="px-4 py-2.5 text-t2">
                   <div className="flex flex-wrap gap-1">
                     {o.lines.map((l, i) => <span key={i} className="rounded bg-surface-2 px-1.5 py-0.5 t-xs">{l.colour} {num(l.qty)}</span>)}
@@ -447,6 +509,10 @@ export function FabricOrderManager({
                             <>
                               <Link href={`/challan-doc/${c.id}`} title="Edit this challan" className="text-t3 hover:text-primary-ink"><Pencil size={12} /></Link>
                               <button onClick={() => reverseReceipt(c)} disabled={busy} title="Reverse this receipt" className="text-t3 hover:text-danger disabled:opacity-40"><Undo2 size={12} /></button>
+                              {/* Change 25 Part D. Distinct from Reverse: that says the receipt
+                                  never happened; this sends accepted goods back and leaves the PO
+                                  received. The quantities live on the document, so it links there. */}
+                              <Link href={`/challan-doc/${c.id}`} title="Return to supplier" className="text-t3 hover:text-warn"><CornerUpLeft size={12} /></Link>
                             </>
                           )}
                         </span>
@@ -454,10 +520,28 @@ export function FabricOrderManager({
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-2.5"><Badge tone={STATUS_TONE[o.status] ?? "default"}>{o.status.replace("_", " ")}</Badge></td>
+                <td className="px-4 py-2.5">
+                  <span className="flex flex-wrap items-center gap-1">
+                    <Badge tone={STATUS_TONE[o.status] ?? "default"}>{o.status.replace("_", " ")}</Badge>
+                    <DelayBadge order={o} />
+                  </span>
+                </td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-wrap justify-end gap-1.5">
-                    {!o.poNumber && <button onClick={() => act(() => generatePO({ id: o.id }))} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Generate PO</button>}
+                    {/* Change 25: generating a PO now also chooses the issuing firm, the delivery
+                        address, the GST % and the signatory — one dialog, since all three
+                        parts attach at exactly this moment. */}
+                    {!o.poNumber && (
+                      <GeneratePoButton
+                        orderId={o.id}
+                        kind="FABRIC"
+                        buyers={buyers}
+                        signatories={signatories}
+                        meId={meId}
+                        canOverrideSignatory={canOverrideSignatory}
+                        disabled={busy}
+                      />
+                    )}
                     {o.poNumber && <Link href={`/po/${o.id}`} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-primary-ink hover:bg-surface-2"><FileText size={12} /> Open PO</Link>}
                     {/* Change 22 Part A: once RECEIVED, logging another inward is no longer
                         the primary action — the row's job is now edit / reverse (in the
@@ -477,7 +561,7 @@ export function FabricOrderManager({
             ))}
             {view.rows.length === 0 && (
               <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">
-                {orders.length === 0 ? "No fabric orders yet." : "No orders match these filters."}
+                {orders.length === 0 ? "No fabric orders" : "No orders match these filters"}
               </td></tr>
             )}
           </tbody>
@@ -491,3 +575,11 @@ export function FabricOrderManager({
 const inp = inputClass("md", "w-full");
 /** A stored date rendered for an <input type="date">. */
 const dateInput = (d: Date | string | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
+
+/** Change 25 Part L: the row's read of the shared delay rule. Nothing for a closed order. */
+function DelayBadge({ order }: { order: Order }) {
+  const { flag, daysLate } = orderFlag(order);
+  if (flag === "DELAYED") return <Badge tone="danger">{daysLate}d late</Badge>;
+  if (flag === "NO_ETA") return <Badge tone="warn">No ETA</Badge>;
+  return null;
+}

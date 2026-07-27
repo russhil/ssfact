@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { Card, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Card, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { DispatchActions, type DispatchEditable } from "@/components/dispatch-actions";
 import { num, fmtDate } from "@/lib/format";
 
@@ -57,6 +57,21 @@ export function DispatchLog({ rows, canEdit }: { rows: DispatchRow[]; canEdit: b
     [vendors]
   );
 
+  const csv: CsvExport<DispatchRow> = {
+    filename: "dispatches",
+    columns: [
+      { header: "dispatch_date", value: (r) => new Date(r.date) },
+      { header: "dc_no", value: (r) => r.dispatchNo ?? r.challan ?? `#${r.id}` },
+      { header: "si_no", value: (r) => r.siNo },
+      { header: "item", value: (r) => r.item },
+      { header: "vendor", value: (r) => r.vendor },
+      { header: "reason", value: (r) => r.reason },
+      { header: "qty", value: (r) => r.qty },
+      // the row is struck through when voided; the export says so in words
+      { header: "state", value: (r) => (r.voidedAt ? "VOID" : "LIVE") },
+    ],
+  };
+
   const view = useTableView<DispatchRow>({
     id: "dp",
     rows,
@@ -84,6 +99,7 @@ export function DispatchLog({ rows, canEdit }: { rows: DispatchRow[]; canEdit: b
         searchPlaceholder="Search SI, DC no, vendor, note…"
         dateLabel="Dispatch date"
         unit="pcs"
+        csv={csv}
       />
       <div className="overflow-x-auto">
         <table className="w-full t-sm">
@@ -132,7 +148,7 @@ export function DispatchLog({ rows, canEdit }: { rows: DispatchRow[]; canEdit: b
             {view.rows.length === 0 && (
               <tr>
                 <td colSpan={canEdit ? 8 : 7} className="px-3 py-10 text-center text-muted">
-                  {rows.length === 0 ? "No dispatches yet." : "No dispatches match these filters."}
+                  {rows.length === 0 ? "No dispatches" : "No dispatches match these filters"}
                 </td>
               </tr>
             )}

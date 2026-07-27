@@ -12,6 +12,7 @@ import {
   TableToolbar,
   useTableView,
   type Column,
+  type CsvExport,
   type FilterDef,
 } from "@/components/ui";
 import { num, pct, fmtDate } from "@/lib/format";
@@ -53,6 +54,22 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
     ],
     [productOptions]
   );
+
+  const csv: CsvExport<JobRow> = {
+    filename: "job-cards",
+    columns: [
+      { header: "si_no", value: (r) => r.siNo },
+      { header: "item", value: (r) => r.item },
+      { header: "style_no", value: (r) => r.styleNo },
+      { header: "vendor", value: (r) => r.vendor },
+      { header: "cut_qty", value: (r) => r.cutQty },
+      { header: "received_qty", value: (r) => r.dispatchedQty },
+      { header: "fill", value: (r) => r.fill },
+      { header: "planned_etd", value: (r) => r.plannedEtd },
+      { header: "status", value: (r) => (r.overdue ? "Overdue" : r.status === "CLOSED" ? "Closed" : "Active") },
+      { header: "trims", value: (r) => (r.trimsPending ? "Trims short" : "") },
+    ],
+  };
 
   const view = useTableView<JobRow>({
     id: "jc",
@@ -144,6 +161,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
         searchPlaceholder="Search SI, style, vendor…"
         dateLabel="Planned ETD"
         unit="cut"
+        csv={csv}
       >
         <SegmentedFilter
           value={f}
@@ -163,7 +181,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
         keyOf={(r, i) => `${r.siNo}-${r.styleNo}-${i}`}
         empty={
           rows.length === 0 ? (
-            <EmptyState title="No job cards yet" />
+            <EmptyState title="No job cards" />
           ) : (
             <EmptyState title="No job cards match" />
           )

@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getJob, getJobMatrix, getJobTrimIssues, getJobFabricPosted } from "@/lib/jobs";
 import { getJobCardChallans } from "@/lib/masters";
+import { getJobMargins } from "@/lib/insights";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
 import { colorKey } from "@/lib/colour";
 import { Card, Badge } from "@/components/ui";
 import { FabricActualsForm } from "@/components/fabric-actuals-form";
@@ -39,7 +40,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   if (!j) notFound();
 
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
-  const canSeeCost = u?.role === "ADMIN";
+  const canSeeCost = canSee(u);
   const masterList = canEdit
     ? await db.cuttingMaster.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { name: true } })
     : [];
@@ -170,6 +171,10 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
     ["EMB", j.needsEmb],
   ] as const;
 
+  // Change 25 Part F — cost / value / margin for this card. Owner-only: not queried
+  // at all otherwise, so no cost figure reaches a staff session.
+  const margin = canSeeCost ? (await getJobMargins({ jobCardId: j.id }))[0] ?? null : null;
+
   return (
     <div className="p-6">
       <Link href="/job-cards" className="mb-4 inline-flex items-center gap-1.5 t-sm font-medium text-muted hover:text-ink">
@@ -248,7 +253,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
       </div>
 
       {j.remark && (
-        <div className="mt-2 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 t-sm text-warn">📝 {j.remark}</div>
+        <div className="mt-2 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 t-sm text-warn">{j.remark}</div>
       )}
 
       <StatusTimeline
@@ -274,6 +279,49 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               </div>
             ))}
           </dl>
+
+          {/* Change 25 Part F — evidenced cost vs dispatched value. Cost counts only
+              locked, non-voided inward challan lines that carry a rate, plus finishing
+              job-work: what we can actually show a bill for. */}
+          {margin && (
+            <div className="mt-4 border-t border-hairline pt-3">
+              <div className="mb-2 t-xs font-semibold uppercase tracking-wide text-faint">Cost &amp; margin</div>
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-2 t-sm">
+                <div className="flex flex-col">
+                  <dt className="t-xs text-faint">Fabric</dt>
+                  <dd className="font-semibold tnum">{inr(margin.fabricCost)}</dd>
+                </div>
+                <div className="flex flex-col">
+                  <dt className="t-xs text-faint">Trims</dt>
+                  <dd className="font-semibold tnum">{inr(margin.trimCost)}</dd>
+                </div>
+                <div className="flex flex-col">
+                  <dt className="t-xs text-faint">Finishing</dt>
+                  <dd className="font-semibold tnum">{inr(margin.finishingCost)}</dd>
+                </div>
+                <div className="flex flex-col">
+                  <dt className="t-xs text-faint">Total cost</dt>
+                  <dd className="font-semibold tnum">{inr(margin.cost)}</dd>
+                </div>
+                <div className="flex flex-col">
+                  <dt className="t-xs text-faint">Dispatched value</dt>
+                  <dd className="font-semibold tnum">{margin.value > 0 ? inr(margin.value) : "—"}</dd>
+                </div>
+                <div className="flex flex-col">
+                  <dt className="t-xs text-faint">Margin</dt>
+                  <dd className="font-semibold tnum">
+                    {margin.value <= 0 ? (
+                      <span className="text-t3">—</span>
+                    ) : margin.margin < 0 ? (
+                      <span className="text-danger">{inr(margin.margin)}</span>
+                    ) : (
+                      <span className="text-ok">{inr(margin.margin)} <span className="font-medium text-t3">{pct(margin.marginPct)}</span></span>
+                    )}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          )}
         </Card>
 
         {/* dispatch log with reason + running balance */}
@@ -282,7 +330,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
             Dispatch Log <span className="font-medium text-faint">· {liveDispatches.length} events{voidedCount > 0 && ` · ${voidedCount} void`}</span>
           </h3>
           {j.dispatches.length === 0 ? (
-            <p className="py-4 text-center t-sm text-muted">No dispatch yet.</p>
+            <p className="py-4 text-center t-sm text-muted">No dispatch</p>
           ) : (
             <div className="space-y-1.5">
               {j.dispatches.map((e) => {
@@ -469,7 +517,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
             </div>
           </div>
           {jobChallans.length === 0 ? (
-            <p className="t-sm text-faint">No challans raised against this card yet.</p>
+            <p className="t-sm text-faint">No challans</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full t-sm">
