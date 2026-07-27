@@ -511,7 +511,7 @@ export function NewJobCardForm({
                   Product
                 </label>
                 <button type="button" onClick={enableMto} className="t-xs font-semibold text-primary-ink hover:underline">
-                  No catalogue product? Log made-to-order →
+                  Log made-to-order →
                 </button>
               </div>
               <input
@@ -899,7 +899,7 @@ export function NewJobCardForm({
                   </div>
                 </div>
                 {bomRows.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-border py-3 text-center t-xs text-faint">No trims.</p>
+                  <p className="rounded-lg border border-dashed border-border py-3 text-center t-xs text-faint">No trims</p>
                 ) : (
                   <div className="overflow-x-auto rounded-lg border border-border">
                     <table className="w-full t-sm">
@@ -1053,7 +1053,6 @@ export function NewJobCardForm({
                       </table>
                     </div>
                   ))}
-                  <p className="t-micro text-t3">Left = current colour stock − this layer&apos;s use (shared snapshot; not sequential across layers). Negatives = over-cut.</p>
                 </div>
               )}
 

@@ -142,7 +142,7 @@ export function FinishingLog({
       />
       {view.rows.length === 0 ? (
         <p className="py-6 text-center t-sm text-muted">
-          {rows.length === 0 ? "No finishing job-work recorded." : "Nothing matches these filters."}
+          {rows.length === 0 ? "No finishing job-work" : "No job-work matches these filters"}
         </p>
       ) : (
         <div className="overflow-x-auto">

@@ -35,7 +35,7 @@ export function StatusTimeline({ steps }: { steps: TimelineStep[] }) {
             </div>
             <div className="min-w-0 md:mt-2.5 md:px-2 md:text-center">
               <div className={`truncate t-sm font-semibold ${s.done ? "text-ink" : "text-faint"}`}>{s.label}</div>
-              <div className="truncate t-xs text-muted">{s.done && s.date ? fmtDate(s.date) : "not logged yet"}</div>
+              <div className="truncate t-xs text-muted">{s.done && s.date ? fmtDate(s.date) : "not logged"}</div>
             </div>
           </li>
         ))}

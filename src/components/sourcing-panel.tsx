@@ -55,7 +55,6 @@ export function SourcingPanel({
       </h3>
       <p className="mt-0.5 t-xs text-faint">
         Master rate{estimate != null ? `: ${inr(estimate)}${per}` : ""}
-        The true rate lives on the purchase order.
       </p>
 
       {rates.length > 0 && (

@@ -61,7 +61,7 @@ export function CategoryTree({ tree }: { tree: Head[] }) {
             )}
           </div>
         ))}
-        {tree.length === 0 && <p className="t-sm text-muted">No head categories yet.</p>}
+        {tree.length === 0 && <p className="t-sm text-muted">No head categories</p>}
       </div>
     </div>
   );

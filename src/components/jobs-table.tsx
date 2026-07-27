@@ -181,7 +181,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
         keyOf={(r, i) => `${r.siNo}-${r.styleNo}-${i}`}
         empty={
           rows.length === 0 ? (
-            <EmptyState title="No job cards yet" />
+            <EmptyState title="No job cards" />
           ) : (
             <EmptyState title="No job cards match" />
           )

@@ -213,7 +213,7 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
             ))}
             {ledger.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-5 py-10 text-center text-muted">No movements yet.</td>
+                <td colSpan={7} className="px-5 py-10 text-center text-muted">No movements</td>
               </tr>
             )}
           </tbody>

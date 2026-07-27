@@ -70,7 +70,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
                 // eslint-disable-next-line @next/next/no-img-element
                 <img key={i.id} src={i.thumbUrl ?? i.url} alt="" loading="lazy" className="h-24 w-24 rounded-lg border border-border object-cover" />
               ))}
-              {p.images.length === 0 && <p className="t-sm text-muted">No photos.</p>}
+              {p.images.length === 0 && <p className="t-sm text-muted">No photos</p>}
             </div>
           )}
           {(p.fabricRemarks || p.otherRemarks) && (

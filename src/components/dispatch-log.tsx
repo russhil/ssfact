@@ -148,7 +148,7 @@ export function DispatchLog({ rows, canEdit }: { rows: DispatchRow[]; canEdit: b
             {view.rows.length === 0 && (
               <tr>
                 <td colSpan={canEdit ? 8 : 7} className="px-3 py-10 text-center text-muted">
-                  {rows.length === 0 ? "No dispatches yet." : "No dispatches match these filters."}
+                  {rows.length === 0 ? "No dispatches" : "No dispatches match these filters"}
                 </td>
               </tr>
             )}

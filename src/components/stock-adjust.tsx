@@ -19,12 +19,12 @@ import { SlidersHorizontal } from "lucide-react";
  * gives trims the correction path they never had.
  */
 
-const REASONS: { value: AdjustReason; label: string; hint: string }[] = [
-  { value: "COUNT", label: "Physical count", hint: "Correct the book figure to the counted figure." },
-  { value: "DAMAGE", label: "Damage", hint: "Stock damaged and written off." },
-  { value: "WASTAGE", label: "Wastage", hint: "Consumed as wastage." },
-  { value: "OPENING", label: "Opening stock", hint: "Sets the utilisation baseline." },
-  { value: "OTHER", label: "Other", hint: "State the reason in the note." },
+const REASONS: { value: AdjustReason; label: string }[] = [
+  { value: "COUNT", label: "Physical count" },
+  { value: "DAMAGE", label: "Damage" },
+  { value: "WASTAGE", label: "Wastage" },
+  { value: "OPENING", label: "Opening stock" },
+  { value: "OTHER", label: "Other" },
 ];
 
 type Target =
@@ -124,17 +124,14 @@ export function StockAdjust({
           </span>
         </div>
 
-        <Field label="How are you correcting it?">
+        <Field label="Correction type">
           <Select value={mode} onChange={(e) => setMode(e.target.value as "set" | "delta")}>
             <option value="set">Set to the counted figure</option>
             <option value="delta">Add / remove a quantity</option>
           </Select>
         </Field>
 
-        <Field
-          label={mode === "set" ? "Counted quantity" : "Change (negative removes)"}
-          hint={mode === "set" ? "What's physically on the rack." : "e.g. −12 to write off twelve."}
-        >
+        <Field label={mode === "set" ? "Counted quantity" : "Change (negative removes)"}>
           <Input
             type="number"
             step="any"
@@ -146,7 +143,7 @@ export function StockAdjust({
           />
         </Field>
 
-        <Field label="Reason" hint={REASONS.find((r) => r.value === reason)?.hint}>
+        <Field label="Reason">
           <Select value={reason} onChange={(e) => setReason(e.target.value as AdjustReason)}>
             {REASONS.map((r) => (
               <option key={r.value} value={r.value}>

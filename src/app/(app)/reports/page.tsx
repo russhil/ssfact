@@ -43,7 +43,7 @@ export default async function ReportsPage() {
 
   return (
     <div className="p-6">
-      <PageHeader title="Reports" subtitle="Production summary across all job cards." />
+      <PageHeader title="Reports" subtitle="Production summary across all job cards" />
 
       <div className="mb-4 grid grid-cols-5 gap-3.5">
         {[
@@ -83,7 +83,7 @@ export default async function ReportsPage() {
           Vendor Fabric Variance
         </div>
         {variance.length === 0 ? (
-          <p className="px-5 py-8 text-center t-sm text-muted">No fabric actuals logged yet.</p>
+          <p className="px-5 py-8 text-center t-sm text-muted">No fabric actuals logged</p>
         ) : (
           <table className="w-full t-sm">
             <thead>
@@ -149,7 +149,7 @@ export default async function ReportsPage() {
                 </tr>
               ))}
               {quality.length === 0 && (
-                <tr><td colSpan={6} className="px-5 py-8 text-center text-muted">No reject, alter or extra recorded.</td></tr>
+                <tr><td colSpan={6} className="px-5 py-8 text-center text-muted">No reject, alter or extra recorded</td></tr>
               )}
             </tbody>
           </table>
@@ -184,7 +184,7 @@ export default async function ReportsPage() {
                 </tr>
               ))}
               {onTime.byVendor.length === 0 && (
-                <tr><td colSpan={5} className="px-5 py-8 text-center text-muted">No card has both a planned ETD and a dispatch yet.</td></tr>
+                <tr><td colSpan={5} className="px-5 py-8 text-center text-muted">No card has both a planned ETD and a dispatch</td></tr>
               )}
             </tbody>
           </table>
@@ -237,7 +237,7 @@ export default async function ReportsPage() {
                 </tr>
               ))}
               {margins.length === 0 && (
-                <tr><td colSpan={8} className="px-5 py-8 text-center text-muted">No job has a rated purchase or a dispatched value yet.</td></tr>
+                <tr><td colSpan={8} className="px-5 py-8 text-center text-muted">No job has a rated purchase or a dispatched value</td></tr>
               )}
             </tbody>
           </table>
@@ -266,7 +266,7 @@ export default async function ReportsPage() {
                   <td className="px-5 py-2 text-right">{v.daysHeld > 25 ? <Badge tone="danger">{v.daysHeld}d</Badge> : <span className="tnum text-t2">{v.daysHeld}d</span>}</td>
                 </tr>
               ))}
-              {pendency.length === 0 && <tr><td colSpan={4} className="px-5 py-8 text-center text-muted">Nothing pending.</td></tr>}
+              {pendency.length === 0 && <tr><td colSpan={4} className="px-5 py-8 text-center text-muted">None pending</td></tr>}
             </tbody>
           </table>
         </Card>
@@ -290,7 +290,7 @@ export default async function ReportsPage() {
                   <td className="px-5 py-2 text-right tnum font-bold">{inr(f.monthlyCost)}</td>
                 </tr>
               ))}
-              {pipeline.length === 0 && <tr><td colSpan={3} className="px-5 py-8 text-center text-muted">No forecast data.</td></tr>}
+              {pipeline.length === 0 && <tr><td colSpan={3} className="px-5 py-8 text-center text-muted">No forecast data</td></tr>}
             </tbody>
           </table>
         </Card>

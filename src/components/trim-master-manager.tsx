@@ -219,7 +219,7 @@ export function TrimMasterManager({
               <TrimRow key={t.id} t={t} units={units} onSaved={() => router.refresh()} />
             ))}
             {view.rows.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">No trims match these filters.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">No trims match these filters</td></tr>
             )}
           </tbody>
         </table>

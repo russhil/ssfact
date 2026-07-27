@@ -253,7 +253,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
       </div>
 
       {j.remark && (
-        <div className="mt-2 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 t-sm text-warn">📝 {j.remark}</div>
+        <div className="mt-2 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 t-sm text-warn">{j.remark}</div>
       )}
 
       <StatusTimeline
@@ -330,7 +330,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
             Dispatch Log <span className="font-medium text-faint">· {liveDispatches.length} events{voidedCount > 0 && ` · ${voidedCount} void`}</span>
           </h3>
           {j.dispatches.length === 0 ? (
-            <p className="py-4 text-center t-sm text-muted">No dispatch yet.</p>
+            <p className="py-4 text-center t-sm text-muted">No dispatch</p>
           ) : (
             <div className="space-y-1.5">
               {j.dispatches.map((e) => {
@@ -517,7 +517,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
             </div>
           </div>
           {jobChallans.length === 0 ? (
-            <p className="t-sm text-faint">No challans raised against this card yet.</p>
+            <p className="t-sm text-faint">No challans</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full t-sm">

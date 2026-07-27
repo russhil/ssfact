@@ -25,7 +25,7 @@ export default async function PendingTrimsPage() {
       </div>
 
       {rows.length === 0 ? (
-        <Card className="p-10 text-center t-body text-muted">No trims short.</Card>
+        <Card className="p-10 text-center t-body text-muted">No trims short</Card>
       ) : (
         <Card className="overflow-hidden p-0">
           <table className="w-full t-sm">

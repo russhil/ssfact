@@ -246,7 +246,7 @@ export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier
               {view.rows.length === 0 && (
                 <tr>
                   <td colSpan={10} className="px-4 py-10 text-center t-sm text-t3">
-                    {suppliers.length === 0 ? "No suppliers yet" : "No suppliers match these filters"}
+                    {suppliers.length === 0 ? "No suppliers" : "No suppliers match these filters"}
                   </td>
                 </tr>
               )}

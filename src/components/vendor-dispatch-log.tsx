@@ -89,7 +89,7 @@ export function VendorDispatchLog({
 
       {view.rows.length === 0 ? (
         <p className="py-4 text-center t-sm text-muted">
-          {events.length === 0 ? "No dispatches yet." : "No dispatches match these filters."}
+          {events.length === 0 ? "No dispatches" : "No dispatches match these filters"}
         </p>
       ) : (
         <div className="space-y-1.5">

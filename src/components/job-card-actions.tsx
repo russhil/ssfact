@@ -205,7 +205,7 @@ export function JobCardActions({ job, canSeeCost }: { job: JobCardEditable; canS
 
         {canSeeCost && (
           <div className="grid grid-cols-2 gap-3">
-            <Field label="MRP" hint="Owner only.">
+            <Field label="MRP" hint="Owner only">
               <Input type="number" step="any" value={mrp} onChange={(e) => setMrp(e.target.value)} placeholder="—" className="text-right tnum" />
             </Field>
             {!job.hasProduct && (

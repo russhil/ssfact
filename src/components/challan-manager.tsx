@@ -322,7 +322,7 @@ function ChallanList({ rows, tab }: { rows: ChallanRow[]; tab: "INWARD" | "OUTWA
       />
       {view.rows.length === 0 ? (
         <p className="py-6 text-center t-sm text-muted">
-          {rows.length === 0 ? "No challans yet." : "No challans match these filters."}
+          {rows.length === 0 ? "No challans" : "No challans match these filters"}
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -363,7 +363,6 @@ function ChallanRowItem({ c }: { c: ChallanRow }) {
       <td className="px-2 py-2">
         <Link href={`/challan-doc/${c.id}`} className="font-bold text-primary-ink hover:underline">{c.challanNo ?? `Draft #${c.id}`}</Link>{" "}
         <Badge tone={c.status === "LOCKED" ? "ok" : c.status === "VOID" ? "danger" : "warn"}>{c.status}</Badge>
-        {isDraft && <div className="mt-0.5 t-micro text-faint">number assigned on lock</div>}
       </td>
       <td className="px-2 py-2">{c.kind ? <Badge tone={KIND_TONE[c.kind] ?? "default"}>{c.kind}</Badge> : <span className="text-faint">—</span>}</td>
       <td className="px-2 py-2 text-t2 tnum">{fmtDate(c.date)}</td>

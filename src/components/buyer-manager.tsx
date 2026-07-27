@@ -316,7 +316,7 @@ export function BuyerManager({ buyers }: { buyers: BuyerRow[] }) {
               {view.rows.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-4 py-10 text-center t-sm text-t3">
-                    {buyers.length === 0 ? "No firms yet" : "No firms match these filters"}
+                    {buyers.length === 0 ? "No firms" : "No firms match these filters"}
                   </td>
                 </tr>
               )}

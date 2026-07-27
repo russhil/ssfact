@@ -144,7 +144,7 @@ export function CommandPalette({ actions }: { actions: Action[] }) {
 
           {!loading && rows.length === 0 && (
             <p className="px-3 py-8 text-center t-sm text-t2">
-              Nothing matches “{q}”.
+              No matches for “{q}”
             </p>
           )}
 

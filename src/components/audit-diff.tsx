@@ -195,7 +195,7 @@ function firstName(username: string): string {
  * missing rather than rendering a blank line.
  */
 export function summarizeAudit(row: AuditRow): string {
-  const who = firstName(row.username || "Someone");
+  const who = firstName(row.username || "Unknown");
   const s = row.summary?.trim();
   if (s) {
     const verb = /^[A-Z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s;

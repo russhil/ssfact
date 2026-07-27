@@ -146,7 +146,7 @@ export function UserManager({
           </select>
           {role === "VENDOR" && (
             <select value={vendorName} onChange={(e) => setVendorName(e.target.value)} className={inp}>
-              <option value="">Which vendor?…</option>
+              <option value="">Vendor…</option>
               {vendors.map((v) => (
                 <option key={v} value={v}>
                   {v}

@@ -50,7 +50,7 @@ export default async function SettingsPage() {
 
         <Panel title="Recent backups" pad={backups.length === 0}>
           {backups.length === 0 ? (
-            <p className="t-sm text-t3">None yet</p>
+            <p className="t-sm text-t3">None</p>
           ) : (
             <table className="w-full t-sm">
               <tbody>

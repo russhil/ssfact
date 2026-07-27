@@ -345,7 +345,7 @@ export function FabricOrderManager({
                 <select value={fabricId} disabled={!!editingId} onChange={(e) => (e.target.value === ADD ? setAddFabric(true) : pickFabric(e.target.value))} className={`${inp} disabled:bg-surface-2 disabled:text-t2`}>
                   <option value="">Fabric…</option>
                   {fabricList.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-                  {!editingId && <option value={ADD}>➕ Add new fabric…</option>}
+                  {!editingId && <option value={ADD}>Add new fabric…</option>}
                 </select>
               )}
             </div>
@@ -399,7 +399,7 @@ export function FabricOrderManager({
                       <select value={l.colour} onChange={(e) => onColour(i, e.target.value)} className={`${inp} flex-1`}>
                         <option value="">Colour…</option>
                         {colourOptions.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-                        <option value={ADD}>➕ Add new colour…</option>
+                        <option value={ADD}>Add new colour…</option>
                       </select>
                       <input type="number" value={l.qty || ""} placeholder="0" onChange={(e) => setLine(i, { qty: Math.max(0, +e.target.value) })} className="w-24 rounded-lg border border-border px-2.5 py-2 text-right t-body tnum outline-none focus:border-primary" />
                       <button onClick={() => removeLine(i)} className="text-faint hover:text-danger"><X size={14} /></button>
@@ -426,7 +426,7 @@ export function FabricOrderManager({
                     <span className="font-bold tnum">{num(l.qty)}</span>
                   </div>
                 ))}
-                {filled.length === 0 && <div className="t-sm text-t3">No colours yet.</div>}
+                {filled.length === 0 && <div className="t-sm text-t3">No colours</div>}
               </div>
               <div className="mt-3 flex items-end justify-between border-t border-hairline pt-3">
                 <span className="t-sm text-t2">{filled.length} colour{filled.length === 1 ? "" : "s"} · total</span>
@@ -561,7 +561,7 @@ export function FabricOrderManager({
             ))}
             {view.rows.length === 0 && (
               <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">
-                {orders.length === 0 ? "No fabric orders yet." : "No orders match these filters."}
+                {orders.length === 0 ? "No fabric orders" : "No orders match these filters"}
               </td></tr>
             )}
           </tbody>

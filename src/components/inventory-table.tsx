@@ -190,7 +190,7 @@ export function InventoryTable({ rows }: { rows: FabricRow[] }) {
               {view.rows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-muted">
-                    {rows.length === 0 ? "No fabrics yet." : "No fabrics match these filters."}
+                    {rows.length === 0 ? "No fabrics" : "No fabrics match these filters"}
                   </td>
                 </tr>
               )}

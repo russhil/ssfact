@@ -83,7 +83,7 @@ export default async function BomDocPage({ params }: { params: Promise<{ sku: st
               <td className="px-2 py-1.5 text-right tnum">{l.perPieceQty != null ? num(l.perPieceQty, 3) : "—"}</td>
             </tr>
           ))}
-          {lines.length === 0 && <tr><td colSpan={4} className="px-2 py-4 text-center text-muted">No BOM lines authored yet.</td></tr>}
+          {lines.length === 0 && <tr><td colSpan={4} className="px-2 py-4 text-center text-muted">No BOM lines</td></tr>}
         </tbody>
       </table>
 

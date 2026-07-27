@@ -86,7 +86,7 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
                   <th className="px-4 py-2.5 font-semibold">Sampling</th>
                 </>
               )}
-              <th className="px-4 py-2.5 font-semibold">Where it is</th>
+              <th className="px-4 py-2.5 font-semibold">Stage</th>
               <th className="px-4 py-2.5 font-semibold">Status</th>
             </tr>
           </thead>
@@ -130,7 +130,6 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
           </tbody>
         </table>
       </div>
-      <p className="mt-2 t-xs text-faint">the commercial product master</p>
     </div>
   );
 }

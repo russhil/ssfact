@@ -79,7 +79,7 @@ export default async function VendorDetail({ params }: { params: Promise<{ name:
 
       {/* layer-by-layer */}
       {layers.length === 0 ? (
-        <Card className="p-6 text-center t-body text-muted">No cutting layers issued to this vendor.</Card>
+        <Card className="p-6 text-center t-body text-muted">No cutting layers issued to this vendor</Card>
       ) : (
         <div className="space-y-3">
           {layers.map((l) => (

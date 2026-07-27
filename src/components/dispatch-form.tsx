@@ -66,7 +66,7 @@ export function DispatchForm({ jobs, defaultArrangedBy = "" }: { jobs: DispatchJ
               <span className="font-semibold text-faint tnum">bal {num(m.balance)}</span>
             </button>
           ))}
-          {matches.length === 0 && <p className="px-3 py-4 text-center t-sm text-muted">No open job cards.</p>}
+          {matches.length === 0 && <p className="px-3 py-4 text-center t-sm text-muted">No open job cards</p>}
         </div>
       )}
 

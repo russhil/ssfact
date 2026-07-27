@@ -133,7 +133,7 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
             ))}
             {ledger.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-muted">No movements.</td>
+                <td colSpan={6} className="px-5 py-10 text-center text-muted">No movements</td>
               </tr>
             )}
           </tbody>
