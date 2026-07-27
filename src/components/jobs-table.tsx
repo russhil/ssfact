@@ -7,11 +7,12 @@ import {
   Bar,
   DataTable,
   EmptyState,
-  SearchInput,
   SegmentedFilter,
-  Select,
-  Toolbar,
+  SortHeader,
+  TableToolbar,
+  useTableView,
   type Column,
+  type FilterDef,
 } from "@/components/ui";
 import { num, pct, fmtDate } from "@/lib/format";
 import type { JobRow } from "@/lib/jobs";
@@ -19,9 +20,7 @@ import type { JobRow } from "@/lib/jobs";
 type Filter = "all" | "active" | "overdue" | "closed";
 
 export function JobsTable({ rows }: { rows: JobRow[] }) {
-  const [q, setQ] = useState("");
   const [f, setF] = useState<Filter>("all");
-  const [productId, setProductId] = useState<number | "all">("all");
 
   const productOptions = useMemo(() => {
     const m = new Map<number, string>();
@@ -29,22 +28,50 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
     return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [rows]);
 
-  const shown = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (productId !== "all" && r.productId !== productId) return false;
-      if (f === "active" && r.status !== "ACTIVE") return false;
-      if (f === "closed" && r.status !== "CLOSED") return false;
-      if (f === "overdue" && !r.overdue) return false;
-      if (!needle) return true;
-      return (
-        r.siNo.toLowerCase().includes(needle) ||
-        r.item.toLowerCase().includes(needle) ||
-        r.styleNo.toLowerCase().includes(needle) ||
-        r.vendors.some((v) => v.toLowerCase().includes(needle))
-      );
-    });
-  }, [rows, q, f, productId]);
+  // The status tabs stay their own control (they carry counts); everything else —
+  // product filter, search, sort, ETD range — moves onto the shared toolbar so this
+  // table behaves like every other one (Change 23 Part G).
+  const byStatus = useMemo(
+    () =>
+      rows.filter((r) => {
+        if (f === "active") return r.status === "ACTIVE";
+        if (f === "closed") return r.status === "CLOSED";
+        if (f === "overdue") return r.overdue;
+        return true;
+      }),
+    [rows, f]
+  );
+
+  const filters: FilterDef<JobRow>[] = useMemo(
+    () => [
+      {
+        key: "product",
+        label: "products",
+        options: productOptions.map((p) => ({ value: String(p.id), label: p.name })),
+        match: (r, v) => String(r.productId) === v,
+      },
+    ],
+    [productOptions]
+  );
+
+  const view = useTableView<JobRow>({
+    id: "jc",
+    rows: byStatus,
+    filters,
+    search: (r) => [r.siNo, r.item, r.styleNo, ...r.vendors],
+    date: (r) => r.plannedEtd,
+    sorts: {
+      si: (r) => r.siNo,
+      item: (r) => r.item,
+      vendor: (r) => r.vendor,
+      cut: (r) => r.cutQty,
+      recd: (r) => r.dispatchedQty,
+      fill: (r) => r.fill,
+      etd: (r) => (r.plannedEtd ? new Date(r.plannedEtd) : null),
+      status: (r) => (r.overdue ? "0 overdue" : r.status),
+    },
+    sum: (r) => r.cutQty,
+  });
 
   const counts = useMemo(
     () => ({
@@ -59,7 +86,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
   const columns: Column<JobRow>[] = [
     {
       key: "si",
-      header: "SI",
+      header: <SortHeader view={view} sortKey="si">SI</SortHeader>,
       cell: (r) => (
         <Link href={`/job-cards/${r.slug}`} className="font-bold text-accent hover:underline">
           {r.siNo}
@@ -68,7 +95,7 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
     },
     {
       key: "item",
-      header: "Item",
+      header: <SortHeader view={view} sortKey="item">Item</SortHeader>,
       cell: (r) => (
         <>
           <span className="block font-medium">{r.item}</span>
@@ -76,12 +103,12 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
         </>
       ),
     },
-    { key: "vendor", header: "Vendor", cell: (r) => r.vendor, className: "text-t2" },
-    { key: "cut", header: "Cut", align: "right", cell: (r) => num(r.cutQty) },
-    { key: "recd", header: "Recd.", align: "right", cell: (r) => num(r.dispatchedQty) },
+    { key: "vendor", header: <SortHeader view={view} sortKey="vendor">Vendor</SortHeader>, cell: (r) => r.vendor, className: "text-t2" },
+    { key: "cut", header: <SortHeader view={view} sortKey="cut" align="right">Cut</SortHeader>, align: "right", cell: (r) => num(r.cutQty) },
+    { key: "recd", header: <SortHeader view={view} sortKey="recd" align="right">Recd.</SortHeader>, align: "right", cell: (r) => num(r.dispatchedQty) },
     {
       key: "fill",
-      header: "Fill",
+      header: <SortHeader view={view} sortKey="fill">Fill</SortHeader>,
       width: "7.5rem",
       cell: (r) => (
         <span className="flex items-center gap-2">
@@ -90,10 +117,10 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
         </span>
       ),
     },
-    { key: "etd", header: "ETD", cell: (r) => fmtDate(r.plannedEtd), className: "text-t2 tnum" },
+    { key: "etd", header: <SortHeader view={view} sortKey="etd">ETD</SortHeader>, cell: (r) => fmtDate(r.plannedEtd), className: "text-t2 tnum" },
     {
       key: "status",
-      header: "Status",
+      header: <SortHeader view={view} sortKey="status">Status</SortHeader>,
       cell: (r) => (
         <span className="flex flex-wrap items-center gap-1">
           {r.overdue ? (
@@ -111,7 +138,13 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
 
   return (
     <div>
-      <Toolbar>
+      <TableToolbar
+        view={view}
+        filters={filters}
+        searchPlaceholder="Search SI, style, vendor…"
+        dateLabel="Planned ETD"
+        unit="cut"
+      >
         <SegmentedFilter
           value={f}
           onChange={setF}
@@ -122,35 +155,12 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
             { key: "closed", label: "Closed", count: counts.closed },
           ]}
         />
-        <div className="flex items-center gap-2">
-          <Select
-            size="sm"
-            value={productId}
-            onChange={(e) => setProductId(e.target.value === "all" ? "all" : Number(e.target.value))}
-            className="w-auto"
-          >
-            <option value="all">All products</option>
-            {productOptions.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-          <SearchInput
-            size="sm"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search SI, style, vendor…"
-            wrapClassName="w-64"
-          />
-        </div>
-      </Toolbar>
+      </TableToolbar>
 
       <DataTable
         columns={columns}
-        rows={shown}
+        rows={view.rows}
         keyOf={(r, i) => `${r.siNo}-${r.styleNo}-${i}`}
-        footer={`${shown.length} of ${rows.length} job cards`}
         empty={
           rows.length === 0 ? (
             <EmptyState

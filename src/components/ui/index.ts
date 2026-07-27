@@ -15,5 +15,14 @@ export { Button, ButtonLink, IconButton, buttonClass } from "./button";
 export { Input, Textarea, Select, Field, SearchInput, inputClass } from "./form";
 export { DataTable, TableWrap, Th, Td, type Column } from "./table";
 export { SegmentedFilter, type SegmentOption } from "./segmented";
+export {
+  useTableView,
+  TableToolbar,
+  SortHeader,
+  type FilterDef,
+  type SortDef,
+  type TableView,
+  type TableViewOptions,
+} from "./table-toolbar";
 export { Badge, Tag, StatusDot, Bar } from "./status";
 export { Sheet } from "./sheet";

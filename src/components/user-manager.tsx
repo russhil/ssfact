@@ -5,7 +5,7 @@ import { inputClass } from "@/components/ui";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createUser, updateUser, resetUserPassword, setUserActive, deleteUser } from "@/lib/actions";
-import { Card, Badge } from "@/components/ui";
+import { Card, Badge, SearchInput } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { Plus, Check, KeyRound, Trash2, X } from "lucide-react";
 import type { UserRow } from "@/lib/masters";
@@ -33,6 +33,12 @@ export function UserManager({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  // Change 23 Part H: search on the master lists — cheap, and they grow.
+  const [q, setQ] = useState("");
+  const shown = users.filter((u) => {
+    const n = q.trim().toLowerCase();
+    return !n || [u.username, u.displayName, u.role, u.vendorName].some((v) => v?.toLowerCase().includes(n));
+  });
 
   // create form
   const [username, setUsername] = useState("");
@@ -157,6 +163,16 @@ export function UserManager({
         </div>
       </Card>
 
+      <>
+      {users.length > 8 && (
+        <SearchInput
+          size="sm"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search user, name, role…"
+          wrapClassName="mb-2 w-72"
+        />
+      )}
       <Card className="overflow-hidden p-0">
         <table className="w-full t-sm">
           <thead>
@@ -171,7 +187,7 @@ export function UserManager({
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => {
+            {shown.map((u) => {
               const isMe = u.id === meId;
               const draft = edits[u.id] ?? u.displayName;
               const dirty = draft.trim() !== u.displayName;
@@ -302,6 +318,7 @@ export function UserManager({
           </tbody>
         </table>
       </Card>
+      </>
     </>
   );
 }

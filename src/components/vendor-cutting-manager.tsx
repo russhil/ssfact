@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { upsertVendor, upsertCuttingMaster } from "@/lib/actions";
-import { Card, Badge } from "@/components/ui";
+import { Card, Badge, SearchInput } from "@/components/ui";
 import { Plus, Check } from "lucide-react";
 
 type Row = { id: number; name: string; active: boolean; jobs: number };
@@ -42,6 +42,9 @@ function MiniMaster({
   const [draft, setDraft] = useState("");
   const [edits, setEdits] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
+  // Change 23 Part H: a search box on the small master lists — they grow.
+  const [q, setQ] = useState("");
+  const shown = rows.filter((r) => !q.trim() || r.name.toLowerCase().includes(q.trim().toLowerCase()));
   const run = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); router.refresh(); } finally { setBusy(false); } };
 
   return (
@@ -51,8 +54,17 @@ function MiniMaster({
         <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && draft.trim() && run(async () => { await onAdd(draft); setDraft(""); })} placeholder="Add…" className="flex-1 rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
         <button onClick={() => draft.trim() && run(async () => { await onAdd(draft); setDraft(""); })} disabled={busy || !draft.trim()} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 t-sm font-semibold text-accent-on disabled:opacity-40"><Plus size={13} /> Add</button>
       </div>
+      {rows.length > 8 && (
+        <SearchInput
+          size="sm"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={`Search ${title.toLowerCase()}…`}
+          wrapClassName="mb-2"
+        />
+      )}
       <div className="max-h-[420px] overflow-y-auto">
-        {rows.map((r) => {
+        {shown.map((r) => {
           const val = edits[r.id] ?? r.name;
           const dirty = val !== r.name;
           return (

@@ -6,7 +6,7 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick, voidChallan } from "@/lib/actions";
-import { Card, Badge } from "@/components/ui";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
 import { Plus, Check, X, FileText, Truck, Pencil, Trash2, Undo2 } from "lucide-react";
 
@@ -214,6 +214,63 @@ export function FabricOrderManager({
     return [...colourList, ...extra.map((name, i) => ({ id: -1 - i, name, hex: null }))];
   }, [colourList, lines]);
 
+  // Change 23 Part C — the order list's own view state.
+  const supplierNames = useMemo(
+    () => [...new Set(orders.map((o) => o.supplier).filter((x): x is string => !!x))].sort(),
+    [orders]
+  );
+  const filters: FilterDef<Order>[] = useMemo(
+    () => [
+      {
+        key: "status",
+        label: "statuses",
+        options: ["PLANNING", "SAMPLE_PENDING", "ORDER_PLACED", "RECEIVED", "DISCARDED"].map((v) => ({ value: v, label: v.replace("_", " ") })),
+        match: (o, v) => o.status === v,
+      },
+      {
+        key: "stage",
+        label: "PO stages",
+        options: ["Draft", "PO Generated", "Sent"].map((v) => ({ value: v, label: v })),
+        match: (o, v) => o.poStage === v,
+      },
+      {
+        key: "supplier",
+        label: "suppliers",
+        options: supplierNames.map((n) => ({ value: n, label: n })),
+        match: (o, v) => o.supplier === v,
+      },
+      {
+        key: "delivery",
+        label: "deliveries",
+        options: [
+          { value: "pending", label: "Pending delivery" },
+          { value: "received", label: "Fully received" },
+          { value: "short", label: "Short delivered" },
+        ],
+        match: (o, v) =>
+          v === "received" ? o.receivedQty >= o.totalQty && o.receivedQty > 0
+          : v === "short" ? o.receivedQty > 0 && o.receivedQty < o.totalQty
+          : o.receivedQty === 0,
+      },
+    ],
+    [supplierNames]
+  );
+  const view = useTableView<Order>({
+    id: "fo",
+    rows: orders,
+    filters,
+    search: (o) => [o.fabric, o.supplier, o.poNumber, ...o.lines.map((l) => l.colour)],
+    date: (o) => o.expectedDate ?? o.receivedDate,
+    sorts: {
+      fabric: (o) => o.fabric,
+      qty: (o) => o.totalQty,
+      supplier: (o) => o.supplier ?? "",
+      status: (o) => o.status,
+      date: (o) => (o.expectedDate ? new Date(o.expectedDate) : null),
+    },
+    sum: (o) => o.totalQty,
+  });
+
   return (
     <>
       <div ref={formRef} className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
@@ -333,23 +390,26 @@ export function FabricOrderManager({
         </Card>
       </div>
 
-      {/* order list */}
-      <Card className="mt-4 overflow-hidden p-0">
+      {/* Change 23 Part C: a long order history is only usable once you can slice it —
+          search, status/stage/supplier filters, received-vs-pending, date range, sort. */}
+      <Card className="mt-4 p-5">
+        <TableToolbar view={view} filters={filters} searchPlaceholder="Search fabric, supplier, PO…" dateLabel="Order date" unit="ordered" />
+        <div className="overflow-x-auto">
         <table className="w-full t-sm">
           <thead>
             <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-4 py-2.5 font-semibold">Fabric</th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="fabric">Fabric</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">Colours</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Total</th>
-              <th className="px-4 py-2.5 font-semibold">Supplier</th>
-              <th className="px-4 py-2.5 font-semibold">PO</th>
+              <th className="px-4 py-2.5 text-right"><SortHeader view={view} sortKey="qty" align="right">Total</SortHeader></th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="supplier">Supplier</SortHeader></th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="date">PO</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">Received on</th>
-              <th className="px-4 py-2.5 font-semibold">Status</th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="status">Status</SortHeader></th>
               <th className="px-4 py-2.5"></th>
             </tr>
           </thead>
           <tbody>
-            {orders.map((o) => (
+            {view.rows.map((o) => (
               <tr key={o.id} className={`border-b border-hairline last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
                 <td className="px-4 py-2.5 font-semibold">{o.fabric}</td>
                 <td className="px-4 py-2.5 text-t2">
@@ -415,9 +475,14 @@ export function FabricOrderManager({
                 </td>
               </tr>
             ))}
-            {orders.length === 0 && <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">No fabric orders yet.</td></tr>}
+            {view.rows.length === 0 && (
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">
+                {orders.length === 0 ? "No fabric orders yet." : "No orders match these filters."}
+              </td></tr>
+            )}
           </tbody>
         </table>
+        </div>
       </Card>
     </>
   );

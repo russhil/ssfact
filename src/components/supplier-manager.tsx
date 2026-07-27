@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupplier, updateSupplier } from "@/lib/actions";
-import { Card, Badge } from "@/components/ui";
+import { Card, Badge, SearchInput } from "@/components/ui";
 import { LookupSelect } from "@/components/masters/lookup-select";
 import { Plus } from "lucide-react";
 import type { LookupRow } from "@/lib/masters";
@@ -19,6 +19,12 @@ export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier
   const [address, setAddress] = useState("");
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
+  // Change 23 Part H: small today, but master lists grow — search is cheap.
+  const [q, setQ] = useState("");
+  const shown = suppliers.filter((s) => {
+    const n = q.trim().toLowerCase();
+    return !n || [s.name, s.type, s.city, s.phone, s.email].some((v) => v?.toLowerCase().includes(n));
+  });
 
   async function add() {
     if (!name.trim()) return;
@@ -48,6 +54,16 @@ export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier
         </div>
       </Card>
 
+      <>
+      {suppliers.length > 8 && (
+        <SearchInput
+          size="sm"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search supplier, city, phone…"
+          wrapClassName="mb-2 w-72"
+        />
+      )}
       <Card className="overflow-hidden p-0">
         <table className="w-full t-sm">
           <thead>
@@ -62,7 +78,7 @@ export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier
             </tr>
           </thead>
           <tbody>
-            {suppliers.map((s) => (
+            {shown.map((s) => (
               <tr key={s.id} className={`border-b border-hairline last:border-0 ${s.active ? "" : "opacity-50"}`}>
                 <td className="px-4 py-2.5 font-semibold">{s.name}</td>
                 <td className="px-4 py-2.5 text-t2">{s.type ?? "—"}</td>
@@ -80,6 +96,7 @@ export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier
           </tbody>
         </table>
       </Card>
+      </>
     </>
   );
 }

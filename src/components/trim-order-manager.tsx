@@ -6,7 +6,7 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createTrimOrder, updateTrimOrder, deleteTrimOrder, draftChallanFromTrimOrder, generateTrimPO, voidChallan } from "@/lib/actions";
-import { Card, Badge } from "@/components/ui";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
 import { num, inr } from "@/lib/format";
 import { Plus, X, FileText, Truck, Pencil, Trash2, Undo2 } from "lucide-react";
 
@@ -196,6 +196,62 @@ export function TrimOrderManager({
     await act(() => voidChallan({ id: c.id }));
   }
 
+  // Change 23 Part C — the order list's own view state.
+  const supplierNames = useMemo(
+    () => [...new Set(orders.map((o) => o.supplier).filter((x): x is string => !!x))].sort(),
+    [orders]
+  );
+  const filters: FilterDef<Order>[] = useMemo(
+    () => [
+      {
+        key: "status",
+        label: "statuses",
+        options: ["PLANNING", "SAMPLE_PENDING", "ORDER_PLACED", "RECEIVED", "DISCARDED"].map((v) => ({ value: v, label: v.replace("_", " ") })),
+        match: (o, v) => o.status === v,
+      },
+      {
+        key: "stage",
+        label: "PO stages",
+        options: ["Draft", "PO Generated", "Sent"].map((v) => ({ value: v, label: v })),
+        match: (o, v) => o.poStage === v,
+      },
+      {
+        key: "supplier",
+        label: "suppliers",
+        options: supplierNames.map((n) => ({ value: n, label: n })),
+        match: (o, v) => o.supplier === v,
+      },
+      {
+        key: "delivery",
+        label: "deliveries",
+        options: [
+          { value: "pending", label: "Pending delivery" },
+          { value: "received", label: "Fully received" },
+          { value: "short", label: "Short delivered" },
+        ],
+        match: (o, v) =>
+          v === "received" ? o.receivedQty >= o.totalQty && o.receivedQty > 0
+          : v === "short" ? o.receivedQty > 0 && o.receivedQty < o.totalQty
+          : o.receivedQty === 0,
+      },
+    ],
+    [supplierNames]
+  );
+  const view = useTableView<Order>({
+    id: "to",
+    rows: orders,
+    filters,
+    search: (o) => [o.trim, o.supplier, o.poNumber, o.remarks],
+    date: (o) => o.expectedDate ?? o.receivedDate,
+    sorts: {
+      trim: (o) => o.trim,
+      qty: (o) => o.totalQty,
+      supplier: (o) => o.supplier ?? "",
+      status: (o) => o.status,
+    },
+    sum: (o) => o.totalQty,
+  });
+
   return (
     <>
       <div ref={formRef} className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
@@ -298,23 +354,26 @@ export function TrimOrderManager({
         </Card>
       </div>
 
-      {/* order list */}
-      <Card className="mt-4 overflow-hidden p-0">
+      {/* Change 23 Part C: search, status/stage/supplier + received-vs-pending filters,
+          date range and click-to-sort — the trim mirror of the fabric order list. */}
+      <Card className="mt-4 p-5">
+        <TableToolbar view={view} filters={filters} searchPlaceholder="Search trim, supplier, PO…" dateLabel="Order date" unit="ordered" />
+        <div className="overflow-x-auto">
         <table className="w-full t-sm">
           <thead>
             <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-4 py-2.5 font-semibold">Trim</th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="trim">Trim</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">Split</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Total</th>
-              <th className="px-4 py-2.5 font-semibold">Supplier</th>
+              <th className="px-4 py-2.5 text-right"><SortHeader view={view} sortKey="qty" align="right">Total</SortHeader></th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="supplier">Supplier</SortHeader></th>
               <th className="px-4 py-2.5 font-semibold">PO</th>
               <th className="px-4 py-2.5 font-semibold">Received on</th>
-              <th className="px-4 py-2.5 font-semibold">Status</th>
+              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="status">Status</SortHeader></th>
               <th className="px-4 py-2.5"></th>
             </tr>
           </thead>
           <tbody>
-            {orders.map((o) => (
+            {view.rows.map((o) => (
               <tr key={o.id} className={`border-b border-hairline last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
                 <td className="px-4 py-2.5 font-semibold">{o.trim}</td>
                 <td className="px-4 py-2.5 text-t2">
@@ -380,9 +439,14 @@ export function TrimOrderManager({
                 </td>
               </tr>
             ))}
-            {orders.length === 0 && <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">No trim orders yet.</td></tr>}
+            {view.rows.length === 0 && (
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">
+                {orders.length === 0 ? "No trim orders yet." : "No orders match these filters."}
+              </td></tr>
+            )}
           </tbody>
         </table>
+        </div>
       </Card>
     </>
   );

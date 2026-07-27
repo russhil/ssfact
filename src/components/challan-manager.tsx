@@ -6,9 +6,9 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createChallan, addChallanLine, lockChallan, voidChallan } from "@/lib/actions";
-import { Card, Badge } from "@/components/ui";
+import { Card, Badge, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
-import { Plus, X, Printer } from "lucide-react";
+import { X, Printer } from "lucide-react";
 
 type Opt = { id: number; name: string };
 type JobOpt = { id: number; label: string };
@@ -66,8 +66,6 @@ export function ChallanManager({
   // Live derived kind + the "attach a job card" warning (Change 17 Part C).
   const draftKind = kindOf(filled.some((l) => l.kind === "fabric"), filled.some((l) => l.kind === "trim"));
   const needsJobCard = (draftKind === "TRIM" || draftKind === "COMBINED") && !jobCardId;
-
-  const shownChallans = challans.filter((c) => c.direction === tab);
 
   async function save(lockAfter: boolean) {
     if (!counterparty || filled.length === 0) return;
@@ -239,36 +237,102 @@ export function ChallanManager({
         </Card>
       </div>
 
-      {/* existing challans */}
-      <Card className="mt-3.5 p-5">
-        <h3 className="mb-3 t-body font-bold">{tab === "OUTWARD" ? "Outward" : "Inward"} challans <span className="font-medium text-faint">· {shownChallans.length}</span></h3>
-        {shownChallans.length === 0 ? (
-          <p className="py-6 text-center t-sm text-muted">No challans yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full t-sm">
-              <thead>
-                <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
-                  <th className="px-2 py-2 font-semibold">No / Status</th>
-                  <th className="px-2 py-2 font-semibold">Kind</th>
-                  <th className="px-2 py-2 font-semibold">Date</th>
-                  <th className="px-2 py-2 font-semibold">{tab === "INWARD" ? "Supplier" : "Vendor"}</th>
-                  <th className="px-2 py-2 font-semibold">Job SI</th>
-                  <th className="px-2 py-2 text-right font-semibold">Lines</th>
-                  <th className="px-2 py-2 text-right font-semibold">Qty</th>
-                  <th className="px-2 py-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {shownChallans.map((c) => (
-                  <ChallanRowItem key={c.id} c={c} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+      {/* Change 23 Part B: the busiest ledger in the tool finally gets real slicing —
+          search, status/kind/counterparty filters, a date range and click-to-sort.
+          The INWARD/OUTWARD tab stays; everything else narrows within it. */}
+      <ChallanList rows={challans.filter((c) => c.direction === tab)} tab={tab} />
     </div>
+  );
+}
+
+const KINDS = ["FABRIC", "TRIM", "COMBINED"];
+
+function ChallanList({ rows, tab }: { rows: ChallanRow[]; tab: "INWARD" | "OUTWARD" }) {
+  const parties = useMemo(
+    () => [...new Set(rows.map((r) => r.counterparty))].filter((x) => x && x !== "—").sort(),
+    [rows]
+  );
+
+  const filters: FilterDef<ChallanRow>[] = useMemo(
+    () => [
+      {
+        key: "status",
+        label: "statuses",
+        // Voided challans are noise in the daily view — visible, but only on request.
+        initial: "LIVE",
+        options: [
+          { value: "LIVE", label: "Draft + Locked" },
+          { value: "DRAFT", label: "Draft" },
+          { value: "LOCKED", label: "Locked" },
+          { value: "VOID", label: "Void" },
+        ],
+        match: (r, v) => (v === "LIVE" ? r.status !== "VOID" : r.status === v),
+      },
+      { key: "kind", label: "kinds", options: KINDS.map((k) => ({ value: k, label: k })), match: (r, v) => r.kind === v },
+      {
+        key: "party",
+        label: tab === "INWARD" ? "suppliers" : "vendors",
+        options: parties.map((p) => ({ value: p, label: p })),
+        match: (r, v) => r.counterparty === v,
+      },
+    ],
+    [parties, tab]
+  );
+
+  const view = useTableView<ChallanRow>({
+    id: "ch",
+    rows,
+    filters,
+    search: (r) => [r.challanNo, r.counterparty, r.jobCardSiNo, r.note],
+    date: (r) => r.date,
+    sorts: {
+      date: (r) => new Date(r.date),
+      no: (r) => r.challanNo ?? "",
+      status: (r) => r.status,
+      party: (r) => r.counterparty,
+      qty: (r) => r.totalQty,
+    },
+    defaultSort: { key: "date", dir: "desc" },
+    sum: (r) => r.totalQty,
+  });
+
+  return (
+    <Card className="mt-3.5 p-5">
+      <h3 className="mb-3 t-body font-bold">{tab === "OUTWARD" ? "Outward" : "Inward"} challans</h3>
+      <TableToolbar
+        view={view}
+        filters={filters}
+        searchPlaceholder="Search challan no, party, SI, note…"
+        dateLabel="Challan date"
+      />
+      {view.rows.length === 0 ? (
+        <p className="py-6 text-center t-sm text-muted">
+          {rows.length === 0 ? "No challans yet." : "No challans match these filters."}
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full t-sm">
+            <thead>
+              <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
+                <th className="px-2 py-2"><SortHeader view={view} sortKey="no">No / Status</SortHeader></th>
+                <th className="px-2 py-2 font-semibold">Kind</th>
+                <th className="px-2 py-2"><SortHeader view={view} sortKey="date">Date</SortHeader></th>
+                <th className="px-2 py-2"><SortHeader view={view} sortKey="party">{tab === "INWARD" ? "Supplier" : "Vendor"}</SortHeader></th>
+                <th className="px-2 py-2 font-semibold">Job SI</th>
+                <th className="px-2 py-2 text-right font-semibold">Lines</th>
+                <th className="px-2 py-2 text-right"><SortHeader view={view} sortKey="qty" align="right">Qty</SortHeader></th>
+                <th className="px-2 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {view.rows.map((c) => (
+                <ChallanRowItem key={c.id} c={c} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -278,8 +342,9 @@ function ChallanRowItem({ c }: { c: ChallanRow }) {
   async function doLock() { setBusy(true); try { await lockChallan({ id: c.id }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
   async function doVoid() { if (!confirm(`Void ${c.challanNo} and reverse its stock?`)) return; setBusy(true); try { await voidChallan({ id: c.id }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
   const isDraft = c.status === "DRAFT";
+  const dead = c.status === "VOID"; // Change 23 B: shown when asked for, always dimmed
   return (
-    <tr className={`border-b border-hairline last:border-0 ${isDraft ? "bg-warn-soft" : ""}`}>
+    <tr className={`border-b border-hairline last:border-0 ${isDraft ? "bg-warn-soft" : ""} ${dead ? "opacity-55" : ""}`}>
       <td className="px-2 py-2">
         <Link href={`/challan-doc/${c.id}`} className="font-bold text-primary-ink hover:underline">{c.challanNo ?? `Draft #${c.id}`}</Link>{" "}
         <Badge tone={c.status === "LOCKED" ? "ok" : c.status === "VOID" ? "danger" : "warn"}>{c.status}</Badge>
@@ -290,7 +355,7 @@ function ChallanRowItem({ c }: { c: ChallanRow }) {
       <td className="px-2 py-2">{c.counterparty}</td>
       <td className="px-2 py-2">{c.jobCardSiNo ? <Link href={`/job-cards/${c.jobCardId}`} className="text-primary-ink hover:underline">{c.jobCardSiNo}</Link> : <span className="text-faint">—</span>}</td>
       <td className="px-2 py-2 text-right tnum">{c.lineCount}</td>
-      <td className="px-2 py-2 text-right font-semibold tnum">{num(c.totalQty)}</td>
+      <td className={`px-2 py-2 text-right font-semibold tnum ${dead ? "line-through" : ""}`}>{num(c.totalQty)}</td>
       <td className="px-2 py-2 text-right">
         <div className="flex items-center justify-end gap-2">
           {c.status === "DRAFT" && <button onClick={doLock} disabled={busy} className="t-xs font-semibold text-primary-ink hover:underline disabled:opacity-40">Lock & post</button>}
