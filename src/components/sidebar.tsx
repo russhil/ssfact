@@ -20,6 +20,7 @@ import {
   SlidersHorizontal,
   Truck,
   Users,
+  Sparkles,
 } from "lucide-react";
 import { logout } from "@/lib/auth-actions";
 import type { Role } from "@/lib/session";
@@ -53,6 +54,9 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/job-cards", label: "Job Cards", icon: ClipboardList, roles: ["ADMIN", "STAFF", "VENDOR"], count: "jobs" },
       { href: "/production-orders", label: "Production", icon: PackageCheck, roles: ["ADMIN"] },
+      // Change 20: finishing given out as job-work, between the machine and dispatch —
+      // which is where it sits on the floor.
+      { href: "/finishing", label: "Finishing", icon: Sparkles, roles: STAFF },
       { href: "/dispatch", label: "Dispatch", icon: Truck, roles: STAFF },
     ],
   },

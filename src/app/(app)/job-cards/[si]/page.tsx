@@ -14,6 +14,7 @@ import { AddCuttingLayer } from "@/components/add-cutting-layer";
 import { DispatchActions } from "@/components/dispatch-actions";
 import { JobCardActions } from "@/components/job-card-actions";
 import { LayerActions } from "@/components/layer-actions";
+import { FinishingPanel } from "@/components/finishing-panel";
 import { JobTrimChallanButton } from "@/components/job-trim-challan-button";
 import { num, inr, fmtDate, pct } from "@/lib/format";
 import { STAGE_LABEL, stageTone, normStage } from "@/lib/job-labels";
@@ -42,6 +43,13 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   const masterList = canEdit
     ? await db.cuttingMaster.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { name: true } })
     : [];
+  // Change 20: this card's finishing job-work (optional — a card may have none).
+  const finishingJobs = await db.finishingJob.findMany({
+    where: { jobCardId: j.id },
+    include: { vendor: { select: { name: true } }, layers: { select: { layerNo: true, label: true } } },
+    orderBy: { id: "asc" },
+  });
+
   // Change 22 Part D: the layer editor lets a lay be re-pointed at a different vendor.
   const vendorNames = canEdit
     ? (await db.vendor.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { name: true } })).map((v) => v.name)
@@ -429,6 +437,27 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         </Card>
       )}
 
+      {/* Change 20 Part C.1: finishing given out as job-work, per layer, per vendor.
+          The PRINT/LASER/EMB flags above stay as quick planning; these are the record. */}
+      <FinishingPanel
+        jobCardId={j.id}
+        siNo={j.siNo}
+        canEdit={canEdit}
+        canSeeCost={canSeeCost}
+        vendors={vendorNames}
+        layers={j.layers.map((l) => ({ id: l.id, label: l.label || `Layer ${l.layerNo}` }))}
+        rows={finishingJobs.map((f) => ({
+          id: f.id, docNo: f.docNo, process: f.process as string, status: f.status as string,
+          vendor: f.vendor.name,
+          layers: f.layers.map((x) => x.label || `L${x.layerNo}`),
+          issuedDate: f.issuedDate.toISOString(),
+          receivedDate: f.receivedDate ? f.receivedDate.toISOString() : null,
+          qtyOut: f.qtyOut, qtyBack: f.qtyBack,
+          rate: canSeeCost ? f.rate : null,
+          billNo: f.billNo, note: f.note,
+        }))}
+      />
+
       {/* Change 17 Part C: challans raised against this job card */}
       {canEdit && (
         <Card className="mt-3.5 p-5">
@@ -663,7 +692,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <JobTrimChallanButton jobCardId={j.id} />
               <span className="t-xs text-faint">
-                Trims leave stock only when an outward challan is locked. Need more mid-job? Raise another one.
+                
               </span>
             </div>
           )}

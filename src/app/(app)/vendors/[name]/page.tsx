@@ -4,6 +4,9 @@ import { getVendorByName, getVendorLayers, getVendorChallans, type VendorLayer }
 import { jobItem, jobStyle } from "@/lib/job-display";
 import { Card, Badge } from "@/components/ui";
 import { VendorDispatchLog, type VendorDispatchEvent } from "@/components/vendor-dispatch-log";
+import { FinishingLog } from "@/components/finishing-log";
+import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth";
 import { num, pct, fmtDate } from "@/lib/format";
 import { ArrowLeft } from "lucide-react";
 
@@ -21,7 +24,19 @@ export default async function VendorDetail({ params }: { params: Promise<{ name:
   const vendor = await getVendorByName(vendorName);
   if (!vendor) notFound();
 
-  const [layers, challans] = await Promise.all([getVendorLayers(vendor.id), getVendorChallans(vendor.id)]);
+  const [layers, challans, finishing] = await Promise.all([
+    getVendorLayers(vendor.id),
+    getVendorChallans(vendor.id),
+    // Change 20 Part C.2 — the owner's headline ask: every job-work given to this
+    // vendor across all cards, with bills and quantities sorted.
+    db.finishingJob.findMany({
+      where: { vendorId: vendor.id },
+      include: { jobCard: { select: { id: true, siNo: true } } },
+      orderBy: { issuedDate: "desc" },
+    }),
+  ]);
+  const me = await getCurrentUser();
+  const canSeeCost = me?.role === "ADMIN";
 
   // roll-ups across this vendor's layers
   const totalCut = layers.reduce((a, l) => a + l.cells.reduce((x, c) => x + c.qty, 0), 0);
@@ -64,7 +79,7 @@ export default async function VendorDetail({ params }: { params: Promise<{ name:
 
       {/* layer-by-layer */}
       {layers.length === 0 ? (
-        <Card className="p-6 text-center t-body text-muted">No cutting layers issued to this vendor yet.</Card>
+        <Card className="p-6 text-center t-body text-muted">No cutting layers issued to this vendor.</Card>
       ) : (
         <div className="space-y-3">
           {layers.map((l) => (
@@ -78,6 +93,23 @@ export default async function VendorDetail({ params }: { params: Promise<{ name:
         <h3 className="mb-3 t-body font-bold">Dispatch Log <span className="font-medium text-faint">· finished garments returned</span></h3>
         <VendorDispatchLog events={events} layers={layerFilterOpts} />
       </Card>
+
+      {/* Change 20 Part C.2: all finishing job-work given to this vendor */}
+      <FinishingLog
+        id="vjw"
+        showVendor={false}
+        canSeeCost={canSeeCost}
+        title="Finishing job-work"
+        subtitle="print · embroidery · wash · sublimation"
+        rows={finishing.map((f) => ({
+          id: f.id, docNo: f.docNo, process: f.process as string, status: f.status as string,
+          vendor: vendor.name, siNo: f.jobCard.siNo, jobCardId: f.jobCard.id,
+          issuedDate: f.issuedDate.toISOString(),
+          receivedDate: f.receivedDate ? f.receivedDate.toISOString() : null,
+          qtyOut: f.qtyOut, qtyBack: f.qtyBack,
+          rate: canSeeCost ? f.rate : null, billNo: f.billNo,
+        }))}
+      />
 
       {/* materials challans (unchanged) */}
       {challans.length > 0 && (

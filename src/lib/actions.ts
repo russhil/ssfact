@@ -3010,3 +3010,207 @@ export async function adjustTrimStock(input: {
   revalidatePath("/");
   return { ok: true, delta, current: Math.round((t.currentStock + delta) * 100) / 100 };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Change 20 — finishing as job-work (JW- series)
+//
+// A hand-off document per finishing step: which vendor, which layers, how many
+// pieces out, how many came back, at what rate, against which bill. It mirrors
+// addDispatch (event → layers) and reuses the DC-/CH- series idiom verbatim.
+//
+// ★ A tracking ledger, not a stock ledger. Nothing below calls
+// postMaterialMovement or touches dispatchedQty — that is deliberate and load
+// bearing. Finished garments live in the ERP (Change 21); fabric and trims were
+// deducted upstream (Change 19). Using it is entirely OPTIONAL: a card that never
+// raises a JW- behaves exactly as it did before.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type FinishingProcessName = "PRINT" | "EMBROIDERY" | "WASH" | "SUBLIMATION" | "LASER" | "OTHER";
+
+function revalidateFinishing(jobCardId?: number, vendorName?: string | null) {
+  revalidatePath("/finishing");
+  revalidatePath("/board");
+  if (jobCardId) revalidatePath(`/job-cards/${jobCardId}`);
+  if (vendorName) revalidatePath(`/vendors/${encodeURIComponent(vendorName)}`);
+  revalidatePath("/vendors");
+}
+
+/**
+ * Change 20 B.1 — give a card's layer(s) out for finishing. Allocates the JW- number
+ * inside the transaction so the number and the row can never drift apart.
+ */
+export async function createFinishingJob(input: {
+  jobCardId: number;
+  vendorName: string;
+  process: FinishingProcessName;
+  layerIds?: number[];
+  qtyOut?: number;
+  lines?: { colour?: string | null; size: string; qtyOut: number }[];
+  rate?: number | null;
+  billNo?: string | null;
+  issuedDate?: string;
+  note?: string | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const canSeeCost = user.role === "ADMIN"; // rate is cost data, same gate as MRP
+
+  const job = await db.jobCard.findUnique({ where: { id: input.jobCardId }, select: { id: true, siNo: true } });
+  if (!job) throw new Error("Job card not found");
+
+  const lines = (input.lines ?? []).filter((l) => l.qtyOut > 0);
+  const qtyOut = lines.length ? lines.reduce((a, l) => a + l.qtyOut, 0) : input.qtyOut ?? 0;
+  if (qtyOut <= 0) throw new Error("Give a quantity to send for finishing");
+
+  const created = await db.$transaction(async (tx) => {
+    const vendor = await tx.vendor.findUnique({ where: { name: input.vendorName.trim() } });
+    if (!vendor) throw new Error(`No vendor named "${input.vendorName}" — add the vendor first`);
+
+    // Same series idiom as addDispatch (DC-) and lockChallan (CH-). Do not invent a new one.
+    const year = new Date().getFullYear();
+    const prefix = `JW-${year}-`;
+    const existing = await tx.finishingJob.findMany({
+      where: { docNo: { startsWith: prefix } },
+      select: { docNo: true },
+    });
+    const maxN = existing.reduce(
+      (m, e) => Math.max(m, parseInt((e.docNo ?? "").slice(prefix.length), 10) || 0),
+      0
+    );
+    const docNo = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+
+    return tx.finishingJob.create({
+      data: {
+        docNo,
+        process: input.process as any,
+        status: "OPEN",
+        vendorId: vendor.id,
+        jobCardId: job.id,
+        issuedDate: input.issuedDate ? new Date(input.issuedDate) : new Date(),
+        qtyOut,
+        qtyBack: 0,
+        rate: canSeeCost ? input.rate ?? null : null,
+        billNo: input.billNo ?? null,
+        note: input.note ?? null,
+        ...(input.layerIds?.length ? { layers: { connect: input.layerIds.map((id) => ({ id })) } } : {}),
+        ...(lines.length
+          ? { lines: { create: lines.map((l) => ({ colour: l.colour ? colorKey(l.colour) : null, size: l.size, qtyOut: l.qtyOut })) } }
+          : {}),
+      } as any,
+      select: { id: true, docNo: true },
+    });
+  });
+
+  revalidateFinishing(job.id, input.vendorName);
+  return created;
+}
+
+/**
+ * Change 20 B.2 — log pieces coming back. Partial receipts accumulate; over- and
+ * short-returns are real house data and are never clamped (same rule as dispatch).
+ */
+export async function receiveFinishingJob(input: {
+  id: number;
+  qtyBack: number;
+  lines?: { id: number; qtyBack: number }[];
+  receivedDate?: string;
+  billNo?: string | null;
+  note?: string | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const jw = await db.finishingJob.findUnique({
+    where: { id: input.id },
+    include: { vendor: { select: { name: true } } },
+  });
+  if (!jw) throw new Error("Finishing job not found");
+  if (!input.qtyBack) throw new Error("Give a quantity received back");
+
+  const total = Math.round((jw.qtyBack + input.qtyBack) * 100) / 100;
+  const now = input.receivedDate ? new Date(input.receivedDate) : new Date();
+
+  await db.$transaction(async (tx) => {
+    for (const l of input.lines ?? []) {
+      const line = await tx.finishingJobLine.findUnique({ where: { id: l.id }, select: { qtyBack: true, jobId: true } });
+      if (!line || line.jobId !== jw.id) continue;
+      await tx.finishingJobLine.update({ where: { id: l.id }, data: { qtyBack: line.qtyBack + l.qtyBack } });
+    }
+    await tx.finishingJob.update({
+      where: { id: jw.id },
+      data: {
+        qtyBack: total,
+        status: total >= jw.qtyOut ? "CLOSED" : "OPEN",
+        receivedDate: jw.receivedDate ?? now,
+        ...(input.billNo !== undefined ? { billNo: input.billNo } : {}),
+        ...(input.note !== undefined ? { note: input.note } : {}),
+      } as any,
+    });
+  });
+
+  revalidateFinishing(jw.jobCardId, jw.vendor.name);
+  return { ok: true, docNo: jw.docNo, qtyBack: total, closed: total >= jw.qtyOut };
+}
+
+/**
+ * Change 20 B.3 — edit an OPEN job that has no receipts yet. Change 22 Part F is
+ * explicit that finishing must ship WITH its undo rather than repeat the one-way-door
+ * pattern the whole of Change 22 exists to fix; this and deleteFinishingJob are it.
+ */
+export async function updateFinishingJob(input: {
+  id: number;
+  process?: FinishingProcessName;
+  vendorName?: string;
+  qtyOut?: number;
+  rate?: number | null;
+  billNo?: string | null;
+  issuedDate?: string;
+  note?: string | null;
+  layerIds?: number[];
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const canSeeCost = user.role === "ADMIN";
+  const jw = await db.finishingJob.findUnique({
+    where: { id: input.id },
+    include: { vendor: { select: { name: true } } },
+  });
+  if (!jw) throw new Error("Finishing job not found");
+  if (jw.qtyBack > 0) throw new Error("Pieces have already come back on this job — it stays as history");
+
+  await db.$transaction(async (tx) => {
+    let vendorId: number | undefined;
+    if (input.vendorName) {
+      const v = await tx.vendor.findUnique({ where: { name: input.vendorName.trim() } });
+      if (!v) throw new Error(`No vendor named "${input.vendorName}"`);
+      vendorId = v.id;
+    }
+    await tx.finishingJob.update({
+      where: { id: jw.id },
+      data: {
+        ...(input.process ? { process: input.process as any } : {}),
+        ...(vendorId ? { vendorId } : {}),
+        ...(input.qtyOut != null ? { qtyOut: input.qtyOut } : {}),
+        ...(canSeeCost && input.rate !== undefined ? { rate: input.rate } : {}),
+        ...(input.billNo !== undefined ? { billNo: input.billNo } : {}),
+        ...(input.issuedDate ? { issuedDate: new Date(input.issuedDate) } : {}),
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        ...(input.layerIds ? { layers: { set: input.layerIds.map((id) => ({ id })) } } : {}),
+      } as any,
+    });
+  });
+
+  revalidateFinishing(jw.jobCardId, input.vendorName ?? jw.vendor.name);
+  return { ok: true };
+}
+
+/** Change 20 B.3 — delete an OPEN job with no receipts. Moves no stock (nothing to reverse). */
+export async function deleteFinishingJob(input: { id: number }) {
+  await requireRole("ADMIN", "STAFF");
+  const jw = await db.finishingJob.findUnique({
+    where: { id: input.id },
+    include: { vendor: { select: { name: true } } },
+  });
+  if (!jw) throw new Error("Finishing job not found");
+  if (jw.qtyBack > 0) throw new Error("Pieces have already come back on this job — it stays as history");
+
+  await db.finishingJob.delete({ where: { id: jw.id } });
+  revalidateFinishing(jw.jobCardId, jw.vendor.name);
+  return { ok: true, docNo: jw.docNo };
+}

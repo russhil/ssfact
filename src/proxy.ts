@@ -14,6 +14,10 @@ const ROUTE_ROLES: { prefix: string; roles: Role[] }[] = [
   { prefix: "/vendors", roles: ["ADMIN", "STAFF"] },
   { prefix: "/inventory", roles: ["ADMIN", "STAFF"] },
   { prefix: "/dispatch", roles: ["ADMIN", "STAFF"] },
+  // Change 20: the finishing index lists every vendor's job-work on one screen, so it
+  // gets the same staff-only gate as /board and /vendors. The sidebar hides it from a
+  // VENDOR login, but the sidebar is not a permission model — a typed URL is.
+  { prefix: "/finishing", roles: ["ADMIN", "STAFF"] },
   { prefix: "/trims", roles: ["ADMIN", "STAFF", "TRIMS"] },
   { prefix: "/pending-trims", roles: ["ADMIN", "STAFF", "TRIMS"] },
   { prefix: "/suppliers", roles: ["ADMIN", "STAFF"] },
@@ -59,6 +63,8 @@ export async function proxy(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:png|svg|jpg|jpeg|gif|webp)$).*)",
+    // site.webmanifest is public branding metadata — gating it makes the browser
+    // fetch fail and drops the install icons for no security benefit.
+    "/((?!api|_next/static|_next/image|favicon.ico|site.webmanifest|.*\\.(?:png|svg|jpg|jpeg|gif|webp)$).*)",
   ],
 };
