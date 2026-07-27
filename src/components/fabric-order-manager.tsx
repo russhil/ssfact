@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick, voidChallan } from "@/lib/actions";
 import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
-import { Plus, Check, X, FileText, Truck, Pencil, Trash2, Undo2 } from "lucide-react";
+import { Plus, Check, X, FileText, Truck, Pencil, Trash2, Undo2, CornerUpLeft } from "lucide-react";
 
 type Line = { colour: string; qty: number };
 type ChallanLink = { id: number; challanNo: string | null; status: string };
@@ -467,6 +467,10 @@ export function FabricOrderManager({
                             <>
                               <Link href={`/challan-doc/${c.id}`} title="Edit this challan" className="text-t3 hover:text-primary-ink"><Pencil size={12} /></Link>
                               <button onClick={() => reverseReceipt(c)} disabled={busy} title="Reverse this receipt" className="text-t3 hover:text-danger disabled:opacity-40"><Undo2 size={12} /></button>
+                              {/* Change 25 Part D. Distinct from Reverse: that says the receipt
+                                  never happened; this sends accepted goods back and leaves the PO
+                                  received. The quantities live on the document, so it links there. */}
+                              <Link href={`/challan-doc/${c.id}`} title="Return to supplier" className="text-t3 hover:text-warn"><CornerUpLeft size={12} /></Link>
                             </>
                           )}
                         </span>

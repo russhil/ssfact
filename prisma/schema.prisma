@@ -1007,6 +1007,18 @@ model MaterialChallan {
   lines     MaterialChallanLine[]
   createdAt DateTime              @default(now())
 
+  // Change 25 Part D — purchase return. A return is an OUTWARD challan whose
+  // counterparty is a supplier, pointing back at the inward challan the goods
+  // arrived on. It is NOT a void: voiding says the receipt never happened and
+  // rolls the PO back; a return says we received the goods, kept them, and later
+  // sent them back — so the PO stays RECEIVED and this is a new movement.
+  // Its number comes from its own CH-RET- series (see lockChallan).
+  returnOf         MaterialChallan?  @relation("ChallanReturns", fields: [returnOfChallanId], references: [id], onDelete: SetNull)
+  returnOfChallanId Int?
+  returns          MaterialChallan[] @relation("ChallanReturns")
+  /** DEFECT | WRONG_ITEM | EXCESS | OTHER — validated in the action, like AdjustReason. */
+  returnReason     String?
+
   // Change 25 Part A — audit stamps.
   updatedAt   DateTime @default(now()) @updatedAt
   createdBy   User?    @relation("MaterialChallanCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)

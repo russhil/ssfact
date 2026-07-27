@@ -2166,7 +2166,13 @@ export async function lockChallan(input: { id: number }) {
   if (c.lines.length === 0) throw new Error("Add at least one line before locking");
 
   const year = new Date().getFullYear();
-  const prefix = c.direction === "INWARD" ? `CH-IN-${year}-` : `CH-OUT-${year}-`;
+  // Change 25 Part D: a purchase return is outward, but it gets its own CH-RET-
+  // series so a debit note is never mistaken for an ordinary issue to a vendor.
+  const prefix = c.returnOfChallanId
+    ? `CH-RET-${year}-`
+    : c.direction === "INWARD"
+      ? `CH-IN-${year}-`
+      : `CH-OUT-${year}-`;
   const existing = await db.materialChallan.findMany({ where: { challanNo: { startsWith: prefix } }, select: { challanNo: true } });
   const maxN = existing.reduce((m, e) => Math.max(m, parseInt(e.challanNo!.slice(prefix.length), 10) || 0), 0);
   const challanNo = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
@@ -2412,6 +2418,115 @@ export async function draftChallanFromFabricOrder(input: { id: number }) {
   );
   revalidatePath("/fabric-orders");
   revalidatePath("/challans");
+  return { id };
+}
+
+/* ── Change 25 Part D — purchase returns (CH-RET-YYYY-NNN) ──
+ *
+ * Inward challans could be VOIDED, which says "this receipt never happened": it
+ * reverses the postings and rolls the PO back to ORDER_PLACED. There was no way to
+ * record the different, common event — the goods were received and accepted, and a
+ * week later a defective lot went back to the supplier.
+ *
+ * A return is not a rewrite of history, it is a new outward movement against the
+ * supplier. So: a fresh OUTWARD challan on its own CH-RET- series, linked to the
+ * inward challan it came from, and the PO is left RECEIVED because the goods really
+ * were received. Locking it posts OUT through the shared ledger like anything else,
+ * and it can itself be voided if the return was keyed in error.
+ */
+
+export type ReturnReason = "DEFECT" | "WRONG_ITEM" | "EXCESS" | "OTHER";
+const RETURN_REASONS: ReturnReason[] = ["DEFECT", "WRONG_ITEM", "EXCESS", "OTHER"];
+
+/**
+ * Draft a return against a locked inward challan. Lines default to what was received
+ * and may be reduced (a partial return) but never exceed it — you cannot send back
+ * more than arrived on that document.
+ */
+export async function createPurchaseReturn(input: {
+  inwardChallanId: number;
+  lines: { lineId: number; qty: number }[];
+  reason: ReturnReason;
+  note?: string | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  if (!RETURN_REASONS.includes(input.reason)) throw new Error("Pick a return reason");
+
+  const src = await db.materialChallan.findUnique({
+    where: { id: input.inwardChallanId },
+    include: { lines: true, supplier: { select: { id: true, name: true } } },
+  });
+  if (!src) throw new Error("Challan not found");
+  if (src.direction !== "INWARD") throw new Error("Only an inward challan can be returned to a supplier");
+  if (src.status !== "LOCKED" || src.voidedAt)
+    throw new Error("Only a locked, live inward challan can be returned — void the draft instead");
+  if (!src.supplierId) throw new Error("This challan has no supplier to return the goods to");
+
+  const byId = new Map(src.lines.map((l) => [l.id, l]));
+  const lines: {
+    fabricId: number | null;
+    colour: string | null;
+    trimItemId: number | null;
+    qty: number;
+    unit: string | null;
+    rate: number | null;
+  }[] = [];
+  for (const r of input.lines) {
+    if (!r.qty || r.qty <= 0) continue;
+    const orig = byId.get(r.lineId);
+    if (!orig) throw new Error("That line is not on this challan");
+    if (r.qty > orig.qty + 1e-9)
+      throw new Error(`Cannot return ${num(r.qty, 2)} of a line that received ${num(orig.qty, 2)}`);
+    lines.push({
+      fabricId: orig.fabricId,
+      colour: orig.colour,
+      trimItemId: orig.trimItemId,
+      qty: r.qty,
+      unit: orig.unit,
+      rate: orig.rate,
+    });
+  }
+  if (lines.length === 0) throw new Error("Enter a quantity on at least one line");
+
+  const id = await db.$transaction(async (tx) => {
+    const c = await tx.materialChallan.create({
+      data: {
+        direction: "OUTWARD",
+        status: "DRAFT",
+        kind: deriveChallanKind(lines) as any,
+        supplierId: src.supplierId,
+        vendorId: null,
+        jobCardId: null,
+        // Deliberately NOT carrying fabricOrderId/trimOrderId across: the PO was
+        // received and stays received. Linking the return to the order would make
+        // lockChallan re-stamp its status, which is exactly what must not happen.
+        returnOfChallanId: src.id,
+        returnReason: input.reason,
+        note: input.note ?? `Return against ${src.challanNo ?? `challan #${src.id}`}`,
+        createdById: user.userId,
+      } as any,
+    });
+    for (const l of lines) {
+      await tx.materialChallanLine.create({ data: { challanId: c.id, ...l } });
+    }
+    await logAudit(tx, user, {
+      action: "createPurchaseReturn",
+      entity: "MaterialChallan",
+      entityId: c.id,
+      entityLabel: `return of ${src.challanNo ?? `#${src.id}`}`,
+      summary: `Drafted a return to ${src.supplier?.name ?? "supplier"} against ${src.challanNo ?? `challan #${src.id}`} — ${lines.length} line(s), ${input.reason}`,
+      meta: {
+        returnOfChallanId: src.id,
+        returnOfChallanNo: src.challanNo,
+        reason: input.reason,
+        lines: lines.map((l) => ({ fabricId: l.fabricId, trimItemId: l.trimItemId, colour: l.colour, qty: l.qty })),
+      },
+    });
+    return c.id;
+  });
+
+  revalidatePath("/challans");
+  revalidatePath(`/challan-doc/${src.id}`);
   return { id };
 }
 

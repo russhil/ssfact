@@ -424,6 +424,10 @@ export async function getChallan(id: number) {
       // Change 18 Part C: the PO this challan received against ("For PO-2026-007").
       fabricOrder: { select: { id: true, poNumber: true } },
       trimOrder: { select: { id: true, poNumber: true } },
+      // Change 25 Part D: both ends of a purchase return — the inward challan this
+      // one sends back, and any returns already raised against this one.
+      returnOf: { select: { id: true, challanNo: true } },
+      returns: { select: { id: true, challanNo: true, status: true, voidedAt: true, returnReason: true } },
       lines: { include: { fabric: true, trimItem: true }, orderBy: { id: "asc" } },
     },
   });
@@ -449,6 +453,18 @@ export async function getChallan(id: number) {
       : c.trimOrder
         ? { kind: "TRIM" as const, id: c.trimOrder.id, poNumber: c.trimOrder.poNumber }
         : null,
+    // Change 25 Part D
+    returnOf: c.returnOf ? { id: c.returnOf.id, challanNo: c.returnOf.challanNo } : null,
+    returnReason: c.returnReason,
+    returns: c.returns.map((r) => ({
+      id: r.id,
+      challanNo: r.challanNo,
+      status: (r.voidedAt ? "VOID" : r.status) as string,
+      reason: r.returnReason,
+    })),
+    // Change 25 Part D: a purchase return is OUTWARD but goes to a supplier, so the
+    // document's "To" label can no longer be inferred from direction alone.
+    counterpartyKind: c.supplier ? ("SUPPLIER" as const) : c.vendor ? ("VENDOR" as const) : null,
     counterparty: cp
       ? {
           name: cp.name,
