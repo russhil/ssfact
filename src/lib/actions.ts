@@ -12,6 +12,7 @@ import { getJobTrimIssues } from "@/lib/jobs";
 import { notifyAfter, ownerRecipients } from "@/lib/notify";
 import { getLowStockAlerts } from "@/lib/insights";
 import { getJobQuality } from "@/lib/quality";
+import { withIdempotency } from "@/lib/idempotency";
 import { getMasterRefs, refsMessage, type MasterKind } from "@/lib/master-refs";
 import { revalidatePath } from "next/cache";
 
@@ -673,6 +674,13 @@ export type FabricActualsInput = {
   arrangedBy?: string | null;
   challan?: string | null;
   note?: string;
+  /**
+   * Change 36 Part 10 — accepted for symmetry with the other queued writes, but
+   * deliberately NOT recorded: this action nets the ledger to USED, so replaying it with
+   * the same figures computes delta 0 and posts nothing. It is idempotent by
+   * construction and a record would only add a row that changes no behaviour.
+   */
+  idemKey?: string | null;
 };
 
 export async function recordFabricActuals(input: FabricActualsInput) {
@@ -1001,8 +1009,10 @@ export async function addCuttingLayer(input: {
   fabricByColour?: { colour: string; issued?: number | null; used?: number | null }[] | null;
   // Change 36 Part 8: which fabric lot this lay was cut from.
   fabricLotNo?: string | null;
+  // Change 36 Part 10: replay key for a lay recorded offline.
+  idemKey?: string | null;
 }) {
-  await requireRole("ADMIN", "STAFF");
+  const actor = await requireRole("ADMIN", "STAFF");
   // Change 26 E: sizes are hand-typed per lay now, so canonicalise them the way colours
   // already were — otherwise " xl" and "XL" become two columns on the card forever.
   // Deliberately NOT whitelisted against SIZE_ORDER: the client does invent sizes.
@@ -1048,7 +1058,8 @@ export async function addCuttingLayer(input: {
   const layerIssued = perColour ? sumOf("issued") : (input.fabricIssued ?? null);
   const layerUsed = perColour ? sumOf("used") : (input.fabricMtr ?? null);
 
-  await db.$transaction(async (tx) => {
+  await db.$transaction(async (tx) =>
+    withIdempotency(tx, actor, input.idemKey, "addCuttingLayer", async () => {
     const layerMasterId = input.cuttingMaster
       ? await resolveCuttingMaster(tx, input.cuttingMaster)
       : job.cuttingMasterId;
@@ -1139,7 +1150,9 @@ export async function addCuttingLayer(input: {
     }
 
     await tx.jobCard.update({ where: { id: job.id }, data: { cutQty: { increment: layerTotal } } as any });
-  });
+    return { ok: true, layerNo };
+    })
+  );
 
   revalidatePath(`/job-cards/${job.id}`);
   revalidatePath("/inventory");
@@ -4640,6 +4653,8 @@ export async function createInspection(input: {
   reworkQty?: number | null;
   note?: string | null;
   defects?: { defectTypeId: number; qty: number }[];
+  // Change 36 Part 10: replay key for an inspection recorded offline.
+  idemKey?: string | null;
 }) {
   const user = await requireRole("ADMIN", "STAFF");
   const job = await db.jobCard.findUnique({ where: { id: input.jobCardId }, select: { id: true, siNo: true } });
@@ -4655,7 +4670,8 @@ export async function createInspection(input: {
 
   const result = reject === 0 && rework === 0 ? "PASS" : pass === 0 ? "FAIL" : "PARTIAL";
 
-  const created = await db.$transaction(async (tx) => {
+  const created = await db.$transaction(async (tx) =>
+    withIdempotency(tx, user, input.idemKey, "createInspection", async () => {
     const row = await tx.inspection.create({
       data: {
         jobCardId: job.id,
@@ -4676,11 +4692,12 @@ export async function createInspection(input: {
       summary: `Inspected ${num(checked)} pcs on ${job.siNo} — ${result.toLowerCase()} (${num(reject)} reject, ${num(rework)} rework)`,
     });
     return row;
-  });
+    })
+  );
 
   revalidatePath(`/job-cards/${job.id}`);
   revalidatePath("/reports");
-  return { ok: true, id: created.id, result };
+  return { ok: true, id: created.result.id, result };
 }
 
 export async function voidInspection(input: { id: number; reason?: string | null }) {
@@ -5135,4 +5152,116 @@ export async function deleteSample(input: { id: number }) {
   });
   revalidatePath("/samples");
   return { ok: true };
+}
+
+// ── Change 36 Part 10 — the writes the floor can make offline ──
+//
+// Only these queue. Everything else (money, void/edit, PO generation) stays online-only:
+// a queued write is replayed blind on reconnect, and that is only safe where replaying
+// is provably a no-op.
+
+/**
+ * One call that creates an inward challan, adds its lines and locks it.
+ *
+ * The existing chain — createChallan → addChallanLine × N → lockChallan — CANNOT be
+ * queued, because calls 2 and 3 need the id that call 1 returns and an offline client
+ * does not have it. Collapsing it into a single intent is what makes the receipt
+ * queueable at all.
+ */
+export async function recordInwardReceipt(input: {
+  /** Client-generated key. Replaying with the same key returns the first result. */
+  idemKey?: string | null;
+  supplierId?: number | null;
+  jobCardId?: number | null;
+  fabricOrderId?: number | null;
+  date?: string | null;
+  note?: string | null;
+  lines: {
+    fabricId?: number | null;
+    colour?: string | null;
+    trimItemId?: number | null;
+    qty: number;
+    unit?: string | null;
+    rate?: number | null;
+    lotNo?: string | null;
+    shadeRef?: string | null;
+  }[];
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const lines = input.lines.filter((l) => l.qty > 0 && (l.fabricId || l.trimItemId));
+  if (!lines.length) throw new Error("A receipt needs at least one line");
+
+  const out = await db.$transaction(async (tx) => {
+    return withIdempotency(tx, user, input.idemKey, "recordInwardReceipt", async () => {
+      const now = input.date ? new Date(input.date) : new Date();
+
+      // Same CH-IN- series idiom as lockChallan; allocated inside the transaction.
+      const year = now.getFullYear();
+      const prefix = `CH-IN-${year}-`;
+      const existing = await tx.materialChallan.findMany({
+        where: { challanNo: { startsWith: prefix } },
+        select: { challanNo: true },
+      });
+      const maxN = existing.reduce((m, e) => Math.max(m, parseInt((e.challanNo ?? "").slice(prefix.length), 10) || 0), 0);
+      const challanNo = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+
+      const challan = await tx.materialChallan.create({
+        data: {
+          direction: "INWARD",
+          status: "LOCKED",
+          challanNo,
+          date: now,
+          lockedAt: new Date(),
+          supplierId: input.supplierId ?? null,
+          jobCardId: input.jobCardId ?? null,
+          fabricOrderId: input.fabricOrderId ?? null,
+          note: input.note?.trim() || null,
+          lines: {
+            create: lines.map((l) => ({
+              fabricId: l.fabricId ?? null,
+              colour: l.fabricId && l.colour ? colorKey(l.colour) : null,
+              trimItemId: l.trimItemId ?? null,
+              qty: l.qty,
+              unit: l.unit ?? null,
+              rate: l.rate ?? null,
+              lotNo: l.lotNo?.trim() || null,
+              shadeRef: l.shadeRef?.trim() || null,
+            })),
+          },
+        },
+      });
+
+      for (const l of lines) {
+        // ⚠️ jobCardId is deliberately NOT stamped here, for the reason spelled out in
+        // lockChallan: Change 19 B reconciles a card's fabric ledger by netting movements
+        // keyed on (fabricId, jobCardId, colour), and folding challan traffic into that
+        // net would silently corrupt the true-up.
+        await postMaterialMovement(tx, {
+          direction: "IN",
+          qty: l.qty,
+          date: now,
+          fabricId: l.fabricId ?? null,
+          colour: l.fabricId ? l.colour ?? null : null,
+          trimItemId: l.trimItemId ?? null,
+          rate: l.rate ?? null,
+          note: `Challan ${challanNo}`,
+        });
+      }
+
+      await logAudit(tx, user, {
+        action: "recordInwardReceipt",
+        entity: "MaterialChallan",
+        entityId: challan.id,
+        entityLabel: challanNo,
+        summary: `Received ${challanNo} — ${lines.length} line${lines.length === 1 ? "" : "s"}`,
+      });
+
+      return { ok: true, id: challan.id, challanNo };
+    });
+  });
+
+  revalidatePath("/challans");
+  revalidatePath("/inventory");
+  revalidatePath("/trims");
+  return out.result;
 }

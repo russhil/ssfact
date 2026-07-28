@@ -28,6 +28,7 @@ import {
   FlaskConical,
   Search,
   ListChecks,
+  Activity,
 } from "lucide-react";
 import { logout } from "@/lib/auth-actions";
 import type { Role } from "@/lib/session";
@@ -110,6 +111,8 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
       { href: "/audit", label: "Audit", icon: History, roles: ["ADMIN"] },
       { href: "/reports", label: "Reports", icon: BarChart3, roles: ["ADMIN"] },
       { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] },
+      // Change 36 Part 10 — DB size, last backup, replay-key depth.
+      { href: "/status", label: "Status", icon: Activity, roles: ["ADMIN"] },
     ],
   },
 ];

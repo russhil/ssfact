@@ -957,6 +957,23 @@ model SampleMeasurement {
   @@index([sampleId])
 }
 
+// ── Change 36 Part 10 — offline write replay ──
+// ★ Degrade, don't die. A floor write made offline is queued in the browser with a
+// client-generated key and replayed on reconnect. The key is the ONLY thing standing
+// between a flaky connection and a double-posted stock movement, so the server records
+// every key it has honoured along with the result it returned, and a replay returns that
+// result instead of doing the work again.
+model IdempotencyRecord {
+  key        String   @id // client-generated (crypto.randomUUID)
+  action     String
+  userId     Int?
+  username   String // denormalised, like AuditLog — the row outlives the user
+  resultJson String?
+  at         DateTime @default(now())
+
+  @@index([at])
+}
+
 model AuditLog {
   id          String   @id @default(cuid())
   at          DateTime @default(now())

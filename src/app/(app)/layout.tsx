@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { Sidebar, type NavCounts } from "@/components/sidebar";
 import { NotificationBell } from "@/components/notification-bell";
+import { OfflineBanner } from "@/components/offline-banner";
 import { CommandPalette } from "@/components/command-palette";
 import { getCurrentUser } from "@/lib/auth";
 import { getJobs } from "@/lib/jobs";
@@ -59,7 +60,11 @@ export default async function AppLayout({
   return (
     <div className="grid min-h-screen grid-cols-[216px_1fr] bg-app">
       <Sidebar role={user.role} displayName={user.displayName} counts={counts} bell={<NotificationBell items={inbox} />} />
-      <main className="min-w-0">{children}</main>
+      <main className="min-w-0">
+        {/* Change 36 Part 10 — registers the worker and says plainly when we are offline. */}
+        <OfflineBanner />
+        {children}
+      </main>
       <CommandPalette actions={actions} />
     </div>
   );
