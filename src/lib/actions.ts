@@ -999,6 +999,8 @@ export async function addCuttingLayer(input: {
   // Change 37: fabric per colour on this lay. When present it REPLACES the proportional
   // split — the ledger is driven to the entered USED per colour instead of an estimate.
   fabricByColour?: { colour: string; issued?: number | null; used?: number | null }[] | null;
+  // Change 36 Part 8: which fabric lot this lay was cut from.
+  fabricLotNo?: string | null;
 }) {
   await requireRole("ADMIN", "STAFF");
   // Change 26 E: sizes are hand-typed per lay now, so canonicalise them the way colours
@@ -1064,6 +1066,7 @@ export async function addCuttingLayer(input: {
         fabricMtr: layerUsed,
         fabricBalance: input.fabricBalance ?? null,
         fabricIssued: layerIssued,
+        fabricLotNo: input.fabricLotNo?.trim() || null,
         sizeRatio: input.sizeRatio ?? null,
         cells: { create: cells },
         ...(perColour
@@ -2631,7 +2634,7 @@ async function assertDraft(challanId: number) {
 
 export async function addChallanLine(
   challanId: number,
-  input: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null }
+  input: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null; lotNo?: string | null; shadeRef?: string | null; }
 ) {
   await requireRole("ADMIN", "STAFF");
   await assertDraft(challanId);
@@ -2648,6 +2651,10 @@ export async function addChallanLine(
       unit: input.unit ?? null,
       rate: input.rate ?? null,
       note: input.note ?? null,
+      // Change 36 Part 8 — the supplier's lot and shade, captured where the goods
+      // actually enter the system.
+      lotNo: input.lotNo?.trim() || null,
+      shadeRef: input.shadeRef?.trim() || null,
     },
   });
   await recomputeChallanKind(challanId);
@@ -3136,7 +3143,9 @@ export async function draftChallanFromTrimOrder(input: { id: number }) {
  */
 export async function editLockedChallan(input: {
   id: number;
-  lines: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null }[];
+  // Change 36 Part 8: lot/shade MUST be here. This action deletes and recreates every
+  // line, so a field missing from this type is silently wiped on every edit.
+  lines: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null; lotNo?: string | null; shadeRef?: string | null; }[];
   note?: string | null;
   jobCardId?: number | null;
 }) {
@@ -3177,6 +3186,9 @@ export async function editLockedChallan(input: {
           colour: l.fabricId && l.colour ? colorKey(l.colour) : null,
           trimItemId: l.trimItemId ?? null,
           qty: l.qty, unit: l.unit ?? null, rate: l.rate ?? null, note: l.note ?? null,
+          // Change 36 Part 8 — carried through the delete/recreate, or the lot is lost.
+          lotNo: l.lotNo?.trim() || null,
+          shadeRef: l.shadeRef?.trim() || null,
         },
       });
     }
@@ -3673,6 +3685,8 @@ export async function updateCuttingLayer(input: {
   cells?: { colour: string; size: string; qty: number }[];
   // Change 37 — per-colour fabric for this lay. Undefined leaves the rows alone.
   fabricByColour?: { colour: string; issued?: number | null; used?: number | null }[] | null;
+  // Change 36 Part 8 — the lot this lay was cut from.
+  fabricLotNo?: string | null;
 }) {
   const user = await requireRole("ADMIN", "STAFF");
   const layer = await db.cuttingLayer.findUnique({
@@ -3715,6 +3729,7 @@ export async function updateCuttingLayer(input: {
         ...(input.fabricBalance !== undefined ? { fabricBalance: input.fabricBalance } : {}),
         ...(input.avgConsumption !== undefined ? { avgConsumption: input.avgConsumption } : {}),
         ...(input.sizeRatio !== undefined ? { sizeRatio: input.sizeRatio } : {}),
+        ...(input.fabricLotNo !== undefined ? { fabricLotNo: input.fabricLotNo?.trim() || null } : {}),
   } as Record<string, unknown>;
 
   await db.$transaction(async (tx) => {
@@ -4901,5 +4916,223 @@ export async function setJobStdFabric(input: { jobCardId: number; stdFabricPerPc
     });
   });
   revalidatePath(`/job-cards/${input.jobCardId}`);
+  return { ok: true };
+}
+
+// ── Change 36 Part 7 — sampling & development ──
+//
+// ★ The sample is a first-class document that GRADUATES into a job card. Everything else
+// in ssfact starts after a style is approved; the money-losing decisions happen before.
+//
+// ⚠️ "Start bulk" PRE-FILLS a job card, it does not create one. createJobCard is not
+// inert: it snapshots the BOM into JobBomLine, sets trimsPending and drives fabric maths.
+// A speculative card would be real inventory pressure and a real SI- number. See
+// startBulkHref below.
+
+export async function createSample(input: {
+  name: string;
+  productId?: number | null;
+  vendorName?: string | null;
+  notes?: string | null;
+  targetMrp?: number | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const name = input.name?.trim();
+  if (!name) throw new Error("A sample needs a name");
+
+  const sample = await db.$transaction(async (tx) => {
+    const vendorId = input.vendorName ? await resolveVendorId(tx, input.vendorName) : null;
+
+    // Allocate inside the transaction, like JW-/DC-/CH-/RW-.
+    const year = new Date().getFullYear();
+    const prefix = `SMP-${year}-`;
+    const existing = await tx.sample.findMany({ where: { code: { startsWith: prefix } }, select: { code: true } });
+    const maxN = existing.reduce((m, e) => Math.max(m, parseInt(e.code.slice(prefix.length), 10) || 0), 0);
+    const code = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+
+    const row = await tx.sample.create({
+      data: {
+        code, name,
+        productId: input.productId ?? null,
+        vendorId,
+        requestedById: user.userId,
+        notes: input.notes?.trim() || null,
+        targetMrp: input.targetMrp ?? null,
+      },
+    });
+    await logAudit(tx, user, {
+      action: "createSample", entity: "Sample", entityId: row.id, entityLabel: code,
+      summary: `Opened sample ${code} — ${name}`,
+    });
+    return row;
+  });
+
+  revalidatePath("/samples");
+  return { ok: true, id: sample.id, code: sample.code };
+}
+
+export async function updateSample(input: {
+  id: number;
+  name?: string;
+  vendorName?: string | null;
+  notes?: string | null;
+  targetMrp?: number | null;
+  round?: number | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const before = await db.sample.findUnique({ where: { id: input.id }, select: { code: true, name: true, notes: true, targetMrp: true, round: true } });
+  if (!before) throw new Error("Sample not found");
+
+  await db.$transaction(async (tx) => {
+    const vendorId = input.vendorName !== undefined ? await resolveVendorId(tx, input.vendorName) : undefined;
+    const patch = {
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
+      ...(input.targetMrp !== undefined ? { targetMrp: input.targetMrp } : {}),
+      ...(input.round !== undefined && input.round != null ? { round: input.round } : {}),
+      ...(vendorId !== undefined ? { vendorId } : {}),
+    };
+    await tx.sample.update({ where: { id: input.id }, data: patch });
+    await logAudit(tx, user, {
+      action: "updateSample", entity: "Sample", entityId: input.id, entityLabel: before.code,
+      summary: `Edited sample ${before.code}`,
+      changes: computeChanges(before as unknown as Record<string, unknown>, patch as Record<string, unknown>),
+    });
+  });
+  revalidatePath("/samples");
+  revalidatePath(`/samples/${input.id}`);
+  return { ok: true };
+}
+
+/**
+ * Move a sample along. Approval and rejection are reversible — a decision reverted is a
+ * normal thing on a development sample, and the remark records why either way.
+ */
+export async function setSampleStatus(input: { id: number; status: string; remark?: string | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const valid = ["REQUESTED", "IN_PROGRESS", "SUBMITTED", "APPROVED", "REJECTED"];
+  if (!valid.includes(input.status)) throw new Error("Unknown sample status");
+  const before = await db.sample.findUnique({ where: { id: input.id }, select: { code: true, status: true } });
+  if (!before) throw new Error("Sample not found");
+  if (input.status === "REJECTED" && !input.remark?.trim()) throw new Error("Say why it was rejected");
+
+  const decided = input.status === "APPROVED" || input.status === "REJECTED";
+  await db.$transaction(async (tx) => {
+    await tx.sample.update({
+      where: { id: input.id },
+      data: {
+        status: input.status as never,
+        decidedAt: decided ? new Date() : null,
+        ...(input.remark !== undefined ? { remark: input.remark?.trim() || null } : {}),
+      },
+    });
+    await logAudit(tx, user, {
+      action: "setSampleStatus", entity: "Sample", entityId: input.id, entityLabel: before.code,
+      summary: `${before.code} → ${input.status.toLowerCase().replace("_", " ")}${input.remark ? ` — ${input.remark}` : ""}`,
+      changes: { status: { old: before.status, new: input.status } },
+    });
+  });
+  revalidatePath("/samples");
+  revalidatePath(`/samples/${input.id}`);
+  return { ok: true };
+}
+
+/** Start the next round: bump the counter and reopen the sample. */
+export async function nextSampleRound(input: { id: number }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const s = await db.sample.findUnique({ where: { id: input.id }, select: { code: true, round: true } });
+  if (!s) throw new Error("Sample not found");
+  await db.$transaction(async (tx) => {
+    await tx.sample.update({
+      where: { id: input.id },
+      data: { round: s.round + 1, status: "IN_PROGRESS", decidedAt: null, remark: null },
+    });
+    await logAudit(tx, user, {
+      action: "nextSampleRound", entity: "Sample", entityId: input.id, entityLabel: s.code,
+      summary: `${s.code} — started round ${s.round + 1}`,
+    });
+  });
+  revalidatePath(`/samples/${input.id}`);
+  return { ok: true, round: s.round + 1 };
+}
+
+export async function upsertSampleCostLine(input: {
+  id?: number;
+  sampleId: number;
+  kind: string;
+  description: string;
+  qty: number;
+  rate: number;
+}) {
+  await requireRole("ADMIN");
+  const description = input.description?.trim();
+  if (!description) throw new Error("A cost line needs a description");
+  if (input.id) {
+    await db.sampleCostLine.update({
+      where: { id: input.id },
+      data: { kind: input.kind as never, description, qty: input.qty, rate: input.rate },
+    });
+  } else {
+    await db.sampleCostLine.create({
+      data: { sampleId: input.sampleId, kind: input.kind as never, description, qty: input.qty, rate: input.rate },
+    });
+  }
+  revalidatePath(`/samples/${input.sampleId}`);
+  return { ok: true };
+}
+
+export async function deleteSampleCostLine(input: { id: number; sampleId: number }) {
+  await requireRole("ADMIN");
+  await db.sampleCostLine.delete({ where: { id: input.id } });
+  revalidatePath(`/samples/${input.sampleId}`);
+  return { ok: true };
+}
+
+export async function upsertSampleMeasurement(input: {
+  id?: number;
+  sampleId: number;
+  pom: string;
+  size: string;
+  valueCm: number;
+  tolerance?: number | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const pom = input.pom?.trim();
+  const size = sizeKey(input.size);
+  if (!pom || !size) throw new Error("A measurement needs a point and a size");
+  if (input.id) {
+    await db.sampleMeasurement.update({
+      where: { id: input.id },
+      data: { pom, size, valueCm: input.valueCm, tolerance: input.tolerance ?? null },
+    });
+  } else {
+    await db.sampleMeasurement.create({
+      data: { sampleId: input.sampleId, pom, size, valueCm: input.valueCm, tolerance: input.tolerance ?? null },
+    });
+  }
+  revalidatePath(`/samples/${input.sampleId}`);
+  return { ok: true };
+}
+
+export async function deleteSampleMeasurement(input: { id: number; sampleId: number }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.sampleMeasurement.delete({ where: { id: input.id } });
+  revalidatePath(`/samples/${input.sampleId}`);
+  return { ok: true };
+}
+
+export async function deleteSample(input: { id: number }) {
+  const user = await requireRole("ADMIN");
+  const s = await db.sample.findUnique({ where: { id: input.id }, select: { code: true, status: true } });
+  if (!s) throw new Error("Sample not found");
+  if (s.status === "APPROVED") throw new Error(`${s.code} is approved — reject or reopen it before deleting`);
+  await db.$transaction(async (tx) => {
+    await tx.sample.delete({ where: { id: input.id } }); // cost lines, measurements and images cascade
+    await logAudit(tx, user, {
+      action: "deleteSample", entity: "Sample", entityId: input.id, entityLabel: s.code,
+      summary: `Deleted sample ${s.code}`,
+    });
+  });
+  revalidatePath("/samples");
   return { ok: true };
 }

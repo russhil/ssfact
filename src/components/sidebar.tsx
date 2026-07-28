@@ -25,6 +25,8 @@ import {
   Users,
   Sparkles,
   CalendarClock,
+  FlaskConical,
+  Search,
 } from "lucide-react";
 import { logout } from "@/lib/auth-actions";
 import type { Role } from "@/lib/session";
@@ -64,6 +66,8 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
       // Change 20: finishing given out as job-work, between the machine and dispatch —
       // which is where it sits on the floor.
       { href: "/finishing", label: "Finishing", icon: Sparkles, roles: STAFF },
+      // Change 36 Part 7 — development before bulk.
+      { href: "/samples", label: "Samples", icon: FlaskConical, roles: STAFF },
       { href: "/dispatch", label: "Dispatch", icon: Truck, roles: STAFF },
     ],
   },
@@ -74,6 +78,8 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
       { href: "/fabric-orders", label: "Fabric Orders", icon: ShoppingCart, roles: STAFF },
       { href: "/trim-orders", label: "Trim Orders", icon: ShoppingCart, roles: STAFF },
       { href: "/challans", label: "Challans", icon: FileText, roles: STAFF },
+      // Change 36 Part 8 — roll to garment, and back.
+      { href: "/trace", label: "Trace", icon: Search, roles: STAFF },
       { href: "/trims", label: "Trims", icon: Scissors, roles: ["ADMIN", "STAFF", "TRIMS"] },
       {
         href: "/pending-trims",

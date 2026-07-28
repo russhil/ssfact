@@ -196,6 +196,7 @@ model Vendor {
   materialChallans  MaterialChallan[]
   cuttingLayers     CuttingLayer[] // Change 14: a layer is issued to a vendor
   reworks           Rework[]
+  samples           Sample[]
   finishingJobs     FinishingJob[] // Change 20: print/emb/wash job-work given to this vendor
 }
 
@@ -453,6 +454,9 @@ model CuttingLayer {
   // the LAYER and not the card because a card splits across several layer vendors — a
   // card-level rate would silently bill every vendor on it the same.
   vendorRate   Float?
+  // Change 36 Part 8: which fabric lot this lay was cut from. Nullable — an untagged
+  // lay behaves exactly as it did before, and most legacy lays will never carry one.
+  fabricLotNo  String?
   // Change 17 Part B: this lay's own editable size ratio, JSON [["S",1],["M",1.5],…].
   // null ⇒ fall back to the card ratio (back-compat for legacy layers).
   sizeRatio String?
@@ -727,6 +731,7 @@ model User {
   partyLedgerEntries PartyLedgerEntry[] @relation("PartyLedgerCreatedBy")
   notifications      Notification[]     @relation("NotificationUser")
   inspections        Inspection[]       @relation("InspectionBy")
+  samplesRequested   Sample[]           @relation("SampleRequestedBy")
   notificationPrefs  NotificationPref[] @relation("NotificationPrefUser")
   fabricColorsUpdated FabricColor[]     @relation("FabricColorUpdatedBy")
   trimItemsCreated    TrimItem[]        @relation("TrimItemCreatedBy")
@@ -871,6 +876,87 @@ model Rework {
   @@index([vendorId])
 }
 
+// ── Change 36 Part 7 — sampling & development ──
+//
+// ⚠️ NOT SamplingStatus. That enum has four values — PLANNING,
+// DESIGN_FABRIC_PENDING, SAMPLE_ORDERED, READY — none of which can express approve or
+// reject, and it is a PRODUCT column describing where a style sits in development, not a
+// sample's lifecycle. Extending it would put sample states onto every product.
+enum SampleStatus {
+  REQUESTED
+  IN_PROGRESS
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum SampleCostKind {
+  FABRIC
+  TRIM
+  CUTTING
+  STITCHING
+  FINISHING
+  OVERHEAD
+  OTHER
+}
+
+// ★ The sample is a first-class document that GRADUATES into a job card. Everything
+// ssfact does starts after a style is approved — but the money-losing decisions happen
+// before.
+model Sample {
+  id          Int          @id @default(autoincrement())
+  code        String       @unique // SMP-YYYY-NNN, allocated inside the transaction
+  name        String
+  round       Int          @default(1)
+  status      SampleStatus @default(REQUESTED)
+  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId   Int?
+  vendor      Vendor?      @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorId    Int?
+  requestedBy   User?      @relation("SampleRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  requestedById Int?
+  notes       String?
+  /** Set when APPROVED/REJECTED, with the remark that decided it. */
+  decidedAt   DateTime?
+  remark      String?
+  targetMrp   Float?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @default(now()) @updatedAt
+
+  costLines    SampleCostLine[]
+  measurements SampleMeasurement[]
+  images       ImageAsset[]
+
+  @@index([productId])
+  @@index([status])
+}
+
+model SampleCostLine {
+  id          Int            @id @default(autoincrement())
+  sample      Sample         @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  sampleId    Int
+  kind        SampleCostKind @default(OTHER)
+  description String
+  qty         Float          @default(1)
+  rate        Float          @default(0)
+
+  @@index([sampleId])
+}
+
+// The size × point-of-measure table. It has no home anywhere else in the schema and the
+// tech pack cannot be printed without it.
+model SampleMeasurement {
+  id        Int    @id @default(autoincrement())
+  sample    Sample @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  sampleId  Int
+  pom       String // "Chest", "Sleeve length", …
+  size      String
+  valueCm   Float
+  tolerance Float?
+
+  @@index([sampleId])
+}
+
 model AuditLog {
   id          String   @id @default(cuid())
   at          DateTime @default(now())
@@ -925,6 +1011,7 @@ model Product {
   jobCards         JobCard[]
   boms             Bom[]
   productionOrders ProductionOrder[]
+  samples          Sample[]
   images           ImageAsset[]
 
   @@index([headCategory])
@@ -1333,6 +1420,11 @@ model ImageAsset {
   @@index([productId])
   @@index([trimOrderId])
   @@index([materialChallanId])
+  // Change 36 Part 7: a 7th nullable owner. Deliberately NOT a separate SampleImage
+  // model — that would fork the ImageUploader/attachImages/removeImage pipeline.
+  sample   Sample? @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  sampleId Int?
+
 }
 
 model ProductionOrder {
@@ -1436,6 +1528,9 @@ model MaterialChallanLine {
   @@index([challanId])
   @@index([fabricId])
   @@index([trimItemId])
+  lotNo     String?
+  shadeRef  String?
+
 }
 
 // ── Change 20 — finishing as job-work ────────────────────────────────────────
