@@ -189,6 +189,7 @@ model Vendor {
   stitchAssignments StitchAssignment[]
   materialChallans  MaterialChallan[]
   cuttingLayers     CuttingLayer[] // Change 14: a layer is issued to a vendor
+  reworks           Rework[]
   finishingJobs     FinishingJob[] // Change 20: print/emb/wash job-work given to this vendor
 }
 
@@ -398,6 +399,8 @@ model JobCard {
   stitchAssignments StitchAssignment[]
   materialChallans  MaterialChallan[]  @relation("JobCardChallans") // Change 17 Part C
   finishingJobs     FinishingJob[] // Change 20: print/emb/wash given out per layer
+  inspections       Inspection[]
+  reworks           Rework[]
 
   // Change 25 Part A — audit stamps (see FabricColor for why @default(now()) @updatedAt).
   createdAt   DateTime @default(now())
@@ -449,6 +452,8 @@ model CuttingLayer {
   // the truth and fabricMtr/fabricIssued above are their sum; when they don't (every
   // legacy layer) the old proportional split still runs. See reconcileJobFabricColour.
   colours    CuttingLayerColour[]
+  inspections Inspection[]
+  reworks     Rework[]
   dispatches DispatchEvent[]    @relation("DispatchLayers") // Change 14: dispatched against these layers
   // Change 20: finishing job-work given out against this lay (same pattern as dispatch).
   finishingJobs FinishingJob[]   @relation("FinishingLayers")
@@ -711,6 +716,7 @@ model User {
   fabricColorsCreated FabricColor[]     @relation("FabricColorCreatedBy")
   partyLedgerEntries PartyLedgerEntry[] @relation("PartyLedgerCreatedBy")
   notifications      Notification[]     @relation("NotificationUser")
+  inspections        Inspection[]       @relation("InspectionBy")
   notificationPrefs  NotificationPref[] @relation("NotificationPrefUser")
   fabricColorsUpdated FabricColor[]     @relation("FabricColorUpdatedBy")
   trimItemsCreated    TrimItem[]        @relation("TrimItemCreatedBy")
@@ -763,6 +769,96 @@ model NotificationPref {
 
   @@unique([userId, template, channel])
   @@index([userId])
+}
+
+// ── Change 36 Part 3 — quality: a gate that records and warns, never blocks ──
+// ★ The gate NEVER hard-blocks the floor. Dispatching un-inspected or failed pieces is
+// allowed; it shows a confirm and is recorded. A factory that cannot ship because the
+// software disagrees is a factory that stops using the software.
+enum DefectCategory {
+  STITCHING
+  PRINTING
+  FABRIC
+  MEASUREMENT
+  FINISHING
+  OTHER
+}
+
+enum InspectionResult {
+  PASS
+  FAIL
+  PARTIAL
+}
+
+enum ReworkStatus {
+  OPEN
+  CLOSED
+}
+
+model DefectType {
+  id       Int            @id @default(autoincrement())
+  name     String         @unique
+  category DefectCategory @default(OTHER)
+  active   Boolean        @default(true)
+  lines    InspectionDefect[]
+}
+
+model Inspection {
+  id           Int              @id @default(autoincrement())
+  at           DateTime         @default(now())
+  jobCard      JobCard          @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  jobCardId    Int
+  layer        CuttingLayer?    @relation(fields: [layerId], references: [id], onDelete: SetNull)
+  layerId      Int?
+  inspectedBy   User?           @relation("InspectionBy", fields: [inspectedById], references: [id], onDelete: SetNull)
+  inspectedById Int?
+  sampleSize   Int?
+  checkedQty   Float            @default(0)
+  passQty      Float            @default(0)
+  rejectQty    Float            @default(0)
+  reworkQty    Float            @default(0)
+  result       InspectionResult @default(PASS)
+  note         String?
+  // Voided rather than deleted, exactly like a challan — the count it produced may
+  // already have been read, so the row stays and stops counting.
+  voidedAt     DateTime?
+  defects      InspectionDefect[]
+
+  @@index([jobCardId])
+  @@index([layerId])
+}
+
+model InspectionDefect {
+  id           Int        @id @default(autoincrement())
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  inspectionId Int
+  defectType   DefectType @relation(fields: [defectTypeId], references: [id])
+  defectTypeId Int
+  qty          Float      @default(0)
+
+  @@index([inspectionId])
+}
+
+// Rework is a TRACKING movement, not a stock movement. It must never reach
+// postMaterialMovement: finished-goods stock lives in the ERP, and pieces going back to
+// a vendor for repair have not left the factory's ownership.
+model Rework {
+  id        Int          @id @default(autoincrement())
+  docNo     String?      @unique // "RW-YYYY-NNN" — its own series; JW- is a billing doc
+  at        DateTime     @default(now())
+  jobCard   JobCard      @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  jobCardId Int
+  layer     CuttingLayer? @relation(fields: [layerId], references: [id], onDelete: SetNull)
+  layerId   Int?
+  vendor    Vendor?      @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorId  Int?
+  qty       Float
+  qtyBack   Float        @default(0)
+  status    ReworkStatus @default(OPEN)
+  note      String?
+
+  @@index([jobCardId])
+  @@index([vendorId])
 }
 
 model AuditLog {

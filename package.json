@@ -13,6 +13,7 @@
     "seed": "tsx prisma/seed.ts",
     "backup": "tsx scripts/backup-db.ts",
     "verify:ledger": "tsx scripts/verify-ledger.mts",
+    "seed:defects": "tsx scripts/seed-defects.mts",
     "db:wipe": "tsx scripts/reset-factory-data.ts",
     "db:snapshot": "tsx scripts/snapshot-baseline.ts",
     "db:reset": "prisma migrate reset --force && tsx prisma/seed-baseline.ts",

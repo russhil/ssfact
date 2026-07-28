@@ -13,7 +13,12 @@ export type DispatchJob = { id: number; siNo: string; item: string; vendor: stri
 export function DispatchForm({ jobs, defaultArrangedBy = "" }: { jobs: DispatchJob[]; defaultArrangedBy?: string }) {
   const [q, setQ] = useState("");
   const [jobId, setJobId] = useState<number | null>(null);
-  const [data, setData] = useState<{ layers: DispatchLayer[]; prior: PriorDispatch[] } | null>(null);
+  const [data, setData] = useState<{
+    layers: DispatchLayer[];
+    prior: PriorDispatch[];
+    // Change 36 Part 3 — the inspection position, so this surface warns like the card does.
+    quality?: { status: "NONE" | "PASS" | "FAIL" | "PARTIAL" | "OPEN_REJECTS"; openRework: number };
+  } | null>(null);
   const [loading, setLoading] = useState(false);
 
   const matches = useMemo(() => {
@@ -76,7 +81,7 @@ export function DispatchForm({ jobs, defaultArrangedBy = "" }: { jobs: DispatchJ
         </div>
       )}
       {job && loading && <p className="py-3 text-center t-sm text-muted">Loading layers…</p>}
-      {job && data && <LayerDispatch jobCardId={job.id} layers={data.layers} prior={data.prior} defaultArrangedBy={defaultArrangedBy} />}
+      {job && data && <LayerDispatch jobCardId={job.id} layers={data.layers} prior={data.prior} defaultArrangedBy={defaultArrangedBy} quality={data.quality} />}
     </div>
   );
 }

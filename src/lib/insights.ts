@@ -296,10 +296,24 @@ export async function getQualityByVendor(range?: { from?: Date; to?: Date }): Pr
     include: { vendor: { select: { name: true } }, ...LAYER_VENDOR_INCLUDE },
   });
 
+  // Change 36 Part 3 — inspections SUPERSEDE the card-level figures. Both existing and
+  // both feeding this report would double-count: JobCard.rejectQty already drives it and
+  // /board. So where a card has live inspections they are the source, and the card
+  // fields are read only for cards inspected the old way (legacy, and still valid).
+  const inspections = await db.inspection.groupBy({
+    by: ["jobCardId"],
+    where: { voidedAt: null },
+    _sum: { rejectQty: true, reworkQty: true },
+  });
+  const inspected = new Map(inspections.map((i) => [i.jobCardId, { reject: i._sum.rejectQty ?? 0, rework: i._sum.reworkQty ?? 0 }]));
+
   const acc = new Map<string, QualityByVendor>();
   for (const j of jobs) {
-    const reject = j.rejectQty ?? 0;
-    const alter = j.alterQty ?? 0;
+    const insp = inspected.get(j.id);
+    const reject = insp ? insp.reject : (j.rejectQty ?? 0);
+    // Rework is the inspection-era equivalent of "alter": pieces that come back rather
+    // than being written off.
+    const alter = insp ? insp.rework : (j.alterQty ?? 0);
     const extra = j.extraQty ?? 0;
     for (const s of splitByLayerVendor(j)) {
       const g =

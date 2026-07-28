@@ -11,6 +11,7 @@ import { num } from "@/lib/format";
 import { getJobTrimIssues } from "@/lib/jobs";
 import { notifyAfter, ownerRecipients } from "@/lib/notify";
 import { getLowStockAlerts } from "@/lib/insights";
+import { getJobQuality } from "@/lib/quality";
 import { getMasterRefs, refsMessage, type MasterKind } from "@/lib/master-refs";
 import { revalidatePath } from "next/cache";
 
@@ -878,6 +879,13 @@ export async function getJobDispatchData(jobCardId: number) {
       cells: l.cells.map((c) => ({ colour: c.colour, size: c.size, qty: c.qty })),
     })),
     prior: job.dispatches.map((e) => ({ id: e.id, qty: e.qty, layerIds: e.layers.map((x) => x.id) })),
+    // Change 36 Part 3: /dispatch is the SECOND surface using LayerDispatch. Wiring the
+    // gate only through the job-card page would leave this one un-gated — this is the
+    // easy-to-miss data path.
+    quality: await (async () => {
+      const q = await getJobQuality(job.id);
+      return { status: q.status, openRework: q.openRework };
+    })(),
   };
 }
 
@@ -4592,5 +4600,190 @@ export async function setMyContact(input: { phone?: string | null; email?: strin
     },
   });
   revalidatePath("/settings/notifications");
+  return { ok: true };
+}
+
+// ── Change 36 Part 3 — quality inspection & rework ──
+//
+// ★ The gate NEVER hard-blocks the floor. It records and warns; dispatching
+// un-inspected or failed pieces is allowed, shows a confirm, and is logged. A factory
+// that cannot ship because the software disagrees stops using the software.
+//
+// Two hard rules:
+//  - Rework NEVER calls postMaterialMovement and never touches dispatchedQty. Pieces
+//    going back to a vendor for repair have not left the factory's ownership, and
+//    finished-goods stock lives in the ERP.
+//  - Inspections are VOIDED, never deleted: the count may already have been read.
+
+export async function createInspection(input: {
+  jobCardId: number;
+  layerId?: number | null;
+  sampleSize?: number | null;
+  checkedQty: number;
+  passQty: number;
+  rejectQty: number;
+  reworkQty?: number | null;
+  note?: string | null;
+  defects?: { defectTypeId: number; qty: number }[];
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.findUnique({ where: { id: input.jobCardId }, select: { id: true, siNo: true } });
+  if (!job) throw new Error("Job card not found");
+
+  const checked = Math.max(0, input.checkedQty ?? 0);
+  const pass = Math.max(0, input.passQty ?? 0);
+  const reject = Math.max(0, input.rejectQty ?? 0);
+  const rework = Math.max(0, input.reworkQty ?? 0);
+  if (checked <= 0) throw new Error("Enter how many pieces were checked");
+  if (pass + reject + rework > checked + 0.001)
+    throw new Error(`Pass + reject + rework (${num(pass + reject + rework)}) is more than the ${num(checked)} checked`);
+
+  const result = reject === 0 && rework === 0 ? "PASS" : pass === 0 ? "FAIL" : "PARTIAL";
+
+  const created = await db.$transaction(async (tx) => {
+    const row = await tx.inspection.create({
+      data: {
+        jobCardId: job.id,
+        layerId: input.layerId ?? null,
+        inspectedById: user.userId,
+        sampleSize: input.sampleSize ?? null,
+        checkedQty: checked, passQty: pass, rejectQty: reject, reworkQty: rework,
+        result: result as never,
+        note: input.note?.trim() || null,
+        ...(input.defects?.length
+          ? { defects: { create: input.defects.filter((d) => d.qty > 0).map((d) => ({ defectTypeId: d.defectTypeId, qty: d.qty })) } }
+          : {}),
+      },
+    });
+    await logAudit(tx, user, {
+      action: "createInspection", entity: "Inspection", entityId: row.id,
+      entityLabel: job.siNo,
+      summary: `Inspected ${num(checked)} pcs on ${job.siNo} — ${result.toLowerCase()} (${num(reject)} reject, ${num(rework)} rework)`,
+    });
+    return row;
+  });
+
+  revalidatePath(`/job-cards/${job.id}`);
+  revalidatePath("/reports");
+  return { ok: true, id: created.id, result };
+}
+
+export async function voidInspection(input: { id: number; reason?: string | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const insp = await db.inspection.findUnique({
+    where: { id: input.id },
+    select: { id: true, voidedAt: true, jobCardId: true, jobCard: { select: { siNo: true } } },
+  });
+  if (!insp) throw new Error("Inspection not found");
+  if (insp.voidedAt) throw new Error("This inspection is already void");
+
+  await db.$transaction(async (tx) => {
+    await tx.inspection.update({ where: { id: insp.id }, data: { voidedAt: new Date() } });
+    await logAudit(tx, user, {
+      action: "voidInspection", entity: "Inspection", entityId: insp.id,
+      entityLabel: insp.jobCard.siNo,
+      summary: `Voided inspection on ${insp.jobCard.siNo}${input.reason ? ` — ${input.reason}` : ""}`,
+    });
+  });
+  revalidatePath(`/job-cards/${insp.jobCardId}`);
+  revalidatePath("/reports");
+  return { ok: true };
+}
+
+/**
+ * Send rejected pieces back for repair. A tracking movement only — see the header.
+ * Gets its own RW- series: JW- is a vendor BILLING document and reusing it would put
+ * unbilled rework into the finishing job-work ledger.
+ */
+export async function sendToRework(input: {
+  jobCardId: number;
+  layerId?: number | null;
+  qty: number;
+  vendorName?: string | null;
+  note?: string | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.findUnique({ where: { id: input.jobCardId }, select: { id: true, siNo: true } });
+  if (!job) throw new Error("Job card not found");
+  const qty = Math.max(0, input.qty ?? 0);
+  if (qty <= 0) throw new Error("Enter how many pieces are going for rework");
+
+  const rw = await db.$transaction(async (tx) => {
+    const vendorId = input.vendorName ? await resolveVendorId(tx, input.vendorName) : null;
+
+    // Allocate inside the transaction, like JW-/DC-/CH-: two concurrent creates would
+    // otherwise collide on the @unique docNo.
+    const year = new Date().getFullYear();
+    const prefix = `RW-${year}-`;
+    const existing = await tx.rework.findMany({ where: { docNo: { startsWith: prefix } }, select: { docNo: true } });
+    const maxN = existing.reduce((m, e) => Math.max(m, parseInt((e.docNo ?? "").slice(prefix.length), 10) || 0), 0);
+    const docNo = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+
+    const row = await tx.rework.create({
+      data: {
+        docNo, jobCardId: job.id, layerId: input.layerId ?? null,
+        vendorId, qty, status: "OPEN", note: input.note?.trim() || null,
+      },
+    });
+    await logAudit(tx, user, {
+      action: "sendToRework", entity: "Rework", entityId: row.id, entityLabel: docNo,
+      summary: `Sent ${num(qty)} pcs from ${job.siNo} for rework${input.vendorName ? ` to ${input.vendorName}` : ""}`,
+    });
+    return row;
+  });
+
+  revalidatePath(`/job-cards/${job.id}`);
+  return { ok: true, docNo: rw.docNo };
+}
+
+export async function receiveRework(input: { id: number; qtyBack: number }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const rw = await db.rework.findUnique({
+    where: { id: input.id },
+    select: { id: true, docNo: true, qty: true, qtyBack: true, jobCardId: true, jobCard: { select: { siNo: true } } },
+  });
+  if (!rw) throw new Error("Rework not found");
+  const add = Math.max(0, input.qtyBack ?? 0);
+  if (add <= 0) throw new Error("Enter how many pieces came back");
+  const total = rw.qtyBack + add;
+  if (total > rw.qty + 0.001) throw new Error(`Only ${num(rw.qty - rw.qtyBack)} pcs are still out on ${rw.docNo}`);
+
+  await db.$transaction(async (tx) => {
+    await tx.rework.update({
+      where: { id: rw.id },
+      data: { qtyBack: total, status: total >= rw.qty - 0.001 ? "CLOSED" : "OPEN" },
+    });
+    await logAudit(tx, user, {
+      action: "receiveRework", entity: "Rework", entityId: rw.id, entityLabel: rw.docNo ?? String(rw.id),
+      summary: `${num(add)} pcs back from rework on ${rw.jobCard.siNo}${total >= rw.qty - 0.001 ? " · closed" : ""}`,
+    });
+  });
+  revalidatePath(`/job-cards/${rw.jobCardId}`);
+  return { ok: true };
+}
+
+/** Owner-managed defect list, mirroring the other simple masters. */
+export async function upsertDefectType(input: { id?: number; name: string; category?: string; active?: boolean }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const name = input.name.trim();
+  if (!name) throw new Error("A defect needs a name");
+  await db.$transaction(async (tx) => {
+    const row = input.id
+      ? await tx.defectType.update({
+          where: { id: input.id },
+          data: {
+            name,
+            ...(input.category ? { category: input.category as never } : {}),
+            ...(input.active !== undefined ? { active: input.active } : {}),
+          },
+        })
+      : await tx.defectType.create({ data: { name, category: (input.category ?? "OTHER") as never } });
+    await logAudit(tx, user, {
+      action: input.id ? "updateDefectType" : "createDefectType",
+      entity: "DefectType", entityId: row.id, entityLabel: name,
+      summary: `${input.id ? "Updated" : "Added"} defect ${name}`,
+    });
+  });
+  revalidatePath("/masters");
   return { ok: true };
 }

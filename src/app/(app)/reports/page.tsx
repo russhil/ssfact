@@ -11,6 +11,7 @@ import {
 } from "@/lib/insights";
 import { getCurrentUser, canSeeCost } from "@/lib/auth";
 import { Card, Bar, Badge, PageHeader } from "@/components/ui";
+import { getDefectBreakdown } from "@/lib/quality";
 import { num, pct, inr } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export default async function ReportsPage() {
   const me = await getCurrentUser();
   const owner = canSeeCost(me);
 
-  const [{ kpis }, jobs, variance, pendency, pipeline, quality, onTime, margins] = await Promise.all([
+  const [{ kpis }, jobs, variance, pendency, pipeline, quality, onTime, margins, defects] = await Promise.all([
     getDashboard(),
     getJobs(),
     getVendorFabricVariance(),
@@ -29,6 +30,8 @@ export default async function ReportsPage() {
     getOnTimeDelivery(),
     // Change 25 Part F: margin is owner-only, so it is not even queried otherwise.
     owner ? getJobMargins() : Promise.resolve([]),
+    // Change 36 Part 3 — where the rejects actually come from.
+    getDefectBreakdown(),
   ]);
 
   const byItem = new Map<string, { item: string; cut: number; disp: number }>();
@@ -295,6 +298,37 @@ export default async function ReportsPage() {
           </table>
         </Card>
       </div>
+
+      {/* Change 36 Part 3 — defect breakdown. "Reject 4%" is a number; "reject 4%, mostly
+          stitching" is something the owner can act on. */}
+      <Card className="mt-3.5 overflow-hidden p-0">
+        <div className="border-b border-border px-5 py-3 t-body font-bold">
+          Defects <span className="font-medium text-faint">· by category</span>
+        </div>
+        <table className="w-full t-sm">
+          <thead>
+            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+              <th className="px-5 py-2.5 font-semibold">Defect</th>
+              <th className="px-5 py-2.5 font-semibold">Category</th>
+              <th className="px-5 py-2.5 text-right font-semibold">Pieces</th>
+              <th className="px-5 py-2.5 text-right font-semibold">Share</th>
+            </tr>
+          </thead>
+          <tbody>
+            {defects.slice(0, 12).map((d) => (
+              <tr key={`${d.category}-${d.name}`} className="border-b border-hairline last:border-0">
+                <td className="px-5 py-2 font-semibold">{d.name}</td>
+                <td className="px-5 py-2 text-t2">{d.category}</td>
+                <td className="px-5 py-2 text-right tnum">{num(d.qty)}</td>
+                <td className="px-5 py-2 text-right tnum text-t2">{pct(d.share, 1)}</td>
+              </tr>
+            ))}
+            {defects.length === 0 && (
+              <tr><td colSpan={4} className="px-5 py-8 text-center text-muted">No defects categorised yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
     </div>
   );
 }
