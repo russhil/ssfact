@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { traceGarment, traceLot } from "@/lib/trace";
+import { traceGarment, traceLot, getTraceStartingPoints } from "@/lib/trace";
 import { Card, PageHeader, Badge, SearchInput } from "@/components/ui";
 import { num, fmtDate } from "@/lib/format";
 
@@ -17,6 +17,8 @@ export default async function TracePage({ searchParams }: { searchParams: Promis
 
   let lot = null;
   let garment = null;
+  // Nothing typed yet — offer somewhere to start rather than a bare box.
+  const start = query ? null : await getTraceStartingPoints();
 
   if (query) {
     lot = await traceLot(query);
@@ -44,6 +46,58 @@ export default async function TracePage({ searchParams }: { searchParams: Promis
 
       {query && !lot && !garment && (
         <Card className="p-6 text-center t-body text-muted">Nothing found for “{query}”</Card>
+      )}
+
+      {start && start.noLotsAnywhere && (
+        <Card className="p-6">
+          <h3 className="mb-1 t-body font-bold">No lot numbers recorded yet</h3>
+          <p className="t-sm text-t2">
+            Tracing works once a lot number is written down in two places: on the{" "}
+            <Link href="/challans" className="text-primary-ink hover:underline">inward challan line</Link>{" "}
+            when fabric arrives, and on the cutting lay that used it. Until then there is nothing to follow.
+          </p>
+          <p className="mt-2 t-sm text-t2">
+            You can still search by <b>DC number</b> or <b>job card</b> — those work today.
+          </p>
+        </Card>
+      )}
+
+      {start && !start.noLotsAnywhere && (
+        <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
+          <Card className="p-4">
+            <h3 className="mb-2 t-body font-bold">Recent lots</h3>
+            {start.lots.map((l) => (
+              <Link
+                key={l.lotNo}
+                href={`/trace?q=${encodeURIComponent(l.lotNo)}`}
+                className="flex items-baseline justify-between gap-3 border-b border-hairline py-2 last:border-0 t-sm hover:opacity-70"
+              >
+                <span className="font-semibold text-primary-ink">{l.lotNo}</span>
+                <span className="min-w-0 flex-1 truncate text-t3">{l.fabric ?? "—"}</span>
+                <span className="shrink-0 text-t2">{l.supplier ?? "—"}</span>
+              </Link>
+            ))}
+          </Card>
+
+          <Card className="p-4">
+            <h3 className="mb-2 t-body font-bold">Recent dispatches</h3>
+            {start.dispatches.length === 0 ? (
+              <p className="t-sm text-muted">Nothing dispatched yet.</p>
+            ) : (
+              start.dispatches.map((d) => (
+                <Link
+                  key={d.id}
+                  href={`/trace?q=${encodeURIComponent(d.dispatchNo ?? d.siNo)}`}
+                  className="flex items-baseline justify-between gap-3 border-b border-hairline py-2 last:border-0 t-sm hover:opacity-70"
+                >
+                  <span className="font-semibold text-primary-ink">{d.dispatchNo ?? `#${d.id}`}</span>
+                  <span className="min-w-0 flex-1 truncate text-t3">{d.siNo}</span>
+                  <span className="shrink-0 tnum text-t2">{num(d.qty)} pcs</span>
+                </Link>
+              ))
+            )}
+          </Card>
+        </div>
       )}
 
       {lot && (

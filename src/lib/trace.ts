@@ -180,3 +180,57 @@ export async function traceLot(lotNo: string): Promise<LotTrace | null> {
     })),
   };
 }
+
+export type TraceStart = {
+  lots: { lotNo: string; fabric: string | null; supplier: string | null; at: Date }[];
+  dispatches: { id: number; dispatchNo: string | null; siNo: string; at: Date; qty: number }[];
+  /** True when nothing anywhere carries a lot number yet. */
+  noLotsAnywhere: boolean;
+};
+
+/**
+ * What to offer when nobody has typed anything yet.
+ *
+ * A search page that renders only a box reads as broken — especially on a fresh install
+ * where the answer to every search is "nothing found". This gives the page something to
+ * show and something to click, and lets it say plainly when no lot has ever been recorded.
+ */
+export async function getTraceStartingPoints(): Promise<TraceStart> {
+  const [lines, dispatches] = await Promise.all([
+    db.materialChallanLine.findMany({
+      where: { lotNo: { not: null } },
+      orderBy: { id: "desc" },
+      take: 40,
+      select: {
+        lotNo: true,
+        fabric: { select: { name: true } },
+        challan: { select: { date: true, supplier: { select: { name: true } } } },
+      },
+    }),
+    db.dispatchEvent.findMany({
+      where: { voidedAt: null },
+      orderBy: { date: "desc" },
+      take: 8,
+      select: { id: true, dispatchNo: true, date: true, qty: true, jobCard: { select: { siNo: true } } },
+    }),
+  ]);
+
+  // One row per lot, newest first.
+  const seen = new Set<string>();
+  const lots: TraceStart["lots"] = [];
+  for (const l of lines) {
+    const key = (l.lotNo ?? "").trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    lots.push({ lotNo: key, fabric: l.fabric?.name ?? null, supplier: l.challan.supplier?.name ?? null, at: l.challan.date });
+    if (lots.length >= 12) break;
+  }
+
+  return {
+    lots,
+    dispatches: dispatches.map((d) => ({
+      id: d.id, dispatchNo: d.dispatchNo, siNo: d.jobCard.siNo, at: d.date, qty: d.qty,
+    })),
+    noLotsAnywhere: lots.length === 0,
+  };
+}
