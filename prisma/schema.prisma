@@ -180,6 +180,10 @@ model Vendor {
   // (canSeeCost). Null means no rate agreed — nothing is billed rather than billed at 0.
   jobRateType       PartyRateType?
   jobRate           Float?
+  // Change 36 Part 2: a vendor had no phone or email at all, so "card routed to vendor"
+  // had nowhere to send. Nullable — an unreachable vendor simply gets the in-app row.
+  phone             String?
+  email             String?
   ledgerEntries     PartyLedgerEntry[]
   jobCards          JobCard[]
   stitchAssignments StitchAssignment[]
@@ -671,6 +675,10 @@ model User {
   displayName  String
   role         Role     @default(STAFF)
   vendorName   String? // for VENDOR role: matches Vendor.name verbatim
+  // Change 36 Part 2: the owner digest had no address to go to. Nullable by design —
+  // with neither set, notifications stay in-app and nothing breaks.
+  phone        String?
+  email        String?
   // Change 20: logins deactivate rather than delete — username is unique, so a hard
   // delete frees the name for a different person and orphans the audit trail.
   active       Boolean  @default(true)
@@ -702,6 +710,8 @@ model User {
   trimOrdersUpdated   TrimOrder[]       @relation("TrimOrderUpdatedBy")
   fabricColorsCreated FabricColor[]     @relation("FabricColorCreatedBy")
   partyLedgerEntries PartyLedgerEntry[] @relation("PartyLedgerCreatedBy")
+  notifications      Notification[]     @relation("NotificationUser")
+  notificationPrefs  NotificationPref[] @relation("NotificationPrefUser")
   fabricColorsUpdated FabricColor[]     @relation("FabricColorUpdatedBy")
   trimItemsCreated    TrimItem[]        @relation("TrimItemCreatedBy")
   trimItemsUpdated    TrimItem[]        @relation("TrimItemUpdatedBy")
@@ -716,6 +726,45 @@ model User {
 // `username` is denormalised on purpose: `userId` goes null when a login is deleted,
 // and "who did this" must survive that. `changes` / `meta` are JSON *strings* — this
 // schema stores JSON as TEXT everywhere (see CuttingLayer.sizeRatio), no Prisma Json.
+// ── Change 36 Part 2 — outbound notifications ──
+// ★ ONE gateway, many triggers. Transport is swappable and defaults to LOG-ONLY: every
+// send is recorded here whether or not anything left the building, so the factory gets a
+// working in-app inbox with zero external setup, and wiring a real WhatsApp/SMTP
+// transport later changes one file rather than every call site.
+model Notification {
+  id       String   @id @default(cuid())
+  at       DateTime @default(now())
+  to       String // resolved address, or the party name when log-only
+  channel  String // WHATSAPP | EMAIL | INAPP
+  template String // po.shared, card.routed, stock.low, …
+  body     String
+  entity   String?
+  entityId String?
+  status   String   @default("QUEUED") // QUEUED | SENT | FAILED | READ
+  error    String?
+
+  // Who should see this in their inbox. Null = the owner/admin inbox.
+  user   User? @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId Int?
+
+  @@index([userId])
+  @@index([at])
+  @@index([template])
+}
+
+// Per-user, per-event, per-channel opt-in. Absent row = the template's own default.
+model NotificationPref {
+  id       Int     @id @default(autoincrement())
+  user     User    @relation("NotificationPrefUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId   Int
+  template String
+  channel  String
+  enabled  Boolean @default(true)
+
+  @@unique([userId, template, channel])
+  @@index([userId])
+}
+
 model AuditLog {
   id          String   @id @default(cuid())
   at          DateTime @default(now())

@@ -115,10 +115,13 @@ export function Sidebar({
   role,
   displayName,
   counts = {},
+  bell,
 }: {
   role: Role;
   displayName: string;
   counts?: NavCounts;
+  /** Change 36 Part 2 — the inbox, rendered by the layout so this stays a pure shell. */
+  bell?: React.ReactNode;
 }) {
   const path = usePathname();
   const initial = (displayName.trim()[0] ?? "?").toUpperCase();
@@ -184,6 +187,7 @@ export function Sidebar({
         <div className="flex items-center gap-1">
           <ThemeToggle />
           <DensityToggle />
+          {bell}
           <form action={logout} className="ml-auto">
             <button
               type="submit"

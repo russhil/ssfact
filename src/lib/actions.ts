@@ -9,6 +9,8 @@ import { colorKey } from "@/lib/colour";
 import { sizeKey } from "@/lib/job-labels";
 import { num } from "@/lib/format";
 import { getJobTrimIssues } from "@/lib/jobs";
+import { notifyAfter, ownerRecipients } from "@/lib/notify";
+import { getLowStockAlerts } from "@/lib/insights";
 import { getMasterRefs, refsMessage, type MasterKind } from "@/lib/master-refs";
 import { revalidatePath } from "next/cache";
 
@@ -955,6 +957,16 @@ export async function addDispatch(input: {
   revalidatePath("/board");
   revalidatePath("/job-cards");
   revalidatePath(`/job-cards/${job.id}`);
+
+  // Change 36 Part 2 — after the transaction. A dispatch is the moment the owner most
+  // wants to know about, and the one most likely to happen while nobody is at a desk.
+  for (const r of await ownerRecipients()) {
+    notifyAfter({
+      to: r.to, template: "dispatch.done", userId: r.userId,
+      entity: "DispatchEvent", entityId: dispatchNo ?? `${job.id}-${newDispatched}`,
+      body: `${job.siNo} — ${num(input.qty)} pcs dispatched${dispatchNo ? ` on ${dispatchNo}` : ""}${closed ? " · card closed" : ""}`,
+    });
+  }
   return { siNo: job.siNo, dispatched: newDispatched, closed, dispatchNo };
 }
 
@@ -2767,6 +2779,31 @@ export async function lockChallan(input: { id: number }) {
   revalidatePath("/trims");
   revalidatePath("/fabric-orders");
   revalidatePath("/trim-orders");
+
+  // Change 36 Part 2 — AFTER the transaction, never inside it. This function's tx also
+  // writes the stock ledger through postMaterialMovement; awaiting a transport hiccup in
+  // there would roll back a real stock posting. notifyAfter never throws.
+  if (c.direction === "INWARD") {
+    for (const r of await ownerRecipients()) {
+      notifyAfter({
+        to: r.to, template: "challan.inward", userId: r.userId,
+        entity: "MaterialChallan", entityId: c.id,
+        body: `Received ${challanNo} — ${c.lines.length} line${c.lines.length === 1 ? "" : "s"} into stock`,
+      });
+    }
+    // Low stock is computed, not stored, so this is the natural moment to check it:
+    // stock has just moved. notify() dedupes on (template, entityId) within a day, so a
+    // trim that stays below its level does not re-notify every time anything is received.
+    for (const a of await getLowStockAlerts()) {
+      for (const r of await ownerRecipients()) {
+        notifyAfter({
+          to: r.to, template: "stock.low", userId: r.userId,
+          entity: a.kind, entityId: `${a.kind}-${a.id}`,
+          body: `${a.name}${a.colour ? ` · ${a.colour}` : ""} is at ${num(a.currentStock)} ${a.unit} — reorder level ${num(a.reorderLevel)}`,
+        });
+      }
+    }
+  }
   return { challanNo };
 }
 
@@ -4512,5 +4549,48 @@ export async function setLayerVendorRate(input: { layerId: number; vendorRate?: 
     });
   });
   revalidatePath(`/job-cards/${layer.jobCardId}`);
+  return { ok: true };
+}
+
+// ── Change 36 Part 2 — the in-app inbox ──
+
+/** Mark this user's unread notifications read. Deliberately not a delete: the log stays. */
+export async function markNotificationsRead(input?: { ids?: string[] }) {
+  const user = await requireRole("ADMIN", "STAFF", "VENDOR", "TRIMS");
+  await db.notification.updateMany({
+    where: {
+      userId: user.userId,
+      status: { not: "READ" },
+      ...(input?.ids?.length ? { id: { in: input.ids } } : {}),
+    },
+    data: { status: "READ" },
+  });
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/** Per-event, per-channel opt-out. An absent row means the template is on. */
+export async function setNotificationPref(input: { template: string; channel: string; enabled: boolean }) {
+  const user = await requireRole("ADMIN", "STAFF", "VENDOR", "TRIMS");
+  await db.notificationPref.upsert({
+    where: { userId_template_channel: { userId: user.userId, template: input.template, channel: input.channel } },
+    create: { userId: user.userId, template: input.template, channel: input.channel, enabled: input.enabled },
+    update: { enabled: input.enabled },
+  });
+  revalidatePath("/settings/notifications");
+  return { ok: true };
+}
+
+/** Owner contact details — without these the digest has nowhere to go. */
+export async function setMyContact(input: { phone?: string | null; email?: string | null }) {
+  const user = await requireRole("ADMIN", "STAFF", "VENDOR", "TRIMS");
+  await db.user.update({
+    where: { id: user.userId },
+    data: {
+      ...(input.phone !== undefined ? { phone: input.phone?.trim() || null } : {}),
+      ...(input.email !== undefined ? { email: input.email?.trim() || null } : {}),
+    },
+  });
+  revalidatePath("/settings/notifications");
   return { ok: true };
 }
