@@ -50,10 +50,26 @@ export function AddCuttingLayer({
   // Change 26 A/B: per-colour weights so "All colours" has a ratio to split on.
   const [colourWeight, setColourWeight] = useState<Record<string, number>>({});
 
+  // Change 37: fabric issued/used per COLOUR. A roll is a colour, so this is how fabric
+  // actually moves; the layer figures below are now the sum of these, not typed.
+  const [colFabric, setColFabric] = useState<Record<string, { issued: string; used: string }>>({});
+  const colF = (c: string) => colFabric[c] ?? { issued: "", used: "" };
+  const setColF = (c: string, k: "issued" | "used", v: string) =>
+    setColFabric((p) => ({ ...p, [c]: { ...(p[c] ?? { issued: "", used: "" }), [k]: v } }));
+
   const cols = colours.length > 0 ? colours : [""];
   const total = Object.values(cells).reduce((a, q) => a + (q > 0 ? q : 0), 0);
-  const issuedV = numOrNull(issued);
-  const usedV = numOrNull(mtr);
+  const colTotal = (c: string) => laySizes.reduce((a, s) => a + (cells[cellKey(s, c)] || 0), 0);
+
+  const sumCol = (k: "issued" | "used") => {
+    const vals = cols.map((c) => numOrNull(colF(c)[k])).filter((v): v is number => v != null);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) * 100) / 100 : null;
+  };
+  const perColour = cols.some((c) => numOrNull(colF(c).issued) != null || numOrNull(colF(c).used) != null);
+  // When colour rows are filled the strip is a read-only Σ of them; otherwise it stays
+  // the typed layer figure, so a lay entered the old way still works exactly as before.
+  const issuedV = perColour ? sumCol("issued") : numOrNull(issued);
+  const usedV = perColour ? sumCol("used") : numOrNull(mtr);
   const extra = issuedV != null ? Math.round((issuedV - (usedV ?? 0)) * 100) / 100 : null;
 
   const ratioPairs = (): [string, number][] => laySizes.map((s) => [s, ratio[s] ?? 1]);
@@ -107,6 +123,13 @@ export function AddCuttingLayer({
         fabricMtr: mtr ? +mtr : null, // Fabric USED
         fabricBalance: balance ? +balance : null,
         fabricIssued: issued ? +issued : null, // Change 17 A
+        // Change 37 — only the colours that actually carry a figure. An empty row posts
+        // nothing, so a lay entered the old way still takes the proportional path.
+        fabricByColour: perColour
+          ? cols
+              .map((c) => ({ colour: c, issued: numOrNull(colF(c).issued), used: numOrNull(colF(c).used) }))
+              .filter((r) => r.issued != null || r.used != null)
+          : null,
         sizeRatio: ratioTouched ? JSON.stringify(ratioPairs()) : null, // Change 17 B
         cells: payloadCells,
       });
@@ -210,6 +233,11 @@ export function AddCuttingLayer({
             <tr className="t-micro font-bold text-faint">
               <th className="px-2 py-1 text-left">Colour \ Size</th>
               {laySizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
+              {/* Change 37 — fabric is issued colour-wise, so log it colour-wise. */}
+              <th className="border-l border-hairline px-2 py-1">Total</th>
+              <th className="px-2 py-1">Issued</th>
+              <th className="px-2 py-1">Used</th>
+              <th className="px-2 py-1">Balance</th>
             </tr>
           </thead>
           <tbody>
@@ -227,6 +255,28 @@ export function AddCuttingLayer({
                     />
                   </td>
                 ))}
+                <td className="border-l border-hairline px-2 py-1 tnum font-semibold text-t1">{colTotal(c) || "—"}</td>
+                <td className="px-1 py-1">
+                  <input type="number" step="0.01" value={colF(c).issued} placeholder="—"
+                    onChange={(e) => setColF(c, "issued", e.target.value)}
+                    className={`${inp} w-full min-w-[64px] text-center`} />
+                </td>
+                <td className="px-1 py-1">
+                  <input type="number" step="0.01" value={colF(c).used} placeholder="—"
+                    onChange={(e) => setColF(c, "used", e.target.value)}
+                    className={`${inp} w-full min-w-[64px] text-center`} />
+                </td>
+                {(() => {
+                  const i = numOrNull(colF(c).issued);
+                  const u = numOrNull(colF(c).used);
+                  const bal = i != null || u != null ? Math.round(((i ?? 0) - (u ?? 0)) * 100) / 100 : null;
+                  return (
+                    <td className={`px-2 py-1 tnum font-semibold ${bal != null && bal < 0 ? "text-danger" : "text-t1"}`}
+                        title="Balance = issued − used; negative means this colour was over-cut">
+                      {bal != null ? num(bal, 2) : "—"}
+                    </td>
+                  );
+                })()}
               </tr>
             ))}
           </tbody>
@@ -237,8 +287,22 @@ export function AddCuttingLayer({
         <input type="number" step="0.001" value={avg} onChange={(e) => setAvg(e.target.value)} placeholder="avg m/pc (est)" className={`${inp} bg-surface-2 text-faint`} />
         <input type="number" value={rolls} onChange={(e) => setRolls(e.target.value)} placeholder="rolls" className={`${inp} bg-surface-2 text-faint`} />
         <input type="number" step="0.01" value={balance} onChange={(e) => setBalance(e.target.value)} placeholder="balance" className={`${inp} bg-surface-2 text-faint`} />
-        <input type="number" step="0.01" value={issued} onChange={(e) => setIssued(e.target.value)} placeholder="fabric issued" className={inp} />
-        <input type="number" step="0.01" value={mtr} onChange={(e) => setMtr(e.target.value)} placeholder="fabric used" className={inp} />
+        {/* Change 37: once any colour row carries a figure these become the read-only Σ
+            of those rows — the layer total is derived, not a second place to type. */}
+        {perColour ? (
+          <div className={`rounded-md border border-border bg-surface-2 px-1.5 py-1 t-xs font-semibold tnum text-t1`} title="Σ issued across the colour rows">
+            {issuedV != null ? num(issuedV, 2) : "—"}
+          </div>
+        ) : (
+          <input type="number" step="0.01" value={issued} onChange={(e) => setIssued(e.target.value)} placeholder="fabric issued" className={inp} />
+        )}
+        {perColour ? (
+          <div className={`rounded-md border border-border bg-surface-2 px-1.5 py-1 t-xs font-semibold tnum text-t1`} title="Σ used across the colour rows">
+            {usedV != null ? num(usedV, 2) : "—"}
+          </div>
+        ) : (
+          <input type="number" step="0.01" value={mtr} onChange={(e) => setMtr(e.target.value)} placeholder="fabric used" className={inp} />
+        )}
         <div className={`rounded-md border border-border bg-surface-2 px-1.5 py-1 t-xs font-semibold tnum ${extra != null && extra < 0 ? "text-danger" : "text-t1"}`} title="Extra = issued − used">
           {extra != null ? num(extra) : "—"}
         </div>

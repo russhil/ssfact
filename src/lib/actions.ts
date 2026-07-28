@@ -64,6 +64,80 @@ export async function postMaterialMovement(
   }
 }
 
+/**
+ * Change 37 — the ONLY place a job card's fabric stock is driven, for one
+ * (fabric, jobCard, colour) triple.
+ *
+ * Change 19 Part B established the rule and it is unchanged: net the movements for the
+ * triple and post whatever delta makes that net equal USED — in BOTH directions, NEVER
+ * clamped. Negative stock is allowed because it is real over-cut. The old code returned
+ * Math.max(0, issued − used), which clamped: when a lay was over-cut the net stayed
+ * parked at the issued ESTIMATE and the extra fabric consumed was never deducted.
+ * Owner's rule: "It should not look at issued. It should always look at the manually
+ * filled one which is USED."
+ *
+ * What Change 37 adds is that this is now a FUNCTION with several callers rather than a
+ * block inlined in recordFabricActuals. addCuttingLayer used to blindly APPEND an OUT
+ * movement, so it and the actuals form were two writers stacking on one net — which is
+ * exactly why updateCuttingLayer was forbidden from posting at all ("posting here too
+ * would double-count the lay"). Netting is idempotent by construction: re-running with
+ * the same `used` computes delta 0 and posts nothing. So every caller converges on the
+ * same target instead of stacking, and the hazard that comment protected against stops
+ * being possible.
+ *
+ * Returns the delta posted: > 0 deducted more (over-cut), < 0 gave stock back, 0 no-op.
+ */
+async function reconcileJobFabricColour(
+  tx: Tx,
+  a: { fabricId: number; jobCardId: number; siNo: string; colour: string; used: number; reason: string }
+): Promise<number> {
+  const key = colorKey(a.colour);
+  const agg = await tx.stockMovement.groupBy({
+    by: ["type"],
+    where: {
+      fabricId: a.fabricId,
+      jobCardId: a.jobCardId,
+      // legacy colourless movements were stored as null; colorKey("") === ""
+      ...(key === "" ? { OR: [{ color: "" }, { color: null }] } : { color: key }),
+    },
+    _sum: { qty: true },
+  });
+  const sumOf = (t: string) => agg.find((x) => x.type === t)?._sum.qty ?? 0;
+  const postedSoFar = sumOf("ISSUE") - sumOf("RECEIPT");
+
+  const raw = (a.used ?? 0) - postedSoFar;
+  const delta = Math.abs(raw) < 0.005 ? 0 : Math.round(raw * 100) / 100;
+  if (delta === 0) return 0;
+
+  await postMaterialMovement(tx, {
+    direction: delta > 0 ? "OUT" : "IN",
+    qty: Math.abs(delta),
+    date: new Date(),
+    fabricId: a.fabricId,
+    colour: key,
+    jobCardId: a.jobCardId,
+    note: `${delta > 0 ? a.reason : "Return"} ${a.siNo} · ${key || "—"}`,
+  });
+  return delta;
+}
+
+/**
+ * Change 37 — a layer's fabric, per colour, when the lay carries CuttingLayerColour rows.
+ * Returns null for a legacy layer (no colour rows), which is the signal to fall back to
+ * the old proportional split.
+ */
+function layerColourUsed(layer: { colours?: { colour: string; fabricUsed: number | null }[] }): Map<string, number> | null {
+  const rows = layer.colours ?? [];
+  if (rows.length === 0) return null;
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    if (r.fabricUsed == null) continue;
+    const k = colorKey(r.colour);
+    out.set(k, (out.get(k) ?? 0) + r.fabricUsed);
+  }
+  return out.size > 0 ? out : null;
+}
+
 /** Find-or-create a cutting master by name inside a transaction. */
 async function resolveCuttingMaster(tx: Tx, name: string): Promise<number> {
   const cm =
@@ -599,55 +673,20 @@ export async function recordFabricActuals(input: FabricActualsInput) {
       }
       if (!fabricId) continue;
 
-      // ── Change 19 Part B: reconcile the ledger to USED ──
-      // The old code returned Math.max(0, issued − used), which CLAMPED: when a layer was
-      // over-cut (used > issued) it returned nothing, so net stock stayed parked at the
-      // issued ESTIMATE and the extra fabric really consumed was never deducted.
-      // Owner's rule: "It should not look at issued. It should always look at the manually
-      // filled one which is USED." So we post whatever delta makes the net equal USED —
-      // in both directions, never clamped. Negative stock is allowed: it's real over-cut.
-      const agg = await tx.stockMovement.groupBy({
-        by: ["type"],
-        where: {
-          fabricId,
-          jobCardId: job.id,
-          // legacy colourless movements were stored as null; colorKey("") === ""
-          ...(key === "" ? { OR: [{ color: "" }, { color: null }] } : { color: key }),
-        },
-        _sum: { qty: true },
+      // Change 37: the netting that used to live inline here is now the shared helper,
+      // so the layer path and this form drive the same number the same way.
+      const delta = await reconcileJobFabricColour(tx, {
+        fabricId,
+        jobCardId: job.id,
+        siNo: job.siNo,
+        colour: key,
+        used: l.qtyUsed ?? 0,
+        reason: "Actuals true-up",
       });
-      const sumOf = (t: string) => agg.find((a) => a.type === t)?._sum.qty ?? 0;
-      const postedSoFar = sumOf("ISSUE") - sumOf("RECEIPT");
-
-      // Idempotency falls out of this: re-saving the same USED gives delta 0 and posts
-      // nothing, which is why the old one-shot `returnedColours` lock is gone.
-      const raw = (l.qtyUsed ?? 0) - postedSoFar;
-      const delta = Math.abs(raw) < 0.005 ? 0 : Math.round(raw * 100) / 100;
-
-      if (delta > 0) {
-        // used more than we've taken out — deduct the difference (over-cut)
-        await postMaterialMovement(tx, {
-          direction: "OUT",
-          qty: delta,
-          date: new Date(),
-          fabricId,
-          colour: key,
-          jobCardId: job.id,
-          note: `Actuals true-up ${job.siNo} · ${key || "—"}`,
-        });
-        totalIssued += delta;
-      } else if (delta < 0) {
-        // used less — the leftover goes back, and still leaves a human-facing ReturnNote
+      if (delta > 0) totalIssued += delta;
+      else if (delta < 0) {
         const ret = -delta;
-        await postMaterialMovement(tx, {
-          direction: "IN",
-          qty: ret,
-          date: new Date(),
-          fabricId,
-          colour: key,
-          jobCardId: job.id,
-          note: `Return ${job.siNo} · ${key || "—"}`,
-        });
+        // The ledger half is done; the human-facing ReturnNote is this form's own record.
         await tx.returnNote.create({
           data: { qty: ret, fabricId, jobCardId: job.id, color: key, note: input.note ?? null } as any,
         });
@@ -894,6 +933,9 @@ export async function addCuttingLayer(input: {
   fabricIssued?: number | null; // Change 17 A: Fabric ISSUED
   sizeRatio?: string | null; // Change 17 B: this lay's own size ratio JSON
   cells: { colour: string; size: string; qty: number }[];
+  // Change 37: fabric per colour on this lay. When present it REPLACES the proportional
+  // split — the ledger is driven to the entered USED per colour instead of an estimate.
+  fabricByColour?: { colour: string; issued?: number | null; used?: number | null }[] | null;
 }) {
   await requireRole("ADMIN", "STAFF");
   // Change 26 E: sizes are hand-typed per lay now, so canonicalise them the way colours
@@ -919,6 +961,28 @@ export async function addCuttingLayer(input: {
   const byCol = new Map<string, number>();
   for (const c of cells) byCol.set(c.colour, (byCol.get(c.colour) ?? 0) + c.qty);
 
+  // Change 37 — per-colour fabric, canonicalised and summed by colour. Empty rows post
+  // nothing (back-compat: a colour with no figure typed behaves as if it were absent).
+  const byColFabric = new Map<string, { issued: number | null; used: number | null }>();
+  for (const r of input.fabricByColour ?? []) {
+    const k = colorKey(r.colour);
+    if (k === "" || (r.issued == null && r.used == null)) continue;
+    const prev = byColFabric.get(k) ?? { issued: null, used: null };
+    byColFabric.set(k, {
+      issued: r.issued == null ? prev.issued : (prev.issued ?? 0) + r.issued,
+      used: r.used == null ? prev.used : (prev.used ?? 0) + r.used,
+    });
+  }
+  const perColour = byColFabric.size > 0;
+  // The layer totals stay populated for every existing read site; when colour rows are
+  // given they are the SUM of those rows rather than a separately typed number.
+  const sumOf = (k: "issued" | "used") => {
+    const vals = [...byColFabric.values()].map((v) => v[k]).filter((v): v is number => v != null);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) * 100) / 100 : null;
+  };
+  const layerIssued = perColour ? sumOf("issued") : (input.fabricIssued ?? null);
+  const layerUsed = perColour ? sumOf("used") : (input.fabricMtr ?? null);
+
   await db.$transaction(async (tx) => {
     const layerMasterId = input.cuttingMaster
       ? await resolveCuttingMaster(tx, input.cuttingMaster)
@@ -934,45 +998,77 @@ export async function addCuttingLayer(input: {
         vendorId: layerVendorId,
         avgConsumption: input.avgConsumption ?? null,
         rolls: input.rolls ?? null,
-        fabricMtr: input.fabricMtr ?? null,
+        fabricMtr: layerUsed,
         fabricBalance: input.fabricBalance ?? null,
-        fabricIssued: input.fabricIssued ?? null,
+        fabricIssued: layerIssued,
         sizeRatio: input.sizeRatio ?? null,
         cells: { create: cells },
+        ...(perColour
+          ? {
+              colours: {
+                create: [...byColFabric.entries()].map(([colour, v]) => ({
+                  colour,
+                  fabricIssued: v.issued,
+                  fabricUsed: v.used,
+                })),
+              },
+            }
+          : {}),
       } as any,
     });
 
     if (fabricId) {
       for (const [col, q] of byCol) {
-        const issued =
-          input.fabricMtr != null && layerTotal > 0
+        const entered = byColFabric.get(col);
+        // Change 37: with colour rows the entered USED is the truth; without them the
+        // lay's single figure is still split across colours by cut proportion (legacy).
+        const issued = perColour
+          ? (entered?.issued ?? entered?.used ?? 0)
+          : input.fabricMtr != null && layerTotal > 0
             ? Math.round(input.fabricMtr * (q / layerTotal) * 100) / 100
             : avg != null
               ? Math.round(q * avg * 100) / 100
               : 0;
         const existing = job.fabricLines.find((f) => colorKey(f.color) === col);
+        const usedDelta = perColour ? (entered?.used ?? 0) : 0;
         if (existing) {
           await tx.jobFabricLine.update({
             where: { id: existing.id },
             data: {
               cutQty: (existing.cutQty ?? 0) + q,
               qtyIssued: (existing.qtyIssued ?? 0) + issued,
+              ...(perColour ? { qtyUsed: (existing.qtyUsed ?? 0) + usedDelta } : {}),
             } as any,
           });
         } else {
           await tx.jobFabricLine.create({
-            data: { color: col, fabricId, jobCardId: job.id, cutQty: q, estAvg: avg, qtyIssued: issued } as any,
+            data: {
+              color: col, fabricId, jobCardId: job.id, cutQty: q, estAvg: avg, qtyIssued: issued,
+              ...(perColour ? { qtyUsed: usedDelta } : {}),
+            } as any,
           });
         }
-        await postMaterialMovement(tx, {
-          direction: "OUT",
-          qty: issued,
-          date: now,
-          fabricId,
-          colour: col,
-          jobCardId: job.id,
-          note: `Layer ${layerNo} issue`,
-        });
+
+        if (perColour) {
+          // NET to the card's total entered USED for this colour — never append. Two
+          // writers (this and the actuals form) on one net is only safe because both
+          // converge on the same target; see reconcileJobFabricColour.
+          const target = ((existing?.qtyUsed ?? 0) + usedDelta);
+          await reconcileJobFabricColour(tx, {
+            fabricId, jobCardId: job.id, siNo: job.siNo, colour: col,
+            used: target, reason: `Layer ${layerNo}`,
+          });
+        } else {
+          await postMaterialMovement(tx, {
+            direction: "OUT",
+            qty: issued,
+            date: now,
+            fabricId,
+            colour: col,
+            jobCardId: job.id,
+            note: `Layer ${layerNo} issue`,
+          });
+        }
       }
     }
 
@@ -3461,8 +3557,18 @@ export async function updateJobCard(input: {
 
 /**
  * Change 22 Part D — edit a cutting layer. Cell edits move the card's cut quantity by the
- * delta; they do NOT re-post fabric. Fabric is trued up in exactly one place
- * (recordFabricActuals) and posting here too would double-count the lay.
+ * delta.
+ *
+ * Change 37 revises the old rule here. It used to read: "they do NOT re-post fabric.
+ * Fabric is trued up in exactly one place (recordFabricActuals) and posting here too
+ * would double-count the lay." That was true while addCuttingLayer APPENDED movements —
+ * a second appender would stack on the same net. Now every writer goes through
+ * reconcileJobFabricColour, which NETS to a target, so a second writer converges instead
+ * of stacking and the double-count is no longer possible.
+ *
+ * The constraint it protected still holds and is now enforced by the helper, not by
+ * abstinence: editing per-colour USED re-drives the ledger to the card's total entered
+ * USED for that colour. Layers with no colour rows still post nothing from here.
  */
 export async function updateCuttingLayer(input: {
   id: number;
@@ -3477,11 +3583,13 @@ export async function updateCuttingLayer(input: {
   avgConsumption?: number | null;
   sizeRatio?: string | null;
   cells?: { colour: string; size: string; qty: number }[];
+  // Change 37 — per-colour fabric for this lay. Undefined leaves the rows alone.
+  fabricByColour?: { colour: string; issued?: number | null; used?: number | null }[] | null;
 }) {
   const user = await requireRole("ADMIN", "STAFF");
   const layer = await db.cuttingLayer.findUnique({
     where: { id: input.id },
-    include: { cells: true, jobCard: { select: { siNo: true } } },
+    include: { cells: true, colours: true, jobCard: { select: { id: true, siNo: true, product: { select: { fabricId: true } } } } },
   });
   if (!layer) throw new Error("Cutting layer not found");
 
@@ -3492,12 +3600,30 @@ export async function updateCuttingLayer(input: {
   if (cells && cells.length === 0) throw new Error("A layer needs at least one cell — remove the layer instead");
   const newTotal = cells ? cells.reduce((a, c) => a + c.qty, 0) : oldTotal;
 
+  // Change 37 — canonicalise the incoming colour rows and derive the layer totals from
+  // them, so fabricMtr/fabricIssued stay the sum of the colour rows for every read site.
+  const colourRows =
+    input.fabricByColour === undefined
+      ? undefined
+      : (input.fabricByColour ?? [])
+          .map((r) => ({ colour: colorKey(r.colour), issued: r.issued ?? null, used: r.used ?? null }))
+          .filter((r) => r.colour !== "" && (r.issued != null || r.used != null));
+  const rowSum = (k: "issued" | "used") => {
+    const vals = (colourRows ?? []).map((r) => r[k]).filter((v): v is number => v != null);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) * 100) / 100 : null;
+  };
+  const hasRows = colourRows != null && colourRows.length > 0;
+
   const patch = {
         ...(input.cutDate !== undefined ? { cutDate: input.cutDate ? new Date(input.cutDate) : null } : {}),
         ...(input.label !== undefined ? { label: input.label } : {}),
         ...(input.rolls !== undefined ? { rolls: input.rolls } : {}),
+        ...(hasRows
+          ? { fabricMtr: rowSum("used"), fabricIssued: rowSum("issued") }
+          : {
         ...(input.fabricMtr !== undefined ? { fabricMtr: input.fabricMtr } : {}),
         ...(input.fabricIssued !== undefined ? { fabricIssued: input.fabricIssued } : {}),
+            }),
         ...(input.fabricBalance !== undefined ? { fabricBalance: input.fabricBalance } : {}),
         ...(input.avgConsumption !== undefined ? { avgConsumption: input.avgConsumption } : {}),
         ...(input.sizeRatio !== undefined ? { sizeRatio: input.sizeRatio } : {}),
@@ -3525,6 +3651,45 @@ export async function updateCuttingLayer(input: {
         data: { cutQty: { increment: newTotal - oldTotal }, updatedById: user.userId } as any,
       });
     }
+
+    // ── Change 37: per-colour fabric, and the ledger drive that follows from it ──
+    if (colourRows !== undefined) {
+      await tx.cuttingLayerColour.deleteMany({ where: { layerId: layer.id } });
+      for (const r of colourRows) {
+        await tx.cuttingLayerColour.create({
+          data: { layerId: layer.id, colour: r.colour, fabricIssued: r.issued, fabricUsed: r.used },
+        });
+      }
+
+      const fabricId = layer.jobCard.product?.fabricId ?? null;
+      if (fabricId && hasRows) {
+        // The target is the CARD's total entered USED for the colour — Σ across every
+        // layer that carries rows — not this layer's figure alone. The ledger has no
+        // layer dimension (StockMovement is keyed fabric+jobCard+colour), so a per-layer
+        // target would have each layer fighting the others for the same net.
+        const sibling = await tx.cuttingLayerColour.findMany({
+          where: { layer: { jobCardId: layer.jobCardId } },
+          select: { colour: true, fabricUsed: true },
+        });
+        const target = new Map<string, number>();
+        for (const s of sibling) {
+          if (s.fabricUsed == null) continue;
+          const k = colorKey(s.colour);
+          target.set(k, (target.get(k) ?? 0) + s.fabricUsed);
+        }
+        for (const [colour, used] of target) {
+          await tx.jobFabricLine.updateMany({
+            where: { jobCardId: layer.jobCardId, fabricId, color: colour },
+            data: { qtyUsed: used } as any,
+          });
+          await reconcileJobFabricColour(tx, {
+            fabricId, jobCardId: layer.jobCardId, siNo: layer.jobCard.siNo,
+            colour, used, reason: `Layer ${layer.layerNo}`,
+          });
+        }
+      }
+    }
+
     const changes = computeChanges(layer as unknown as Record<string, unknown>, patch);
     await logAudit(tx, user, {
       action: "updateCuttingLayer",
@@ -3563,6 +3728,7 @@ export async function removeCuttingLayer(input: { id: number }) {
     where: { id: input.id },
     include: {
       cells: true,
+      colours: true,
       dispatches: { where: { voidedAt: null }, select: { id: true, dispatchNo: true } },
       jobCard: { select: { id: true, siNo: true, estAvg: true, product: { select: { fabricId: true } } } },
     },
@@ -3578,8 +3744,14 @@ export async function removeCuttingLayer(input: { id: number }) {
   const layerTotal = layer.cells.reduce((a, c) => a + c.qty, 0);
   const now = new Date();
 
+  // Change 37: a lay that carries per-colour rows is reversed by re-netting the card to
+  // what remains, not by posting an inverse of a recomputed estimate. The recomputed
+  // route was always slightly lossy (createJobCard rounds once at the end, the layer
+  // paths round per colour), and with entered figures there is no need to guess at all.
+  const perColour = layerColourUsed(layer) != null;
+
   await db.$transaction(async (tx) => {
-    if (fabricId) {
+    if (fabricId && !perColour) {
       for (const [colour, qty] of issued) {
         // put the lay's fabric back — the inverse of the OUT that issued it
         await postMaterialMovement(tx, {
@@ -3609,7 +3781,34 @@ export async function removeCuttingLayer(input: { id: number }) {
       }
     }
     await tx.cuttingLayerCell.deleteMany({ where: { layerId: layer.id } });
-    await tx.cuttingLayer.delete({ where: { id: layer.id } });
+    await tx.cuttingLayer.delete({ where: { id: layer.id } }); // colours cascade
+
+    if (fabricId && perColour) {
+      // Every colour this lay touched has to be re-driven, including any that drop to
+      // zero once it is gone — otherwise a removed layer leaves its metres deducted.
+      const remaining = await tx.cuttingLayerColour.findMany({
+        where: { layer: { jobCardId: layer.jobCard.id } },
+        select: { colour: true, fabricUsed: true },
+      });
+      const target = new Map<string, number>();
+      for (const c of layer.colours) target.set(colorKey(c.colour), 0);
+      for (const r of remaining) {
+        if (r.fabricUsed == null) continue;
+        const k = colorKey(r.colour);
+        target.set(k, (target.get(k) ?? 0) + r.fabricUsed);
+      }
+      for (const [colour, used] of target) {
+        const cut = layer.cells.filter((c) => colorKey(c.colour) === colour).reduce((a, c) => a + c.qty, 0);
+        await tx.jobFabricLine.updateMany({
+          where: { jobCardId: layer.jobCard.id, fabricId, color: colour },
+          data: { qtyUsed: used, cutQty: { decrement: cut } } as any,
+        });
+        await reconcileJobFabricColour(tx, {
+          fabricId, jobCardId: layer.jobCard.id, siNo: layer.jobCard.siNo,
+          colour, used, reason: `Reverse layer ${layer.layerNo}`,
+        });
+      }
+    }
     if (layerTotal > 0) {
       await tx.jobCard.update({
         where: { id: layer.jobCard.id },

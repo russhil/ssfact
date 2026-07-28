@@ -424,6 +424,10 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                             vendor: l.vendor?.name ?? null, cuttingMaster: l.cuttingMaster?.name ?? null,
                             rolls: l.rolls, fabricMtr: l.fabricMtr, fabricIssued: l.fabricIssued,
                             fabricBalance: l.fabricBalance, avgConsumption: l.avgConsumption,
+                            // Change 37 — per-colour fabric, so the edit sheet can drive it
+                            colours: (l.colours ?? []).map((c) => ({
+                              colour: c.colour, fabricIssued: c.fabricIssued, fabricUsed: c.fabricUsed,
+                            })),
                             total: ltotal,
                             dispatched: liveDispatches
                               .filter((e) => e.layers.some((x) => x.id === l.id))

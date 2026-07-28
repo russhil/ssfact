@@ -365,6 +365,10 @@ model CuttingLayer {
   sizeRatio String?
 
   cells      CuttingLayerCell[]
+  // Change 37: fabric issued/used per COLOUR on this lay. When these rows exist they are
+  // the truth and fabricMtr/fabricIssued above are their sum; when they don't (every
+  // legacy layer) the old proportional split still runs. See reconcileJobFabricColour.
+  colours    CuttingLayerColour[]
   dispatches DispatchEvent[]    @relation("DispatchLayers") // Change 14: dispatched against these layers
   // Change 20: finishing job-work given out against this lay (same pattern as dispatch).
   finishingJobs FinishingJob[]   @relation("FinishingLayers")
@@ -379,6 +383,27 @@ model CuttingLayer {
 
   @@index([jobCardId])
   @@index([vendorId])
+}
+
+// Change 37 — fabric issued/used at (layer, colour) grain.
+//
+// Fabric physically moves colour by colour: a roll IS a colour. Until now a lay carried
+// one issued and one used figure, and the per-colour stock ledger was fed by splitting
+// that single number across colours BY CUT-PIECE PROPORTION — an estimate. If NAVY eats
+// more metres per piece than BLACK the ledger was quietly wrong, and `Extra = issued -
+// used` was a layer lump that hid which colour actually over-ran.
+//
+// Balance is DERIVED (issued - used, may be negative = over-cut) and never stored.
+model CuttingLayerColour {
+  id           Int          @id @default(autoincrement())
+  layer        CuttingLayer @relation(fields: [layerId], references: [id], onDelete: Cascade)
+  layerId      Int
+  colour       String // canonical colorKey, matches CuttingLayerCell.colour
+  fabricIssued Float?
+  fabricUsed   Float?
+
+  @@unique([layerId, colour])
+  @@index([layerId])
 }
 
 model CuttingLayerCell {
