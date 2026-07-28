@@ -4858,3 +4858,48 @@ export async function draftReorderPO(input: {
   revalidatePath("/fabric-orders");
   return { ok: true, kind: "FABRIC" as const, id: order.id };
 }
+
+/**
+ * Change 36 Part 4 — the one entered number in capacity planning.
+ * Null clears it, which suppresses the projection rather than implying zero throughput.
+ */
+export async function setVendorCapacity(input: { id: number; dailyCapacityPcs?: number | null; capacityNote?: string | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const before = await db.vendor.findUnique({
+    where: { id: input.id },
+    select: { name: true, dailyCapacityPcs: true, capacityNote: true },
+  });
+  if (!before) throw new Error("Vendor not found");
+  const patch = {
+    ...(input.dailyCapacityPcs !== undefined ? { dailyCapacityPcs: input.dailyCapacityPcs } : {}),
+    ...(input.capacityNote !== undefined ? { capacityNote: input.capacityNote?.trim() || null } : {}),
+  };
+  await db.$transaction(async (tx) => {
+    await tx.vendor.update({ where: { id: input.id }, data: patch });
+    await logAudit(tx, user, {
+      action: "setVendorCapacity", entity: "Vendor", entityId: input.id, entityLabel: before.name,
+      summary: `Set capacity for ${before.name}`,
+      changes: computeChanges(before as unknown as Record<string, unknown>, patch as Record<string, unknown>),
+    });
+  });
+  revalidatePath("/planning");
+  revalidatePath("/vendors");
+  return { ok: true };
+}
+
+/** Change 36 Part 5 — the per-card override of the fabric standard. */
+export async function setJobStdFabric(input: { jobCardId: number; stdFabricPerPc?: number | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.findUnique({ where: { id: input.jobCardId }, select: { siNo: true, stdFabricPerPc: true } });
+  if (!job) throw new Error("Job card not found");
+  await db.$transaction(async (tx) => {
+    await tx.jobCard.update({ where: { id: input.jobCardId }, data: { stdFabricPerPc: input.stdFabricPerPc ?? null } });
+    await logAudit(tx, user, {
+      action: "setJobStdFabric", entity: "JobCard", entityId: input.jobCardId, entityLabel: job.siNo,
+      summary: `Set the fabric standard on ${job.siNo}`,
+      changes: { stdFabricPerPc: { old: job.stdFabricPerPc, new: input.stdFabricPerPc ?? null } },
+    });
+  });
+  revalidatePath(`/job-cards/${input.jobCardId}`);
+  return { ok: true };
+}

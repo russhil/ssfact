@@ -184,6 +184,12 @@ model Vendor {
   // had nowhere to send. Nullable — an unreachable vendor simply gets the in-app row.
   phone             String?
   email             String?
+  // Change 36 Part 4: the ONE entered number in capacity planning — everything else is
+  // derived. No default: 0 would make days-to-clear Infinity for every legacy vendor,
+  // and null honestly means "not set", which suppresses the projection rather than
+  // inventing one.
+  dailyCapacityPcs  Float?
+  capacityNote      String?
   ledgerEntries     PartyLedgerEntry[]
   jobCards          JobCard[]
   stitchAssignments StitchAssignment[]
@@ -345,6 +351,10 @@ model JobCard {
 
   // estimate (auto snapshot from product at create)
   estAvg           Float?
+  // Change 36 Part 5: per-card override of the fabric standard. Falls back to
+  // Product.avgConsumption — there is NO fabric BOM in this schema; Bom/BomLine are
+  // trim-only and no BomLine ever references a Fabric.
+  stdFabricPerPc Float?
   estFabric        Float?
   // actual (entered later by staff)
   actualAvg        Float?

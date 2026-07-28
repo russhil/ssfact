@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getJob, getJobMatrix, getJobTrimIssues, getJobFabricPosted } from "@/lib/jobs";
 import { getJobCardChallans } from "@/lib/masters";
 import { getJobQuality, getJobInspections, getJobReworks, getDefectTypes } from "@/lib/quality";
+import { getJobYield } from "@/lib/yield";
 import { getJobMargins } from "@/lib/insights";
 import { db } from "@/lib/db";
 import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
@@ -58,6 +59,8 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   const trimIssues = await getJobTrimIssues(j.id);
   // Change 36 Part 3: the card's inspection position, so dispatch can warn (never block).
   const jobQuality = await getJobQuality(j.id);
+  // Change 36 Part 5 — owner-only, and not even queried otherwise.
+  const jobYield = canSeeCost ? await getJobYield(j.id) : null;
   const [jobInspections, jobReworks, defectTypes] = canEdit
     ? await Promise.all([getJobInspections(j.id), getJobReworks(j.id), getDefectTypes()])
     : [[], [], []];
@@ -629,6 +632,35 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           <FabricActualsForm jobCardId={j.id} unit={unit} lines={actualsLines} defaultArrangedBy={u?.displayName ?? ""} />
         )}
       </Card>
+
+      {/* Change 36 Part 5 — standard vs actual. A comparison, not a measurement. */}
+      {jobYield && jobYield.standard != null && jobYield.actual > 0 && (
+        <Card className="mt-3.5 p-4">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h3 className="t-body font-bold">Fabric yield</h3>
+            <span className="t-sm text-t2">
+              Standard <b className="tnum">{num(jobYield.standard, 2)} {jobYield.unit.toLowerCase()}</b>
+              {" · "}Actual <b className="tnum">{num(jobYield.actual, 2)} {jobYield.unit.toLowerCase()}</b>
+              {jobYield.variance != null && (
+                <>
+                  {" · "}
+                  <b className={`tnum ${jobYield.variance > 0 ? "text-danger" : "text-ok"}`}>
+                    {jobYield.variance > 0 ? "+" : ""}{num(jobYield.variance, 2)}
+                  </b>
+                  {jobYield.yieldPct != null && (
+                    <Badge
+                      tone={jobYield.yieldPct < 0.9 ? "danger" : jobYield.yieldPct < 0.97 ? "warn" : "ok"}
+                      className="ml-1.5"
+                    >
+                      {pct(jobYield.yieldPct, 1)} yield
+                    </Badge>
+                  )}
+                </>
+              )}
+            </span>
+          </div>
+        </Card>
+      )}
 
       {/* Change 36 Part 3 — inspections supersede the card-level figures below, which
           stay readable for cards inspected before this shipped. */}

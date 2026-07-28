@@ -24,6 +24,7 @@ import {
   Truck,
   Users,
   Sparkles,
+  CalendarClock,
 } from "lucide-react";
 import { logout } from "@/lib/auth-actions";
 import type { Role } from "@/lib/session";
@@ -51,6 +52,8 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/", label: "Dashboard", icon: LayoutDashboard, roles: ALL },
       { href: "/board", label: "Production Board", icon: LayoutGrid, roles: STAFF },
+      // Change 36 Part 4 — open work against each vendor's daily capacity.
+      { href: "/planning", label: "Planning", icon: CalendarClock, roles: STAFF },
     ],
   },
   {
