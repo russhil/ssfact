@@ -5,6 +5,7 @@ import { getCurrentUser, canSeeCost } from "@/lib/auth";
 import { inr } from "@/lib/format";
 import { Bar, Badge, ButtonLink, EmptyState, Panel, PageHeader, StatCard } from "@/components/ui";
 import { CountUp } from "@/components/count-up";
+import { DraftPOButton } from "@/components/draft-po-button";
 import { TrendChart } from "@/components/trend-chart";
 import { num, pct, fmtDate } from "@/lib/format";
 import { CheckCircle2, Plus } from "lucide-react";
@@ -129,6 +130,8 @@ export default async function DashboardPage() {
                     {num(a.currentStock, 2)} / {num(a.reorderLevel, 2)} {a.unit}
                   </span>
                   <Badge tone="warn">−{num(a.gap, 2)}</Badge>
+                  {/* Change 36 Part 6 C — draft the shortfall without re-typing it. */}
+                  <DraftPOButton kind={a.kind} id={a.id} gap={a.gap} unit={a.unit} name={a.name} />
                 </Link>
               ))}
             </div>

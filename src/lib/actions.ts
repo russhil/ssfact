@@ -4787,3 +4787,74 @@ export async function upsertDefectType(input: { id?: number; name: string; categ
   revalidatePath("/masters");
   return { ok: true };
 }
+
+/**
+ * Change 36 Part 6 Part C — draft a purchase order for a shortfall.
+ *
+ * Pre-fills, never places: the order lands in PLANNING with no PO number, so the owner
+ * still confirms and generates it. "No automated ordering" is the rule.
+ */
+export async function draftReorderPO(input: {
+  kind: "FABRIC" | "TRIM";
+  /** FabricColor.id for fabric, TrimItem.id for trim — matching getLowStockAlerts. */
+  id: number;
+  qty: number;
+  supplierId?: number | null;
+  rate?: number | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const qty = Math.max(0, input.qty ?? 0);
+  if (qty <= 0) throw new Error("Nothing to order — the shortfall is zero");
+
+  if (input.kind === "TRIM") {
+    const trim = await db.trimItem.findUnique({ where: { id: input.id }, select: { id: true, name: true, supplierId: true, ratePerUnit: true } });
+    if (!trim) throw new Error("Trim not found");
+    const order = await db.$transaction(async (tx) => {
+      const row = await tx.trimOrder.create({
+        data: {
+          trimItemId: trim.id,
+          supplierId: input.supplierId ?? trim.supplierId ?? null,
+          qty,
+          rate: input.rate ?? trim.ratePerUnit ?? null,
+          status: "PLANNING",
+          orderDate: new Date(),
+        },
+      });
+      await logAudit(tx, user, {
+        action: "draftReorderPO", entity: "TrimOrder", entityId: row.id, entityLabel: trim.name,
+        summary: `Drafted a trim order for ${num(qty)} of ${trim.name} from a reorder alert`,
+      });
+      return row;
+    });
+    revalidatePath("/trim-orders");
+    return { ok: true, kind: "TRIM" as const, id: order.id };
+  }
+
+  const colour = await db.fabricColor.findUnique({
+    where: { id: input.id },
+    select: { id: true, color: true, fabricId: true, fabric: { select: { name: true, unit: true, ratePerUnit: true } } },
+  });
+  if (!colour) throw new Error("Fabric colour not found");
+
+  const order = await db.$transaction(async (tx) => {
+    const row = await tx.fabricOrder.create({
+      data: {
+        fabricId: colour.fabricId,
+        supplierId: input.supplierId ?? null,
+        qty,
+        rate: input.rate ?? colour.fabric.ratePerUnit ?? null,
+        unit: colour.fabric.unit,
+        status: "PLANNING",
+        orderDate: new Date(),
+        lines: { create: [{ colour: colorKey(colour.color), qty }] },
+      },
+    });
+    await logAudit(tx, user, {
+      action: "draftReorderPO", entity: "FabricOrder", entityId: row.id, entityLabel: colour.fabric.name,
+      summary: `Drafted a fabric order for ${num(qty)} ${colour.fabric.unit} of ${colour.fabric.name} · ${colour.color} from a reorder alert`,
+    });
+    return row;
+  });
+  revalidatePath("/fabric-orders");
+  return { ok: true, kind: "FABRIC" as const, id: order.id };
+}

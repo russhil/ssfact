@@ -26,7 +26,16 @@ import { ContactRows, blankContact, contactDrafts, contactLabel, type ContactDra
 import { Pencil, Plus } from "lucide-react";
 import type { LookupRow, SupplierRow } from "@/lib/masters";
 
-export function SupplierManager({ suppliers, types = [] }: { suppliers: SupplierRow[]; types?: LookupRow[] }) {
+export function SupplierManager({
+  suppliers,
+  types = [],
+  onTimeById = {},
+}: {
+  suppliers: SupplierRow[];
+  types?: LookupRow[];
+  /** Change 36 Part 6 — on-time rate per supplier, computed in one batched pass. */
+  onTimeById?: Record<number, number | null>;
+}) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [type, setType] = useState("");
@@ -223,7 +232,16 @@ export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier
                   key={s.id}
                   className={`border-b border-hairline last:border-0 ${s.active ? "" : "opacity-55"} ${editingId === s.id ? "bg-accent-soft" : ""}`}
                 >
-                  <Td><Link href={`/suppliers/${s.id}`} className="font-semibold text-primary-ink hover:underline">{s.name}</Link></Td>
+                  <Td>
+                    <Link href={`/suppliers/${s.id}`} className="font-semibold text-primary-ink hover:underline">{s.name}</Link>
+                    {onTimeById[s.id] != null && (
+                      <Link href={`/suppliers/${s.id}/scorecard`} className="ml-1.5 align-middle">
+                        <Badge tone={onTimeById[s.id]! >= 0.9 ? "ok" : onTimeById[s.id]! >= 0.7 ? "warn" : "danger"}>
+                          {Math.round(onTimeById[s.id]! * 100)}% on time
+                        </Badge>
+                      </Link>
+                    )}
+                  </Td>
                   <Td className="text-t2">{s.type ?? "—"}</Td>
                   <Td className="text-t2">{s.city ?? "—"}</Td>
                   <Td className="text-t2 tnum">{s.phone ?? "—"}</Td>
