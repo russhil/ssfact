@@ -24,7 +24,35 @@ jobs:
           node-version: 20
           cache: npm
 
-      - run: npm ci
+      # node_modules is ~1.1G and takes ~75s to install from scratch, mostly
+      # compiling better-sqlite3. The lockfile is the only thing that can change
+      # it, so key on the lockfile and restore the tree wholesale.
+      - name: Restore node_modules
+        id: node-modules-cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-node20-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.node-modules-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      # postinstall only runs as part of `npm ci`, so on a cache hit the Prisma
+      # client is missing. Regenerating is a few seconds and also covers a
+      # schema change that left the lockfile untouched.
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # Turbopack's build cache. Keyed on the commit so each run writes its own
+      # entry; restore-keys fall back to the newest cache for the same lockfile.
+      - name: Restore Turbopack build cache
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-cache-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            next-cache-${{ hashFiles('package-lock.json') }}-
 
       - name: Typecheck
         run: npx tsc --noEmit
@@ -51,6 +79,8 @@ jobs:
       # --delete is required: a file removed in a commit would otherwise linger
       # on the box and break the build. dev.db is the authoritative production
       # database and must never be overwritten from the repo.
+      # Excluding .next also preserves .next/cache, which is the Turbopack build
+      # cache the next build reuses — do not narrow that exclude to .next/static.
       - name: Sync source
         env:
           TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
@@ -85,7 +115,28 @@ jobs:
           ls -t dev.db.bak-* 2>/dev/null | tail -n +11 | xargs -r sudo rm --
 
           sudo DATABASE_URL="file:./dev.db" npx prisma migrate deploy
-          sudo npm ci
+
+          # node_modules is ~1.1G and node_modules/ is never rsynced, so it
+          # survives between deploys. Reinstalling it costs about a minute and
+          # only the lockfile can invalidate it — so install only when the
+          # lockfile actually moved, tracked by a stamp outside the app dir
+          # (anything inside it would be swept by rsync --delete).
+          STAMP=\$HOME/.ssfact-npm-lock
+          LOCKHASH=\$(sha256sum package-lock.json | cut -d' ' -f1)
+          if [ -d node_modules ] && [ "\$(cat "\$STAMP" 2>/dev/null)" = "\$LOCKHASH" ]; then
+            echo "DEPS UNCHANGED — skipping npm ci"
+          else
+            echo "DEPS CHANGED — running npm ci"
+            sudo npm ci
+            echo "\$LOCKHASH" > "\$STAMP"
+          fi
+
+          # npm ci's postinstall is what normally generates the Prisma client
+          # into src/generated (gitignored, never rsynced). Run it explicitly so
+          # a skipped install — or a schema change with no lockfile change —
+          # still leaves the client in step with the schema.
+          sudo npx prisma generate
+
           if sudo NODE_OPTIONS=--max-old-space-size=2048 npm run build > "\$LOG" 2>&1; then
             echo "BUILD OK"
           else
