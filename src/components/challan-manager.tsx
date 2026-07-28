@@ -113,9 +113,12 @@ export function ChallanManager({
         ))}
       </div>
 
+      {/* min-w-0 on both children: grid items default to min-width:auto, so the wide line
+          table below would otherwise force this track past its share — pushing the summary
+          column off-screen and stopping its own overflow-x-auto from ever engaging. */}
       <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
         {/* entry */}
-        <Card className="p-5">
+        <Card className="min-w-0 p-5">
           <h3 className="mb-3 t-xs font-bold uppercase tracking-wide text-muted">
             New {tab === "OUTWARD" ? "delivery" : "inward"} challan
           </h3>
@@ -215,7 +218,7 @@ export function ChallanManager({
         </Card>
 
         {/* live summary + actions */}
-        <Card className="p-5">
+        <Card className="min-w-0 p-5">
           <h3 className="mb-3 t-xs font-bold uppercase tracking-wide text-muted">Summary</h3>
           <div className="space-y-2 t-sm">
             <div className="flex justify-between"><span className="text-muted">Direction</span><Badge tone={tab === "OUTWARD" ? "warn" : "ok"}>{tab === "OUTWARD" ? "Outward (−)" : "Inward (+)"}</Badge></div>

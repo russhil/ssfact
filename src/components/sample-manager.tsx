@@ -71,37 +71,39 @@ export function SampleManager({
       </div>
 
       <Card className="overflow-hidden p-0">
-        <table className="w-full t-sm">
-          <thead>
-            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="code">Code</SortHeader></th>
-              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="name">Sample</SortHeader></th>
-              <th className="px-4 py-2.5 font-semibold">Product</th>
-              <th className="px-4 py-2.5 font-semibold">Vendor</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Round</th>
-              {owner && <th className="px-4 py-2.5 text-right"><SortHeader view={view} sortKey="cost" align="right">Cost</SortHeader></th>}
-              <th className="px-4 py-2.5"><SortHeader view={view} sortKey="status">Status</SortHeader></th>
-            </tr>
-          </thead>
-          <tbody>
-            {view.rows.map((s) => (
-              <tr key={s.id} className="border-b border-hairline last:border-0">
-                <td className="px-4 py-2.5">
-                  <Link href={`/samples/${s.id}`} className="font-semibold text-primary-ink hover:underline">{s.code}</Link>
-                </td>
-                <td className="px-4 py-2.5">{s.name}</td>
-                <td className="px-4 py-2.5 text-t2">{s.product ?? "—"}</td>
-                <td className="px-4 py-2.5 text-t2">{s.vendor ?? "—"}</td>
-                <td className="px-4 py-2.5 text-right tnum text-t2">{s.round}</td>
-                {owner && <td className="px-4 py-2.5 text-right tnum">{s.cost > 0 ? inr(s.cost) : "—"}</td>}
-                <td className="px-4 py-2.5"><Badge tone={SAMPLE_TONE[s.status] ?? "default"}>{LABEL(s.status)}</Badge></td>
+        <div className="overflow-x-auto">
+          <table className="w-full t-sm">
+            <thead>
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                <th className="px-4 py-2.5"><SortHeader view={view} sortKey="code">Code</SortHeader></th>
+                <th className="px-4 py-2.5"><SortHeader view={view} sortKey="name">Sample</SortHeader></th>
+                <th className="px-4 py-2.5 font-semibold">Product</th>
+                <th className="px-4 py-2.5 font-semibold">Vendor</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Round</th>
+                {owner && <th className="px-4 py-2.5 text-right"><SortHeader view={view} sortKey="cost" align="right">Cost</SortHeader></th>}
+                <th className="px-4 py-2.5"><SortHeader view={view} sortKey="status">Status</SortHeader></th>
               </tr>
-            ))}
-            {view.rows.length === 0 && (
-              <tr><td colSpan={owner ? 7 : 6} className="px-4 py-10 text-center t-sm text-t3">No samples</td></tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {view.rows.map((s) => (
+                <tr key={s.id} className="border-b border-hairline last:border-0">
+                  <td className="px-4 py-2.5">
+                    <Link href={`/samples/${s.id}`} className="font-semibold text-primary-ink hover:underline">{s.code}</Link>
+                  </td>
+                  <td className="px-4 py-2.5">{s.name}</td>
+                  <td className="px-4 py-2.5 text-t2">{s.product ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-t2">{s.vendor ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-right tnum text-t2">{s.round}</td>
+                  {owner && <td className="px-4 py-2.5 text-right tnum">{s.cost > 0 ? inr(s.cost) : "—"}</td>}
+                  <td className="px-4 py-2.5"><Badge tone={SAMPLE_TONE[s.status] ?? "default"}>{LABEL(s.status)}</Badge></td>
+                </tr>
+              ))}
+              {view.rows.length === 0 && (
+                <tr><td colSpan={owner ? 7 : 6} className="px-4 py-10 text-center t-sm text-t3">No samples</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
       <Sheet

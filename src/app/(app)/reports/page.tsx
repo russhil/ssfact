@@ -91,30 +91,32 @@ export default async function ReportsPage() {
         {variance.length === 0 ? (
           <p className="px-5 py-8 text-center t-sm text-muted">No fabric actuals logged</p>
         ) : (
-          <table className="w-full t-sm">
-            <thead>
-              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-                <th className="px-5 py-2.5 font-semibold">Vendor</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Cards</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Assumed</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Actual</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Extra</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Est. cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {variance.map((v) => (
-                <tr key={v.vendor} className="border-b border-hairline last:border-0">
-                  <td className="px-5 py-2 font-semibold">{v.vendor}</td>
-                  <td className="px-5 py-2 text-right tnum text-t2">{v.cards}</td>
-                  <td className="px-5 py-2 text-right tnum text-t2">{num(v.assumed)}</td>
-                  <td className="px-5 py-2 text-right tnum">{num(v.actual)}</td>
-                  <td className="px-5 py-2 text-right tnum font-bold text-danger">+{num(v.extra)} {v.unit.toLowerCase()}</td>
-                  <td className="px-5 py-2 text-right tnum font-bold">{inr(v.cost)}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full t-sm">
+              <thead>
+                <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                  <th className="px-5 py-2.5 font-semibold">Vendor</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Cards</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Assumed</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Actual</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Extra</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Est. cost</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {variance.map((v) => (
+                  <tr key={v.vendor} className="border-b border-hairline last:border-0">
+                    <td className="px-5 py-2 font-semibold">{v.vendor}</td>
+                    <td className="px-5 py-2 text-right tnum text-t2">{v.cards}</td>
+                    <td className="px-5 py-2 text-right tnum text-t2">{num(v.assumed)}</td>
+                    <td className="px-5 py-2 text-right tnum">{num(v.actual)}</td>
+                    <td className="px-5 py-2 text-right tnum font-bold text-danger">+{num(v.extra)} {v.unit.toLowerCase()}</td>
+                    <td className="px-5 py-2 text-right tnum font-bold">{inr(v.cost)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
 
@@ -205,48 +207,50 @@ export default async function ReportsPage() {
           <div className="border-b border-border px-5 py-3 t-body font-bold">
             Job Margins <span className="font-medium text-faint">· evidenced cost vs dispatched value</span>
           </div>
-          <table className="w-full t-sm">
-            <thead>
-              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-                <th className="px-5 py-2.5 font-semibold">Job</th>
-                <th className="px-5 py-2.5 font-semibold">Vendor</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Fabric</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Trims</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Finishing</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Cost</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Value</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Margin</th>
-              </tr>
-            </thead>
-            <tbody>
-              {margins.slice(0, 20).map((m) => (
-                <tr key={m.jobCardId} className="border-b border-hairline last:border-0">
-                  <td className="px-5 py-2">
-                    <Link href={`/job-cards/${m.jobCardId}`} className="font-bold text-primary-ink hover:underline">{m.siNo}</Link>
-                    <span className="ml-2 text-t3">{m.item}</span>
-                  </td>
-                  <td className="px-5 py-2 text-t2">{m.vendor}</td>
-                  <td className="px-5 py-2 text-right tnum text-t2">{inr(m.fabricCost)}</td>
-                  <td className="px-5 py-2 text-right tnum text-t2">{inr(m.trimCost)}</td>
-                  <td className="px-5 py-2 text-right tnum text-t2">{inr(m.finishingCost)}</td>
-                  <td className="px-5 py-2 text-right tnum font-semibold">{inr(m.cost)}</td>
-                  <td className="px-5 py-2 text-right tnum font-semibold">{m.value > 0 ? inr(m.value) : "—"}</td>
-                  <td className="px-5 py-2 text-right">
-                    {m.value <= 0 ? (
-                      <span className="text-t3">—</span>
-                    ) : m.margin < 0 ? (
-                      <Badge tone="danger">{inr(m.margin)}</Badge>
-                    ) : (
-                      <span className="tnum font-bold text-ok">{inr(m.margin)} <span className="font-medium text-t3">{pct(m.marginPct)}</span></span>
-                    )}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full t-sm">
+              <thead>
+                <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                  <th className="px-5 py-2.5 font-semibold">Job</th>
+                  <th className="px-5 py-2.5 font-semibold">Vendor</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Fabric</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Trims</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Finishing</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Cost</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Value</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Margin</th>
                 </tr>
-              ))}
-              {margins.length === 0 && (
-                <tr><td colSpan={8} className="px-5 py-8 text-center text-muted">No job has a rated purchase or a dispatched value</td></tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {margins.slice(0, 20).map((m) => (
+                  <tr key={m.jobCardId} className="border-b border-hairline last:border-0">
+                    <td className="px-5 py-2">
+                      <Link href={`/job-cards/${m.jobCardId}`} className="font-bold text-primary-ink hover:underline">{m.siNo}</Link>
+                      <span className="ml-2 text-t3">{m.item}</span>
+                    </td>
+                    <td className="px-5 py-2 text-t2">{m.vendor}</td>
+                    <td className="px-5 py-2 text-right tnum text-t2">{inr(m.fabricCost)}</td>
+                    <td className="px-5 py-2 text-right tnum text-t2">{inr(m.trimCost)}</td>
+                    <td className="px-5 py-2 text-right tnum text-t2">{inr(m.finishingCost)}</td>
+                    <td className="px-5 py-2 text-right tnum font-semibold">{inr(m.cost)}</td>
+                    <td className="px-5 py-2 text-right tnum font-semibold">{m.value > 0 ? inr(m.value) : "—"}</td>
+                    <td className="px-5 py-2 text-right">
+                      {m.value <= 0 ? (
+                        <span className="text-t3">—</span>
+                      ) : m.margin < 0 ? (
+                        <Badge tone="danger">{inr(m.margin)}</Badge>
+                      ) : (
+                        <span className="tnum font-bold text-ok">{inr(m.margin)} <span className="font-medium text-t3">{pct(m.marginPct)}</span></span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {margins.length === 0 && (
+                  <tr><td colSpan={8} className="px-5 py-8 text-center text-muted">No job has a rated purchase or a dispatched value</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 
@@ -254,51 +258,55 @@ export default async function ReportsPage() {
         {/* Vendor pendency */}
         <Card className="overflow-hidden p-0">
           <div className="border-b border-border px-5 py-3 t-body font-bold">Vendor Pendency <span className="font-medium text-faint">· goods out now</span></div>
-          <table className="w-full t-sm">
-            <thead>
-              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-                <th className="px-5 py-2.5 font-semibold">Vendor</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Open</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Pieces out</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Days held</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pendency.slice(0, 12).map((v) => (
-                <tr key={v.vendor} className="border-b border-hairline last:border-0">
-                  <td className="px-5 py-2 font-semibold">{v.vendor}</td>
-                  <td className="px-5 py-2 text-right tnum text-t2">{v.openCards}</td>
-                  <td className="px-5 py-2 text-right tnum font-bold">{num(v.piecesOut)}</td>
-                  <td className="px-5 py-2 text-right">{v.daysHeld > 25 ? <Badge tone="danger">{v.daysHeld}d</Badge> : <span className="tnum text-t2">{v.daysHeld}d</span>}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full t-sm">
+              <thead>
+                <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                  <th className="px-5 py-2.5 font-semibold">Vendor</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Open</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Pieces out</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Days held</th>
                 </tr>
-              ))}
-              {pendency.length === 0 && <tr><td colSpan={4} className="px-5 py-8 text-center text-muted">None pending</td></tr>}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {pendency.slice(0, 12).map((v) => (
+                  <tr key={v.vendor} className="border-b border-hairline last:border-0">
+                    <td className="px-5 py-2 font-semibold">{v.vendor}</td>
+                    <td className="px-5 py-2 text-right tnum text-t2">{v.openCards}</td>
+                    <td className="px-5 py-2 text-right tnum font-bold">{num(v.piecesOut)}</td>
+                    <td className="px-5 py-2 text-right">{v.daysHeld > 25 ? <Badge tone="danger">{v.daysHeld}d</Badge> : <span className="tnum text-t2">{v.daysHeld}d</span>}</td>
+                  </tr>
+                ))}
+                {pendency.length === 0 && <tr><td colSpan={4} className="px-5 py-8 text-center text-muted">None pending</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </Card>
 
         {/* Monthly fabric pipeline */}
         <Card className="overflow-hidden p-0">
           <div className="border-b border-border px-5 py-3 t-body font-bold">Monthly Fabric Pipeline <span className="font-medium text-faint">· demand × consumption</span></div>
-          <table className="w-full t-sm">
-            <thead>
-              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-                <th className="px-5 py-2.5 font-semibold">Fabric</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Monthly req</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Est. cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pipeline.slice(0, 12).map((f) => (
-                <tr key={f.fabric} className="border-b border-hairline last:border-0">
-                  <td className="px-5 py-2 font-semibold">{f.fabric}</td>
-                  <td className="px-5 py-2 text-right tnum">{num(f.monthlyReq)} {f.unit.toLowerCase()}</td>
-                  <td className="px-5 py-2 text-right tnum font-bold">{inr(f.monthlyCost)}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full t-sm">
+              <thead>
+                <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                  <th className="px-5 py-2.5 font-semibold">Fabric</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Monthly req</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Est. cost</th>
                 </tr>
-              ))}
-              {pipeline.length === 0 && <tr><td colSpan={3} className="px-5 py-8 text-center text-muted">No forecast data</td></tr>}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {pipeline.slice(0, 12).map((f) => (
+                  <tr key={f.fabric} className="border-b border-hairline last:border-0">
+                    <td className="px-5 py-2 font-semibold">{f.fabric}</td>
+                    <td className="px-5 py-2 text-right tnum">{num(f.monthlyReq)} {f.unit.toLowerCase()}</td>
+                    <td className="px-5 py-2 text-right tnum font-bold">{inr(f.monthlyCost)}</td>
+                  </tr>
+                ))}
+                {pipeline.length === 0 && <tr><td colSpan={3} className="px-5 py-8 text-center text-muted">No forecast data</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </Card>
       </div>
 
@@ -308,29 +316,31 @@ export default async function ReportsPage() {
         <div className="border-b border-border px-5 py-3 t-body font-bold">
           Defects <span className="font-medium text-faint">· by category</span>
         </div>
-        <table className="w-full t-sm">
-          <thead>
-            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-5 py-2.5 font-semibold">Defect</th>
-              <th className="px-5 py-2.5 font-semibold">Category</th>
-              <th className="px-5 py-2.5 text-right font-semibold">Pieces</th>
-              <th className="px-5 py-2.5 text-right font-semibold">Share</th>
-            </tr>
-          </thead>
-          <tbody>
-            {defects.slice(0, 12).map((d) => (
-              <tr key={`${d.category}-${d.name}`} className="border-b border-hairline last:border-0">
-                <td className="px-5 py-2 font-semibold">{d.name}</td>
-                <td className="px-5 py-2 text-t2">{d.category}</td>
-                <td className="px-5 py-2 text-right tnum">{num(d.qty)}</td>
-                <td className="px-5 py-2 text-right tnum text-t2">{pct(d.share, 1)}</td>
+        <div className="overflow-x-auto">
+          <table className="w-full t-sm">
+            <thead>
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                <th className="px-5 py-2.5 font-semibold">Defect</th>
+                <th className="px-5 py-2.5 font-semibold">Category</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Pieces</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Share</th>
               </tr>
-            ))}
-            {defects.length === 0 && (
-              <tr><td colSpan={4} className="px-5 py-8 text-center text-muted">No defects categorised yet</td></tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {defects.slice(0, 12).map((d) => (
+                <tr key={`${d.category}-${d.name}`} className="border-b border-hairline last:border-0">
+                  <td className="px-5 py-2 font-semibold">{d.name}</td>
+                  <td className="px-5 py-2 text-t2">{d.category}</td>
+                  <td className="px-5 py-2 text-right tnum">{num(d.qty)}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{pct(d.share, 1)}</td>
+                </tr>
+              ))}
+              {defects.length === 0 && (
+                <tr><td colSpan={4} className="px-5 py-8 text-center text-muted">No defects categorised yet</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
       {/* Change 36 Part 5 — wastage by vendor. Cards with no layers are excluded, not
@@ -340,36 +350,38 @@ export default async function ReportsPage() {
           <div className="border-b border-border px-5 py-3 t-body font-bold">
             Fabric yield <span className="font-medium text-faint">· standard vs actual by vendor</span>
           </div>
-          <table className="w-full t-sm">
-            <thead>
-              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-                <th className="px-5 py-2.5 font-semibold">Vendor</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Cards</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Standard</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Actual</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Over</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Waste %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {yieldByVendor.slice(0, 12).map((y) => (
-                <tr key={`${y.key}-${y.unit}`} className="border-b border-hairline last:border-0">
-                  <td className="px-5 py-2 font-semibold">{y.key} <span className="t-xs text-faint">{y.unit}</span></td>
-                  <td className="px-5 py-2 text-right tnum text-t2">{num(y.cards)}</td>
-                  <td className="px-5 py-2 text-right tnum text-t2">{num(y.standard, 2)}</td>
-                  <td className="px-5 py-2 text-right tnum">{num(y.actual, 2)}</td>
-                  <td className={`px-5 py-2 text-right tnum ${y.variance > 0 ? "text-danger" : "text-ok"}`}>
-                    {y.variance > 0 ? "+" : ""}{num(y.variance, 2)}
-                  </td>
-                  <td className="px-5 py-2 text-right">
-                    {y.wastePct != null && y.wastePct > 0.05
-                      ? <Badge tone="danger">{pct(y.wastePct, 1)}</Badge>
-                      : <span className="tnum text-t2">{y.wastePct == null ? "—" : pct(y.wastePct, 1)}</span>}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full t-sm">
+              <thead>
+                <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                  <th className="px-5 py-2.5 font-semibold">Vendor</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Cards</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Standard</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Actual</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Over</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Waste %</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {yieldByVendor.slice(0, 12).map((y) => (
+                  <tr key={`${y.key}-${y.unit}`} className="border-b border-hairline last:border-0">
+                    <td className="px-5 py-2 font-semibold">{y.key} <span className="t-xs text-faint">{y.unit}</span></td>
+                    <td className="px-5 py-2 text-right tnum text-t2">{num(y.cards)}</td>
+                    <td className="px-5 py-2 text-right tnum text-t2">{num(y.standard, 2)}</td>
+                    <td className="px-5 py-2 text-right tnum">{num(y.actual, 2)}</td>
+                    <td className={`px-5 py-2 text-right tnum ${y.variance > 0 ? "text-danger" : "text-ok"}`}>
+                      {y.variance > 0 ? "+" : ""}{num(y.variance, 2)}
+                    </td>
+                    <td className="px-5 py-2 text-right">
+                      {y.wastePct != null && y.wastePct > 0.05
+                        ? <Badge tone="danger">{pct(y.wastePct, 1)}</Badge>
+                        : <span className="tnum text-t2">{y.wastePct == null ? "—" : pct(y.wastePct, 1)}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
     </div>

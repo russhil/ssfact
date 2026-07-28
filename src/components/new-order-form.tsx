@@ -80,9 +80,9 @@ export function NewOrderForm({ products }: { products: ProductOption[] }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-[1.25fr_1fr] gap-3.5">
+      <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
         {/* form */}
-        <div className="rounded-card border border-border bg-surface p-5">
+        <div className="min-w-0 rounded-card border border-border bg-surface p-5">
           <h3 className="mb-4 t-xs font-bold uppercase tracking-wide text-muted">Order details</h3>
 
           <div className="relative mb-3.5">

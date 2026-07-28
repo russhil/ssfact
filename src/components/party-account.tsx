@@ -3,7 +3,19 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Card, Button, Field, Input, Select, Badge, Sheet, StatCard } from "@/components/ui";
+import {
+  Card,
+  Panel,
+  Button,
+  Field,
+  Input,
+  Select,
+  Badge,
+  Sheet,
+  StatCard,
+  SectionTitle,
+  EmptyState,
+} from "@/components/ui";
 import { runAction } from "@/lib/action-result";
 import { recordPayment, recordAdvance, recordAdjustment, setVendorJobRate } from "@/lib/actions";
 import { inr, fmtDate } from "@/lib/format";
@@ -121,55 +133,65 @@ export function PartyAccount({
         </Card>
       )}
 
-      <Card className="mt-3 p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="t-body font-bold">Ageing</h3>
-          <div className="flex flex-wrap gap-1.5">
-            <Badge tone="default">0–30 {inr(s.ageing.d0_30)}</Badge>
-            <Badge tone="default">31–60 {inr(s.ageing.d31_60)}</Badge>
-            <Badge tone="warn">61–90 {inr(s.ageing.d61_90)}</Badge>
-            <Badge tone="danger">90+ {inr(s.ageing.d90plus)}</Badge>
-          </div>
+      {/* Ageing summarises the ledger, so it reads as its own strip rather than as a card
+          whose title would describe only the first of the three things it contains. */}
+      <div className="mt-3.5 mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <SectionTitle>Ageing</SectionTitle>
+        <div className="flex flex-wrap gap-1.5">
+          <Badge tone="default">0–30 {inr(s.ageing.d0_30)}</Badge>
+          <Badge tone="default">31–60 {inr(s.ageing.d31_60)}</Badge>
+          <Badge tone="warn">61–90 {inr(s.ageing.d61_90)}</Badge>
+          <Badge tone="danger">90+ {inr(s.ageing.d90plus)}</Badge>
         </div>
+      </div>
 
-        <div className="mb-3 flex flex-wrap gap-2">
-          <Button size="sm" onClick={() => setOpen("PAYMENT")}><Plus size={12} /> Record payment</Button>
-          <Button size="sm" variant="ghost" onClick={() => setOpen("ADVANCE")}>Record advance</Button>
-          <Button size="sm" variant="ghost" onClick={() => setOpen("ADJUSTMENT")}>Adjustment</Button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full t-sm">
-            <thead>
-              <tr className="t-micro font-bold uppercase tracking-wide text-faint">
-                <th className="px-2 py-1.5 text-left">Date</th>
-                <th className="px-2 py-1.5 text-left">Entry</th>
-                <th className="px-2 py-1.5 text-right">Owed</th>
-                <th className="px-2 py-1.5 text-right">Paid</th>
-              </tr>
-            </thead>
-            <tbody>
-              {s.lines.map((l, i) => (
-                <tr key={i} className="border-t border-hairline">
-                  <td className="whitespace-nowrap px-2 py-1.5 text-t2">{fmtDate(l.at)}</td>
-                  <td className="px-2 py-1.5">
-                    {l.href ? (
-                      <Link href={l.href} className="text-primary-ink hover:underline">{l.label}</Link>
-                    ) : (
-                      <span className="text-t1">{l.label}</span>
-                    )}
-                  </td>
-                  <td className="px-2 py-1.5 text-right tnum">{l.debit ? inr(l.debit) : "—"}</td>
-                  <td className="px-2 py-1.5 text-right tnum text-ok">{l.credit ? inr(l.credit) : "—"}</td>
+      <Panel
+        title="Ledger"
+        note={s.lines.length ? `${s.lines.length} ${s.lines.length === 1 ? "entry" : "entries"}` : undefined}
+        pad={false}
+        actions={
+          <>
+            <Button size="sm" onClick={() => setOpen("PAYMENT")}><Plus size={12} /> Record payment</Button>
+            <Button size="sm" variant="ghost" onClick={() => setOpen("ADVANCE")}>Record advance</Button>
+            <Button size="sm" variant="ghost" onClick={() => setOpen("ADJUSTMENT")}>Adjustment</Button>
+          </>
+        }
+      >
+        {s.lines.length === 0 ? (
+          <EmptyState title="Nothing on this account yet" />
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full t-sm">
+              <thead>
+                {/* Only Entry flexes; the rest collapse to their content, so the figures sit
+                    beside the entry they belong to instead of across a gap of dead space. */}
+                <tr className="border-b border-border">
+                  <th className="t-label whitespace-nowrap px-[var(--row-px)] py-3 text-left text-t3">Date</th>
+                  <th className="t-label w-full px-[var(--row-px)] py-3 text-left text-t3">Entry</th>
+                  <th className="t-label whitespace-nowrap px-[var(--row-px)] py-3 text-right text-t3">Owed</th>
+                  <th className="t-label whitespace-nowrap px-[var(--row-px)] py-3 text-right text-t3">Paid</th>
                 </tr>
-              ))}
-              {s.lines.length === 0 && (
-                <tr><td colSpan={4} className="px-3 py-8 text-center text-muted">Nothing on this account yet</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+              </thead>
+              <tbody>
+                {s.lines.map((l, i) => (
+                  <tr key={i} className="border-b border-hairline last:border-0">
+                    <td className="h-[var(--row-h)] whitespace-nowrap px-[var(--row-px)] align-middle text-t2">{fmtDate(l.at)}</td>
+                    <td className="h-[var(--row-h)] px-[var(--row-px)] align-middle">
+                      {l.href ? (
+                        <Link href={l.href} className="text-primary-ink hover:underline">{l.label}</Link>
+                      ) : (
+                        <span className="text-t1">{l.label}</span>
+                      )}
+                    </td>
+                    <td className="h-[var(--row-h)] whitespace-nowrap px-[var(--row-px)] text-right align-middle tnum">{l.debit ? inr(l.debit) : "—"}</td>
+                    <td className="h-[var(--row-h)] whitespace-nowrap px-[var(--row-px)] text-right align-middle tnum text-ok">{l.credit ? inr(l.credit) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
 
       <Sheet
         open={open != null}

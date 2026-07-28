@@ -45,49 +45,51 @@ export function TrimsTable({ rows, families }: { rows: TrimStock[]; families: st
       </div>
 
       <div className="overflow-hidden rounded-card border border-border bg-surface">
-        <table className="w-full t-sm">
-          <thead>
-            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-4 py-2.5 font-semibold">Trim Item</th>
-              <th className="px-4 py-2.5 font-semibold">Family</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Opening</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Current</th>
-              <th className="px-4 py-2.5 font-semibold">Utilisation</th>
-              <th className="px-4 py-2.5 font-semibold">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.slice(0, 400).map((s) => {
-              const w = Math.min(100, Math.max(0, s.usedPct * 100));
-              return (
-                <tr key={s.id} className="border-b border-hairline last:border-0 hover:bg-surface-2">
-                  <td className="px-4 py-2.5">
-                    <Link href={`/trims/${s.id}`} className="font-semibold text-primary-ink hover:underline">
-                      {s.name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2.5 text-t2">{s.family ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-right text-t2 tnum">{num(s.opening)}</td>
-                  <td className={`px-4 py-2.5 text-right font-bold tnum ${s.current <= 0 ? "text-danger" : ""}`}>{num(s.current)}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-24 overflow-hidden rounded-full bg-surface-2">
-                        <div
-                          className={`h-full rounded-full ${s.status === "short" ? "bg-danger" : s.status === "low" ? "bg-warn" : "bg-primary"}`}
-                          style={{ width: `${w}%` }}
-                        />
+        <div className="overflow-x-auto">
+          <table className="w-full t-sm">
+            <thead>
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                <th className="px-4 py-2.5 font-semibold">Trim Item</th>
+                <th className="px-4 py-2.5 font-semibold">Family</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Opening</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Current</th>
+                <th className="px-4 py-2.5 font-semibold">Utilisation</th>
+                <th className="px-4 py-2.5 font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.slice(0, 400).map((s) => {
+                const w = Math.min(100, Math.max(0, s.usedPct * 100));
+                return (
+                  <tr key={s.id} className="border-b border-hairline last:border-0 hover:bg-surface-2">
+                    <td className="px-4 py-2.5">
+                      <Link href={`/trims/${s.id}`} className="font-semibold text-primary-ink hover:underline">
+                        {s.name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2.5 text-t2">{s.family ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-right text-t2 tnum">{num(s.opening)}</td>
+                    <td className={`px-4 py-2.5 text-right font-bold tnum ${s.current <= 0 ? "text-danger" : ""}`}>{num(s.current)}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-24 overflow-hidden rounded-full bg-surface-2">
+                          <div
+                            className={`h-full rounded-full ${s.status === "short" ? "bg-danger" : s.status === "low" ? "bg-warn" : "bg-primary"}`}
+                            style={{ width: `${w}%` }}
+                          />
+                        </div>
+                        <span className="tnum t-xs font-semibold">{pct(s.usedPct)}</span>
                       </div>
-                      <span className="tnum t-xs font-semibold">{pct(s.usedPct)}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {s.status === "short" ? <Badge tone="danger">Indent</Badge> : s.status === "low" ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {s.status === "short" ? <Badge tone="danger">Indent</Badge> : s.status === "low" ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
       <p className="mt-2 t-xs text-faint">
         {Math.min(shown.length, 400)} of {shown.length} shown

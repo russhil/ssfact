@@ -52,16 +52,18 @@ export default async function SettingsPage() {
           {backups.length === 0 ? (
             <p className="t-sm text-t3">None</p>
           ) : (
-            <table className="w-full t-sm">
-              <tbody>
-                {backups.slice(0, 14).map((b) => (
-                  <tr key={b.f} className="border-b border-hairline last:border-0">
-                    <td className="px-5 py-2 font-mono t-xs text-t2">{b.f}</td>
-                    <td className="px-5 py-2 text-right text-t3 tnum">{MB(b.s.size)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full t-sm">
+                <tbody>
+                  {backups.slice(0, 14).map((b) => (
+                    <tr key={b.f} className="border-b border-hairline last:border-0">
+                      <td className="px-5 py-2 font-mono t-xs text-t2">{b.f}</td>
+                      <td className="px-5 py-2 text-right text-t3 tnum">{MB(b.s.size)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Panel>
       </div>

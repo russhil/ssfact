@@ -613,7 +613,7 @@ export function NewJobCardForm({
 
       <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
         {/* form */}
-        <div className="rounded-card border border-border bg-surface p-5">
+        <div className="min-w-0 rounded-card border border-border bg-surface p-5">
           <h3 className="mb-4 t-xs font-bold uppercase tracking-wide text-muted">Order details</h3>
 
           {/* product autocomplete (hidden in made-to-order mode) */}
@@ -1186,26 +1186,28 @@ export function NewJobCardForm({
                   {layerSummaries.map((L, i) => (
                     <div key={i} className="rounded-lg border border-hairline bg-surface-2 p-2.5">
                       <div className="mb-1.5 t-xs font-bold uppercase tracking-wide text-t2">{L.label}</div>
-                      <table className="w-full t-xs">
-                        <thead>
-                          <tr className="text-left t-micro uppercase tracking-wide text-t3">
-                            <th className="py-0.5">Colour</th>
-                            <th className="py-0.5 text-right">Cut</th>
-                            <th className="py-0.5 text-right">Used {picked.unit.toLowerCase()}</th>
-                            <th className="py-0.5 text-right">Left</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {L.rows.map((r, ri) => (
-                            <tr key={ri} className="border-t border-hairline">
-                              <td className="py-1 font-semibold text-t1">{r.display}</td>
-                              <td className="py-1 text-right tnum text-t1">{num(r.qty)}</td>
-                              <td className="py-1 text-right tnum text-t1">{r.used != null ? num(r.used) : "—"}</td>
-                              <td className={`py-1 text-right tnum font-semibold ${r.left != null && r.left < 0 ? "text-danger" : "text-ok"}`}>{r.left != null ? num(r.left) : "—"}</td>
+                      <div className="overflow-x-auto">
+                        <table className="w-full t-xs">
+                          <thead>
+                            <tr className="text-left t-micro uppercase tracking-wide text-t3">
+                              <th className="py-0.5">Colour</th>
+                              <th className="py-0.5 text-right">Cut</th>
+                              <th className="py-0.5 text-right">Used {picked.unit.toLowerCase()}</th>
+                              <th className="py-0.5 text-right">Left</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {L.rows.map((r, ri) => (
+                              <tr key={ri} className="border-t border-hairline">
+                                <td className="py-1 font-semibold text-t1">{r.display}</td>
+                                <td className="py-1 text-right tnum text-t1">{num(r.qty)}</td>
+                                <td className="py-1 text-right tnum text-t1">{r.used != null ? num(r.used) : "—"}</td>
+                                <td className={`py-1 text-right tnum font-semibold ${r.left != null && r.left < 0 ? "text-danger" : "text-ok"}`}>{r.left != null ? num(r.left) : "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   ))}
                 </div>

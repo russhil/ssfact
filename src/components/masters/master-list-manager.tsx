@@ -34,38 +34,40 @@ export function MasterListManager({ kind, rows, hint }: { kind: string; rows: Lo
         <button onClick={add} disabled={busy || !draft.trim()} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 t-body font-semibold text-accent-on disabled:opacity-40"><Plus size={14} /> Add</button>
       </div>
       <div className="overflow-hidden rounded-lg border border-border">
-        <table className="w-full t-sm">
-          <tbody>
-            {rows.map((r, i) => {
-              const val = edits[r.id] ?? r.label;
-              const dirty = val !== r.label;
-              return (
-                <tr key={r.id} className={`border-b border-hairline last:border-0 ${r.active ? "" : "opacity-50"}`}>
-                  <td className="w-10 px-2 py-1.5 text-faint">
-                    <div className="flex flex-col">
-                      <button onClick={() => move(i, -1)} disabled={busy || i === 0} className="hover:text-ink disabled:opacity-20"><ChevronUp size={13} /></button>
-                      <button onClick={() => move(i, 1)} disabled={busy || i === rows.length - 1} className="hover:text-ink disabled:opacity-20"><ChevronDown size={13} /></button>
-                    </div>
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <input value={val} onChange={(e) => setEdits((p) => ({ ...p, [r.id]: e.target.value }))} className="w-full rounded-md border border-transparent px-2 py-1 t-body outline-none hover:border-border focus:border-primary" />
-                  </td>
-                  <td className="w-20 px-2 py-1.5 text-faint">{r.code}</td>
-                  <td className="w-24 px-2 py-1.5 text-right">
-                    {dirty ? (
-                      <button onClick={() => run(async () => { await updateLookup({ id: r.id, label: val }); setEdits((p) => { const n = { ...p }; delete n[r.id]; return n; }); })} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 t-xs font-semibold text-accent-on"><Check size={11} /> Save</button>
-                    ) : (
-                      <button onClick={() => run(() => deactivateLookup({ id: r.id, active: !r.active }))} disabled={busy}>
-                        {r.active ? <Badge tone="ok">Active</Badge> : <Badge tone="default">Off</Badge>}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {rows.length === 0 && <tr><td className="px-3 py-6 text-center text-muted">No values</td></tr>}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full t-sm">
+            <tbody>
+              {rows.map((r, i) => {
+                const val = edits[r.id] ?? r.label;
+                const dirty = val !== r.label;
+                return (
+                  <tr key={r.id} className={`border-b border-hairline last:border-0 ${r.active ? "" : "opacity-50"}`}>
+                    <td className="w-10 px-2 py-1.5 text-faint">
+                      <div className="flex flex-col">
+                        <button onClick={() => move(i, -1)} disabled={busy || i === 0} className="hover:text-ink disabled:opacity-20"><ChevronUp size={13} /></button>
+                        <button onClick={() => move(i, 1)} disabled={busy || i === rows.length - 1} className="hover:text-ink disabled:opacity-20"><ChevronDown size={13} /></button>
+                      </div>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input value={val} onChange={(e) => setEdits((p) => ({ ...p, [r.id]: e.target.value }))} className="w-full rounded-md border border-transparent px-2 py-1 t-body outline-none hover:border-border focus:border-primary" />
+                    </td>
+                    <td className="w-20 px-2 py-1.5 text-faint">{r.code}</td>
+                    <td className="w-24 px-2 py-1.5 text-right">
+                      {dirty ? (
+                        <button onClick={() => run(async () => { await updateLookup({ id: r.id, label: val }); setEdits((p) => { const n = { ...p }; delete n[r.id]; return n; }); })} disabled={busy} className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 t-xs font-semibold text-accent-on"><Check size={11} /> Save</button>
+                      ) : (
+                        <button onClick={() => run(() => deactivateLookup({ id: r.id, active: !r.active }))} disabled={busy}>
+                          {r.active ? <Badge tone="ok">Active</Badge> : <Badge tone="default">Off</Badge>}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {rows.length === 0 && <tr><td className="px-3 py-6 text-center text-muted">No values</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

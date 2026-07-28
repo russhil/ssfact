@@ -46,37 +46,39 @@ export default async function ProductionOrdersPage() {
       </div>
 
       <Card className="overflow-hidden p-0">
-        <table className="w-full t-sm">
-          <thead>
-            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-4 py-2.5 font-semibold">Order</th>
-              <th className="px-4 py-2.5 font-semibold">Product</th>
-              <th className="px-4 py-2.5 font-semibold">Date</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Monthly Sale</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Target</th>
-              <th className="px-4 py-2.5 font-semibold">Urgency</th>
-              <th className="px-4 py-2.5 font-semibold">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map((o) => (
-              <tr key={o.id} className="border-b border-hairline last:border-0 hover:bg-surface-2">
-                <td className="px-4 py-2.5 font-bold text-primary-ink">{o.orderNo}</td>
-                <td className="px-4 py-2.5">
-                  <Link href={`/catalog/${encodeURIComponent(o.skuCode)}`} className="font-medium hover:underline">
-                    {o.productName}
-                  </Link>
-                  <span className="ml-1.5 t-micro text-faint">{o.skuCode}</span>
-                </td>
-                <td className="px-4 py-2.5 text-t2 tnum">{fmtDate(o.orderDate)}</td>
-                <td className="px-4 py-2.5 text-right tnum text-t2">{num(o.avgMonthlySale)}</td>
-                <td className="px-4 py-2.5 text-right font-bold tnum">{num(o.targetQty)}</td>
-                <td className="px-4 py-2.5">{o.urgency ? <Badge tone={urgencyTone(o.urgency)}>{o.urgency}</Badge> : "—"}</td>
-                <td className="px-4 py-2.5"><Badge tone={poStatusTone(o.status)}>{PO_STATUS_LABEL[o.status] ?? o.status}</Badge></td>
+        <div className="overflow-x-auto">
+          <table className="w-full t-sm">
+            <thead>
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                <th className="px-4 py-2.5 font-semibold">Order</th>
+                <th className="px-4 py-2.5 font-semibold">Product</th>
+                <th className="px-4 py-2.5 font-semibold">Date</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Monthly Sale</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Target</th>
+                <th className="px-4 py-2.5 font-semibold">Urgency</th>
+                <th className="px-4 py-2.5 font-semibold">Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {orders.map((o) => (
+                <tr key={o.id} className="border-b border-hairline last:border-0 hover:bg-surface-2">
+                  <td className="px-4 py-2.5 font-bold text-primary-ink">{o.orderNo}</td>
+                  <td className="px-4 py-2.5">
+                    <Link href={`/catalog/${encodeURIComponent(o.skuCode)}`} className="font-medium hover:underline">
+                      {o.productName}
+                    </Link>
+                    <span className="ml-1.5 t-micro text-faint">{o.skuCode}</span>
+                  </td>
+                  <td className="px-4 py-2.5 text-t2 tnum">{fmtDate(o.orderDate)}</td>
+                  <td className="px-4 py-2.5 text-right tnum text-t2">{num(o.avgMonthlySale)}</td>
+                  <td className="px-4 py-2.5 text-right font-bold tnum">{num(o.targetQty)}</td>
+                  <td className="px-4 py-2.5">{o.urgency ? <Badge tone={urgencyTone(o.urgency)}>{o.urgency}</Badge> : "—"}</td>
+                  <td className="px-4 py-2.5"><Badge tone={poStatusTone(o.status)}>{PO_STATUS_LABEL[o.status] ?? o.status}</Badge></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Card>
     </div>
   );

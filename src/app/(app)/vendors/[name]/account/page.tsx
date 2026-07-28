@@ -31,10 +31,10 @@ export default async function VendorAccountPage({ params }: { params: Promise<{ 
   const statement = await getPartyStatement(vendor.id, "VENDOR");
 
   return (
-    <>
+    <div className="p-6">
       <Link href={`/vendors/${encodeURIComponent(vendor.name)}`} className="t-sm text-muted hover:text-ink">← {vendor.name}</Link>
       <PageHeader title={`${vendor.name} · account`} subtitle="Job-work billed on returned pieces, less payments" />
       <PartyAccount statement={statement} rate={vendor.jobRate} rateType={vendor.jobRateType} />
-    </>
+    </div>
   );
 }

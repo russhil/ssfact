@@ -175,158 +175,160 @@ export function UserManager({
         />
       )}
       <Card className="overflow-hidden p-0">
-        <table className="w-full t-sm">
-          <thead>
-            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-4 py-2.5 font-semibold">Name</th>
-              <th className="px-4 py-2.5 font-semibold">Username</th>
-              <th className="px-4 py-2.5 font-semibold">Role</th>
-              <th className="px-4 py-2.5 font-semibold">Vendor</th>
-              <th className="px-4 py-2.5 font-semibold">Signature</th>
-              <th className="px-4 py-2.5 font-semibold">Created</th>
-              <th className="px-4 py-2.5 font-semibold">Status</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((u) => {
-              const isMe = u.id === meId;
-              const draft = edits[u.id] ?? u.displayName;
-              const dirty = draft.trim() !== u.displayName;
-              return (
-                <tr key={u.id} className={`border-b border-hairline last:border-0 ${u.active ? "" : "opacity-50"}`}>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={draft}
-                        onChange={(e) => setEdits((p) => ({ ...p, [u.id]: e.target.value }))}
-                        onKeyDown={(e) => e.key === "Enter" && saveName(u)}
-                        className="w-40 rounded-md border border-transparent px-1.5 py-1 t-sm font-semibold outline-none hover:border-border focus:border-primary"
-                      />
-                      {dirty && (
-                        <button
-                          onClick={() => saveName(u)}
-                          disabled={busy}
-                          className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 t-xs font-semibold text-accent-on disabled:opacity-40"
-                        >
-                          <Check size={12} /> Save
-                        </button>
-                      )}
-                      {isMe && <Badge tone="primary">you</Badge>}
-                    </div>
-                  </td>
-                  <td className="px-4 py-2.5 font-mono text-t2">{u.username}</td>
-                  <td className="px-4 py-2.5">
-                    <select
-                      value={u.role}
-                      disabled={busy || isMe}
-                      onChange={(e) =>
-                        run(() => updateUser({ id: u.id, role: e.target.value as Role }))
-                      }
-                      className="rounded-md border border-border px-2 py-1 t-sm outline-none focus:border-primary disabled:bg-surface-2 disabled:text-t3"
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-4 py-2.5 text-t2">
-                    {u.role === "VENDOR" ? (
+        <div className="overflow-x-auto">
+          <table className="w-full t-sm">
+            <thead>
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                <th className="px-4 py-2.5 font-semibold">Name</th>
+                <th className="px-4 py-2.5 font-semibold">Username</th>
+                <th className="px-4 py-2.5 font-semibold">Role</th>
+                <th className="px-4 py-2.5 font-semibold">Vendor</th>
+                <th className="px-4 py-2.5 font-semibold">Signature</th>
+                <th className="px-4 py-2.5 font-semibold">Created</th>
+                <th className="px-4 py-2.5 font-semibold">Status</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((u) => {
+                const isMe = u.id === meId;
+                const draft = edits[u.id] ?? u.displayName;
+                const dirty = draft.trim() !== u.displayName;
+                return (
+                  <tr key={u.id} className={`border-b border-hairline last:border-0 ${u.active ? "" : "opacity-50"}`}>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={draft}
+                          onChange={(e) => setEdits((p) => ({ ...p, [u.id]: e.target.value }))}
+                          onKeyDown={(e) => e.key === "Enter" && saveName(u)}
+                          className="w-40 rounded-md border border-transparent px-1.5 py-1 t-sm font-semibold outline-none hover:border-border focus:border-primary"
+                        />
+                        {dirty && (
+                          <button
+                            onClick={() => saveName(u)}
+                            disabled={busy}
+                            className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 t-xs font-semibold text-accent-on disabled:opacity-40"
+                          >
+                            <Check size={12} /> Save
+                          </button>
+                        )}
+                        {isMe && <Badge tone="primary">you</Badge>}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-t2">{u.username}</td>
+                    <td className="px-4 py-2.5">
                       <select
-                        value={u.vendorName ?? ""}
-                        disabled={busy}
-                        onChange={(e) => run(() => updateUser({ id: u.id, vendorName: e.target.value }))}
-                        className="rounded-md border border-border px-2 py-1 t-sm outline-none focus:border-primary"
+                        value={u.role}
+                        disabled={busy || isMe}
+                        onChange={(e) =>
+                          run(() => updateUser({ id: u.id, role: e.target.value as Role }))
+                        }
+                        className="rounded-md border border-border px-2 py-1 t-sm outline-none focus:border-primary disabled:bg-surface-2 disabled:text-t3"
                       >
-                        <option value="">—</option>
-                        {[...new Set([...vendors, ...(u.vendorName ? [u.vendorName] : [])])].map((v) => (
-                          <option key={v} value={v}>
-                            {v}
+                        {ROLES.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
                           </option>
                         ))}
                       </select>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  {/* Change 25 Part I.1 — printed on every PO this person raises. */}
-                  <td className="px-4 py-2.5">
-                    {u.role === "ADMIN" || u.role === "STAFF" ? (
-                      <SignatureUpload userId={u.id} signatureUrl={u.signatureUrl} />
-                    ) : (
-                      <span className="text-faint">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 text-t2">{fmtDate(u.createdAt)}</td>
-                  <td className="px-4 py-2.5">
-                    <button
-                      onClick={() => run(() => setUserActive({ id: u.id, active: !u.active }))}
-                      disabled={busy || isMe}
-                      className="disabled:cursor-not-allowed"
-                    >
-                      {u.active ? <Badge tone="ok">Active</Badge> : <Badge tone="default">Disabled</Badge>}
-                    </button>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {resetId === u.id ? (
-                      <div className="flex items-center justify-end gap-1.5">
-                        <input
-                          type="password"
-                          autoFocus
-                          value={resetPw}
-                          onChange={(e) => setResetPw(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && confirmReset(u)}
-                          placeholder="New password"
-                          className="w-32 rounded-md border border-border px-2 py-1 t-sm outline-none focus:border-primary"
-                        />
-                        <button
-                          onClick={() => confirmReset(u)}
-                          disabled={busy || resetPw.length < 6}
-                          className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 t-xs font-semibold text-accent-on disabled:opacity-40"
-                        >
-                          <Check size={12} /> Set
-                        </button>
-                        <button
-                          onClick={() => {
-                            setResetId(null);
-                            setResetPw("");
-                          }}
-                          className="rounded-md border border-border px-1.5 py-1 text-t2 hover:bg-surface-2"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => {
-                            setResetId(u.id);
-                            setResetPw("");
-                          }}
+                    </td>
+                    <td className="px-4 py-2.5 text-t2">
+                      {u.role === "VENDOR" ? (
+                        <select
+                          value={u.vendorName ?? ""}
                           disabled={busy}
-                          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2 disabled:opacity-40"
+                          onChange={(e) => run(() => updateUser({ id: u.id, vendorName: e.target.value }))}
+                          className="rounded-md border border-border px-2 py-1 t-sm outline-none focus:border-primary"
                         >
-                          <KeyRound size={12} /> Password
-                        </button>
-                        {!isMe && (
+                          <option value="">—</option>
+                          {[...new Set([...vendors, ...(u.vendorName ? [u.vendorName] : [])])].map((v) => (
+                            <option key={v} value={v}>
+                              {v}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    {/* Change 25 Part I.1 — printed on every PO this person raises. */}
+                    <td className="px-4 py-2.5">
+                      {u.role === "ADMIN" || u.role === "STAFF" ? (
+                        <SignatureUpload userId={u.id} signatureUrl={u.signatureUrl} />
+                      ) : (
+                        <span className="text-faint">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-t2">{fmtDate(u.createdAt)}</td>
+                    <td className="px-4 py-2.5">
+                      <button
+                        onClick={() => run(() => setUserActive({ id: u.id, active: !u.active }))}
+                        disabled={busy || isMe}
+                        className="disabled:cursor-not-allowed"
+                      >
+                        {u.active ? <Badge tone="ok">Active</Badge> : <Badge tone="default">Disabled</Badge>}
+                      </button>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {resetId === u.id ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <input
+                            type="password"
+                            autoFocus
+                            value={resetPw}
+                            onChange={(e) => setResetPw(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && confirmReset(u)}
+                            placeholder="New password"
+                            className="w-32 rounded-md border border-border px-2 py-1 t-sm outline-none focus:border-primary"
+                          />
                           <button
-                            onClick={() => remove(u)}
-                            disabled={busy}
-                            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-danger hover:bg-danger-soft disabled:opacity-40"
+                            onClick={() => confirmReset(u)}
+                            disabled={busy || resetPw.length < 6}
+                            className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 t-xs font-semibold text-accent-on disabled:opacity-40"
                           >
-                            <Trash2 size={12} /> Delete
+                            <Check size={12} /> Set
                           </button>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                          <button
+                            onClick={() => {
+                              setResetId(null);
+                              setResetPw("");
+                            }}
+                            className="rounded-md border border-border px-1.5 py-1 text-t2 hover:bg-surface-2"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => {
+                              setResetId(u.id);
+                              setResetPw("");
+                            }}
+                            disabled={busy}
+                            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2 disabled:opacity-40"
+                          >
+                            <KeyRound size={12} /> Password
+                          </button>
+                          {!isMe && (
+                            <button
+                              onClick={() => remove(u)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-danger hover:bg-danger-soft disabled:opacity-40"
+                            >
+                              <Trash2 size={12} /> Delete
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </Card>
       </>
     </>

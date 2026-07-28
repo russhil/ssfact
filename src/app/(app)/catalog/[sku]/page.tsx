@@ -154,41 +154,43 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
             </div>
             <span className="t-xs text-faint">{b.matched} of {b.total} materials matched to Trims Store</span>
           </div>
-          <table className="w-full t-sm">
-            <thead>
-              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-                <th className="px-5 py-2.5 font-semibold">#</th>
-                <th className="px-5 py-2.5 font-semibold">Material</th>
-                <th className="px-5 py-2.5 font-semibold">Colour</th>
-                <th className="px-5 py-2.5 font-semibold">Qty · Avg</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Store Stock</th>
-              </tr>
-            </thead>
-            <tbody>
-              {b.lines.map((l) => (
-                <tr key={l.id} className="border-b border-hairline last:border-0 hover:bg-surface-2">
-                  <td className="px-5 py-2 text-faint tnum">{l.sNo ?? ""}</td>
-                  <td className="px-5 py-2 font-medium">{l.material}</td>
-                  <td className="px-5 py-2 text-t2">{l.color ?? "—"}</td>
-                  <td className="px-5 py-2 text-t2 tnum">
-                    {l.qty != null ? num(l.qty) : ""}
-                    {l.avg ? <span className="text-faint"> {l.avg}</span> : ""}
-                    {l.qty == null && !l.avg ? "—" : ""}
-                  </td>
-                  <td className="px-5 py-2 text-right">
-                    {l.trim ? (
-                      <Link href={`/trims/${l.trim.id}`} className="inline-flex items-center gap-1.5 hover:underline">
-                        <span className={`tnum font-semibold ${l.trim.status === "short" ? "text-danger" : ""}`}>{num(l.trim.current)}</span>
-                        <Badge tone={trimTone(l.trim.status)}>{trimLabel(l.trim.status)}</Badge>
-                      </Link>
-                    ) : (
-                      <span className="t-xs text-faint">not tracked</span>
-                    )}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full t-sm">
+              <thead>
+                <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                  <th className="px-5 py-2.5 font-semibold">#</th>
+                  <th className="px-5 py-2.5 font-semibold">Material</th>
+                  <th className="px-5 py-2.5 font-semibold">Colour</th>
+                  <th className="px-5 py-2.5 font-semibold">Qty · Avg</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Store Stock</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {b.lines.map((l) => (
+                  <tr key={l.id} className="border-b border-hairline last:border-0 hover:bg-surface-2">
+                    <td className="px-5 py-2 text-faint tnum">{l.sNo ?? ""}</td>
+                    <td className="px-5 py-2 font-medium">{l.material}</td>
+                    <td className="px-5 py-2 text-t2">{l.color ?? "—"}</td>
+                    <td className="px-5 py-2 text-t2 tnum">
+                      {l.qty != null ? num(l.qty) : ""}
+                      {l.avg ? <span className="text-faint"> {l.avg}</span> : ""}
+                      {l.qty == null && !l.avg ? "—" : ""}
+                    </td>
+                    <td className="px-5 py-2 text-right">
+                      {l.trim ? (
+                        <Link href={`/trims/${l.trim.id}`} className="inline-flex items-center gap-1.5 hover:underline">
+                          <span className={`tnum font-semibold ${l.trim.status === "short" ? "text-danger" : ""}`}>{num(l.trim.current)}</span>
+                          <Badge tone={trimTone(l.trim.status)}>{trimLabel(l.trim.status)}</Badge>
+                        </Link>
+                      ) : (
+                        <span className="t-xs text-faint">not tracked</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       ))}
 
@@ -203,28 +205,30 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
                   <Link href={`/job-cards/${jb.slug}`} className="font-bold text-primary-ink hover:underline">{jb.siNo}</Link>
                   <span className="text-faint">{num(jb.cutQty)} pcs cut</span>
                 </div>
-                <table className="w-full t-sm">
-                  <thead>
-                    <tr className="border-b border-hairline text-left t-micro uppercase tracking-wide text-faint">
-                      <th className="px-2 py-1 font-semibold">Trim</th>
-                      <th className="px-2 py-1 font-semibold">Applies to</th>
-                      <th className="px-2 py-1 font-semibold">Colour</th>
-                      <th className="px-2 py-1 text-right font-semibold">Required</th>
-                      <th className="px-2 py-1 text-right font-semibold">Issued</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {jb.lines.map((l) => (
-                      <tr key={l.id} className="border-b border-hairline last:border-0">
-                        <td className="px-2 py-1 font-medium text-t1">{l.trimName ?? l.material}</td>
-                        <td className="px-2 py-1 capitalize text-t2">{(l.dimension ?? "FLAT").toLowerCase()}</td>
-                        <td className="px-2 py-1 text-t2">{l.color ?? "—"}</td>
-                        <td className="px-2 py-1 text-right tnum">{l.requiredQty != null ? num(l.requiredQty) : "—"}</td>
-                        <td className="px-2 py-1 text-right tnum text-t2">{l.issuedQty != null ? num(l.issuedQty) : "—"}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full t-sm">
+                    <thead>
+                      <tr className="border-b border-hairline text-left t-micro uppercase tracking-wide text-faint">
+                        <th className="px-2 py-1 font-semibold">Trim</th>
+                        <th className="px-2 py-1 font-semibold">Applies to</th>
+                        <th className="px-2 py-1 font-semibold">Colour</th>
+                        <th className="px-2 py-1 text-right font-semibold">Required</th>
+                        <th className="px-2 py-1 text-right font-semibold">Issued</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {jb.lines.map((l) => (
+                        <tr key={l.id} className="border-b border-hairline last:border-0">
+                          <td className="px-2 py-1 font-medium text-t1">{l.trimName ?? l.material}</td>
+                          <td className="px-2 py-1 capitalize text-t2">{(l.dimension ?? "FLAT").toLowerCase()}</td>
+                          <td className="px-2 py-1 text-t2">{l.color ?? "—"}</td>
+                          <td className="px-2 py-1 text-right tnum">{l.requiredQty != null ? num(l.requiredQty) : "—"}</td>
+                          <td className="px-2 py-1 text-right tnum text-t2">{l.issuedQty != null ? num(l.issuedQty) : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ))}
           </div>
@@ -237,28 +241,30 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
           <div className="border-b border-border px-5 py-3 t-body font-bold">
             Production Orders <span className="font-medium text-faint">· target = 2× monthly sale</span>
           </div>
-          <table className="w-full t-sm">
-            <thead>
-              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-                <th className="px-5 py-2.5 font-semibold">Order</th>
-                <th className="px-5 py-2.5 font-semibold">Date</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Monthly Sale</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Target</th>
-                <th className="px-5 py-2.5 font-semibold">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {p.orders.map((o) => (
-                <tr key={o.orderNo} className="border-b border-hairline last:border-0">
-                  <td className="px-5 py-2 font-semibold text-primary-ink">{o.orderNo}</td>
-                  <td className="px-5 py-2 text-t2 tnum">{fmtDate(o.orderDate)}</td>
-                  <td className="px-5 py-2 text-right tnum text-t2">{num(o.avgMonthlySale)}</td>
-                  <td className="px-5 py-2 text-right font-bold tnum">{num(o.targetQty)}</td>
-                  <td className="px-5 py-2"><Badge tone={poStatusTone(o.status)}>{PO_STATUS_LABEL[o.status] ?? o.status}</Badge></td>
+          <div className="overflow-x-auto">
+            <table className="w-full t-sm">
+              <thead>
+                <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                  <th className="px-5 py-2.5 font-semibold">Order</th>
+                  <th className="px-5 py-2.5 font-semibold">Date</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Monthly Sale</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Target</th>
+                  <th className="px-5 py-2.5 font-semibold">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {p.orders.map((o) => (
+                  <tr key={o.orderNo} className="border-b border-hairline last:border-0">
+                    <td className="px-5 py-2 font-semibold text-primary-ink">{o.orderNo}</td>
+                    <td className="px-5 py-2 text-t2 tnum">{fmtDate(o.orderDate)}</td>
+                    <td className="px-5 py-2 text-right tnum text-t2">{num(o.avgMonthlySale)}</td>
+                    <td className="px-5 py-2 text-right font-bold tnum">{num(o.targetQty)}</td>
+                    <td className="px-5 py-2"><Badge tone={poStatusTone(o.status)}>{PO_STATUS_LABEL[o.status] ?? o.status}</Badge></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 

@@ -1,16 +1,20 @@
-export const nf = new Intl.NumberFormat("en-US");
+/* Indian digit grouping throughout: 5,99,880 — not 599,880. Dates stay en-GB below. */
+export const nf = new Intl.NumberFormat("en-IN");
 
 export const num = (n: number | null | undefined, dp = 0) =>
-  n == null ? "—" : n.toLocaleString("en-US", { maximumFractionDigits: dp });
+  n == null ? "—" : n.toLocaleString("en-IN", { maximumFractionDigits: dp });
 
+/** Words, not symbols: "6 lakh", "1.2 crore". */
 export const compact = (n: number | null | undefined) =>
-  n == null ? "—" : Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+  n == null
+    ? "—"
+    : Intl.NumberFormat("en-IN", { notation: "compact", compactDisplay: "long", maximumFractionDigits: 1 }).format(n);
 
 export const pct = (n: number | null | undefined, dp = 0) =>
   n == null ? "—" : `${(n * 100).toFixed(dp)}%`;
 
 export const inr = (n: number | null | undefined) =>
-  n == null ? "—" : `₹${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  n == null ? "—" : `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
 export const fmtDate = (d: Date | string | null | undefined) => {
   if (!d) return "—";

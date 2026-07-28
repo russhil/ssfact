@@ -93,51 +93,53 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
         <div className="border-b border-border px-5 py-3 t-body font-bold">
           Stock Ledger <span className="font-medium text-faint">· every recorded movement</span>
         </div>
-        <table className="w-full t-sm">
-          <thead>
-            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-5 py-2.5 font-semibold">Date</th>
-              <th className="px-5 py-2.5 font-semibold">Type</th>
-              <th className="px-5 py-2.5 font-semibold">Invoice</th>
-              <th className="px-5 py-2.5 font-semibold">Vendor</th>
-              {/* Change 22 Part E: an adjustment says WHY here — the ledger and the balance
-                  can no longer disagree without a recorded reason. */}
-              <th className="px-5 py-2.5 font-semibold">Reason</th>
-              <th className="px-5 py-2.5 text-right font-semibold">Qty</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ledger.map((m) => (
-              <tr key={m.id} className="border-b border-hairline last:border-0">
-                <td className="px-5 py-2.5 text-t2 tnum">{fmtDate(m.date)}</td>
-                <td className="px-5 py-2.5">
-                  <Badge tone={m.type === "ISSUE" ? "danger" : "ok"}>{m.type === "ISSUE" ? "OUT" : "IN"}</Badge>
-                </td>
-                <td className="px-5 py-2.5 text-t2">{m.invoice ?? "—"}</td>
-                <td className="px-5 py-2.5 text-t2">{m.vendor ?? "—"}</td>
-                <td className="px-5 py-2.5 text-t2">
-                  {m.reason ? (
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <Badge tone={m.reason === "DAMAGE" || m.reason === "WASTAGE" ? "warn" : "default"}>{m.reason}</Badge>
-                      {m.note && <span className="t-xs text-faint">{m.note}</span>}
-                    </span>
-                  ) : (
-                    <span className="text-faint">{m.note ?? "—"}</span>
-                  )}
-                </td>
-                <td className={`px-5 py-2.5 text-right font-bold tnum ${m.type === "ISSUE" ? "text-danger" : "text-ok"}`}>
-                  {m.type === "ISSUE" ? "−" : "+"}
-                  {num(m.qty)}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full t-sm">
+            <thead>
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                <th className="px-5 py-2.5 font-semibold">Date</th>
+                <th className="px-5 py-2.5 font-semibold">Type</th>
+                <th className="px-5 py-2.5 font-semibold">Invoice</th>
+                <th className="px-5 py-2.5 font-semibold">Vendor</th>
+                {/* Change 22 Part E: an adjustment says WHY here — the ledger and the balance
+                    can no longer disagree without a recorded reason. */}
+                <th className="px-5 py-2.5 font-semibold">Reason</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Qty</th>
               </tr>
-            ))}
-            {ledger.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-muted">No movements</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {ledger.map((m) => (
+                <tr key={m.id} className="border-b border-hairline last:border-0">
+                  <td className="px-5 py-2.5 text-t2 tnum">{fmtDate(m.date)}</td>
+                  <td className="px-5 py-2.5">
+                    <Badge tone={m.type === "ISSUE" ? "danger" : "ok"}>{m.type === "ISSUE" ? "OUT" : "IN"}</Badge>
+                  </td>
+                  <td className="px-5 py-2.5 text-t2">{m.invoice ?? "—"}</td>
+                  <td className="px-5 py-2.5 text-t2">{m.vendor ?? "—"}</td>
+                  <td className="px-5 py-2.5 text-t2">
+                    {m.reason ? (
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone={m.reason === "DAMAGE" || m.reason === "WASTAGE" ? "warn" : "default"}>{m.reason}</Badge>
+                        {m.note && <span className="t-xs text-faint">{m.note}</span>}
+                      </span>
+                    ) : (
+                      <span className="text-faint">{m.note ?? "—"}</span>
+                    )}
+                  </td>
+                  <td className={`px-5 py-2.5 text-right font-bold tnum ${m.type === "ISSUE" ? "text-danger" : "text-ok"}`}>
+                    {m.type === "ISSUE" ? "−" : "+"}
+                    {num(m.qty)}
+                  </td>
+                </tr>
+              ))}
+              {ledger.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-5 py-10 text-center text-muted">No movements</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
     </div>
   );

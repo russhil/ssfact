@@ -321,7 +321,7 @@ export function FabricOrderManager({
     <>
       <div ref={formRef} className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
         {/* entry */}
-        <Card className="p-5">
+        <Card className="min-w-0 p-5">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="t-xs font-bold uppercase tracking-wide text-muted">
               {editingId ? "Edit fabric order" : "New fabric order"}

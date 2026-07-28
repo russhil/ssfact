@@ -695,28 +695,30 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
       {legacyStitch.length > 0 && (
         <Card className="mt-3.5 p-5">
           <h3 className="mb-3 t-body font-bold">Stitching <span className="font-medium text-faint">· legacy assignments (read-only)</span></h3>
-          <table className="w-full t-sm">
-            <thead>
-              <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
-                <th className="px-2 py-2 font-semibold">Vendor</th>
-                <th className="px-2 py-2 font-semibold">Colour</th>
-                <th className="px-2 py-2 text-right font-semibold">Lot</th>
-                <th className="px-2 py-2 text-right font-semibold">Received</th>
-                <th className="px-2 py-2 text-right font-semibold">Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {legacyStitch.map((s) => (
-                <tr key={s.id} className="border-b border-hairline last:border-0">
-                  <td className="px-2 py-1.5 font-semibold text-t1">{s.vendorName}</td>
-                  <td className="px-2 py-1.5 text-t2">{s.colour || "—"}</td>
-                  <td className="px-2 py-1.5 text-right tnum">{s.lotQty != null ? num(s.lotQty) : "—"}</td>
-                  <td className="px-2 py-1.5 text-right tnum">{num(s.received)}</td>
-                  <td className="px-2 py-1.5 text-right tnum">{s.balance != null ? num(s.balance) : "—"}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full t-sm">
+              <thead>
+                <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
+                  <th className="px-2 py-2 font-semibold">Vendor</th>
+                  <th className="px-2 py-2 font-semibold">Colour</th>
+                  <th className="px-2 py-2 text-right font-semibold">Lot</th>
+                  <th className="px-2 py-2 text-right font-semibold">Received</th>
+                  <th className="px-2 py-2 text-right font-semibold">Balance</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {legacyStitch.map((s) => (
+                  <tr key={s.id} className="border-b border-hairline last:border-0">
+                    <td className="px-2 py-1.5 font-semibold text-t1">{s.vendorName}</td>
+                    <td className="px-2 py-1.5 text-t2">{s.colour || "—"}</td>
+                    <td className="px-2 py-1.5 text-right tnum">{s.lotQty != null ? num(s.lotQty) : "—"}</td>
+                    <td className="px-2 py-1.5 text-right tnum">{num(s.received)}</td>
+                    <td className="px-2 py-1.5 text-right tnum">{s.balance != null ? num(s.balance) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 

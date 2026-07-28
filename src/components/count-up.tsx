@@ -35,7 +35,7 @@ export function CountUp({
   return (
     <span className="tnum">
       {prefix}
-      {n.toLocaleString("en-US", { maximumFractionDigits: dp, minimumFractionDigits: dp })}
+      {n.toLocaleString("en-IN", { maximumFractionDigits: dp, minimumFractionDigits: dp })}
       {suffix}
     </span>
   );

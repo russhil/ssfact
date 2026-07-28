@@ -23,10 +23,10 @@ export default async function SupplierAccountPage({ params }: { params: Promise<
   const statement = await getPartyStatement(supplier.id, "SUPPLIER");
 
   return (
-    <>
+    <div className="p-6">
       <Link href={`/suppliers/${supplier.id}`} className="t-sm text-muted hover:text-ink">← {supplier.name}</Link>
       <PageHeader title={`${supplier.name} · account`} subtitle="Payable on locked inward challans, less payments" />
       <PartyAccount statement={statement} />
-    </>
+    </div>
   );
 }

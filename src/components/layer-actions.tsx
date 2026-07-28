@@ -190,43 +190,45 @@ export function LayerActions({
             the layer figures become their Σ. Editing used here re-drives the ledger. */}
         {hasColours ? (
           <div className="rounded-lg border border-hairline">
-            <table className="w-full t-sm">
-              <thead>
-                <tr className="t-micro font-bold text-faint">
-                  <th className="px-2 py-1 text-left">Colour</th>
-                  <th className="px-2 py-1 text-right">Issued</th>
-                  <th className="px-2 py-1 text-right">Used</th>
-                  <th className="px-2 py-1 text-right">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {colourNames.map((c) => {
-                  const i = numOrNull(cf(c).issued);
-                  const u = numOrNull(cf(c).used);
-                  const bal = i != null || u != null ? Math.round(((i ?? 0) - (u ?? 0)) * 100) / 100 : null;
-                  return (
-                    <tr key={c} className="border-t border-hairline">
-                      <td className="px-2 py-1 font-semibold text-t1">{c || "—"}</td>
-                      <td className="px-1 py-1">
-                        <Input type="number" step="any" value={cf(c).issued} onChange={(e) => setCf(c, "issued", e.target.value)} placeholder="—" className="text-right tnum" />
-                      </td>
-                      <td className="px-1 py-1">
-                        <Input type="number" step="any" value={cf(c).used} onChange={(e) => setCf(c, "used", e.target.value)} placeholder="—" className="text-right tnum" />
-                      </td>
-                      <td className={`px-2 py-1 text-right tnum font-semibold ${bal != null && bal < 0 ? "text-danger" : "text-t1"}`}>
-                        {bal != null ? num(bal, 2) : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-                <tr className="border-t border-border">
-                  <td className="px-2 py-1 t-xs font-bold text-faint">Layer</td>
-                  <td className="px-2 py-1 text-right tnum font-bold">{effIssued != null ? num(effIssued, 2) : "—"}</td>
-                  <td className="px-2 py-1 text-right tnum font-bold">{effUsed != null ? num(effUsed, 2) : "—"}</td>
-                  <td className="px-2 py-1" />
-                </tr>
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full t-sm">
+                <thead>
+                  <tr className="t-micro font-bold text-faint">
+                    <th className="px-2 py-1 text-left">Colour</th>
+                    <th className="px-2 py-1 text-right">Issued</th>
+                    <th className="px-2 py-1 text-right">Used</th>
+                    <th className="px-2 py-1 text-right">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {colourNames.map((c) => {
+                    const i = numOrNull(cf(c).issued);
+                    const u = numOrNull(cf(c).used);
+                    const bal = i != null || u != null ? Math.round(((i ?? 0) - (u ?? 0)) * 100) / 100 : null;
+                    return (
+                      <tr key={c} className="border-t border-hairline">
+                        <td className="px-2 py-1 font-semibold text-t1">{c || "—"}</td>
+                        <td className="px-1 py-1">
+                          <Input type="number" step="any" value={cf(c).issued} onChange={(e) => setCf(c, "issued", e.target.value)} placeholder="—" className="text-right tnum" />
+                        </td>
+                        <td className="px-1 py-1">
+                          <Input type="number" step="any" value={cf(c).used} onChange={(e) => setCf(c, "used", e.target.value)} placeholder="—" className="text-right tnum" />
+                        </td>
+                        <td className={`px-2 py-1 text-right tnum font-semibold ${bal != null && bal < 0 ? "text-danger" : "text-t1"}`}>
+                          {bal != null ? num(bal, 2) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="border-t border-border">
+                    <td className="px-2 py-1 t-xs font-bold text-faint">Layer</td>
+                    <td className="px-2 py-1 text-right tnum font-bold">{effIssued != null ? num(effIssued, 2) : "—"}</td>
+                    <td className="px-2 py-1 text-right tnum font-bold">{effUsed != null ? num(effUsed, 2) : "—"}</td>
+                    <td className="px-2 py-1" />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">

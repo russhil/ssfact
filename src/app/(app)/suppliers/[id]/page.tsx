@@ -25,7 +25,7 @@ export default async function SupplierPage({ params }: { params: Promise<{ id: s
   const statement = owner ? await getPartyStatement(supplier.id, "SUPPLIER") : null;
 
   return (
-    <>
+    <div className="p-6">
       <Link href="/suppliers" className="t-sm text-muted hover:text-ink">← Suppliers</Link>
       <PageHeader
         title={supplier.name}
@@ -61,6 +61,6 @@ export default async function SupplierPage({ params }: { params: Promise<{ id: s
           />
         </Card>
       </div>
-    </>
+    </div>
   );
 }

@@ -88,62 +88,64 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
           <div className="border-b border-border px-5 py-3 t-body font-bold">
             Stock by Colour <span className="font-medium text-faint">· {stock.colors.length} colours</span>
           </div>
-          <table className="w-full t-sm">
-            <thead>
-              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-                <th className="px-5 py-2.5 font-semibold">Colour</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Opening</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Current</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Reorder at</th>
-                <th className="px-5 py-2.5 font-semibold">Utilisation</th>
-                <th className="px-5 py-2.5 font-semibold">Status</th>
-                {canEdit && <th className="px-5 py-2.5"></th>}
-              </tr>
-            </thead>
-            <tbody>
-              {stock.colors.map((c) => {
-                const w = Math.min(100, Math.max(0, c.usedPct * 100));
-                return (
-                  <tr key={c.id} className="border-b border-hairline last:border-0">
-                    <td className="px-5 py-2.5 font-semibold text-t1">{c.color}</td>
-                    <td className="px-5 py-2.5 text-right text-t2 tnum">{num(c.opening)}</td>
-                    <td className={`px-5 py-2.5 text-right font-bold tnum ${c.current <= 0 ? "text-danger" : ""}`}>{num(c.current)}</td>
-                    {/* Change 25 Part E: the trigger sits beside the figure it guards. */}
-                    <td className="px-5 py-2.5 text-right">
-                      {canEdit ? (
-                        <ReorderLevel fabricColorId={c.id} level={c.reorderLevel} unit={stock.unit} />
-                      ) : (
-                        <span className="t-xs text-t3 tnum">{c.reorderLevel == null ? "—" : num(c.reorderLevel, 2)}</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-24 overflow-hidden rounded-full bg-surface-2">
-                          <div className={`h-full rounded-full ${c.status === "Indent" ? "bg-danger" : c.status === "Low" ? "bg-warn" : "bg-primary"}`} style={{ width: `${w}%` }} />
-                        </div>
-                        <span className="tnum t-xs font-semibold">{pct(c.usedPct)}</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-2.5">
-                      {c.status === "Indent" ? <Badge tone="danger">Indent</Badge> : c.status === "Low" ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}
-                    </td>
-                    {/* Change 22 Part E: ledger-backed correction with a reason, replacing
-                        the silent setFabricColorStock overwrite. */}
-                    {canEdit && (
+          <div className="overflow-x-auto">
+            <table className="w-full t-sm">
+              <thead>
+                <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                  <th className="px-5 py-2.5 font-semibold">Colour</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Opening</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Current</th>
+                  <th className="px-5 py-2.5 text-right font-semibold">Reorder at</th>
+                  <th className="px-5 py-2.5 font-semibold">Utilisation</th>
+                  <th className="px-5 py-2.5 font-semibold">Status</th>
+                  {canEdit && <th className="px-5 py-2.5"></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {stock.colors.map((c) => {
+                  const w = Math.min(100, Math.max(0, c.usedPct * 100));
+                  return (
+                    <tr key={c.id} className="border-b border-hairline last:border-0">
+                      <td className="px-5 py-2.5 font-semibold text-t1">{c.color}</td>
+                      <td className="px-5 py-2.5 text-right text-t2 tnum">{num(c.opening)}</td>
+                      <td className={`px-5 py-2.5 text-right font-bold tnum ${c.current <= 0 ? "text-danger" : ""}`}>{num(c.current)}</td>
+                      {/* Change 25 Part E: the trigger sits beside the figure it guards. */}
                       <td className="px-5 py-2.5 text-right">
-                        <StockAdjust
-                          target={{ kind: "fabric", fabricId: stock.id, colour: c.color }}
-                          name={`${stock.name} · ${c.color}`}
-                          current={c.current}
-                          unit={stock.unit}
-                        />
+                        {canEdit ? (
+                          <ReorderLevel fabricColorId={c.id} level={c.reorderLevel} unit={stock.unit} />
+                        ) : (
+                          <span className="t-xs text-t3 tnum">{c.reorderLevel == null ? "—" : num(c.reorderLevel, 2)}</span>
+                        )}
                       </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <td className="px-5 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-24 overflow-hidden rounded-full bg-surface-2">
+                            <div className={`h-full rounded-full ${c.status === "Indent" ? "bg-danger" : c.status === "Low" ? "bg-warn" : "bg-primary"}`} style={{ width: `${w}%` }} />
+                          </div>
+                          <span className="tnum t-xs font-semibold">{pct(c.usedPct)}</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-2.5">
+                        {c.status === "Indent" ? <Badge tone="danger">Indent</Badge> : c.status === "Low" ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}
+                      </td>
+                      {/* Change 22 Part E: ledger-backed correction with a reason, replacing
+                          the silent setFabricColorStock overwrite. */}
+                      {canEdit && (
+                        <td className="px-5 py-2.5 text-right">
+                          <StockAdjust
+                            target={{ kind: "fabric", fabricId: stock.id, colour: c.color }}
+                            name={`${stock.name} · ${c.color}`}
+                            current={c.current}
+                            unit={stock.unit}
+                          />
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 
@@ -164,60 +166,62 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
         <div className="border-b border-border px-5 py-3 t-body font-bold">
           Stock Ledger
         </div>
-        <table className="w-full t-sm">
-          <thead>
-            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
-              <th className="px-5 py-2.5 font-semibold">Date</th>
-              <th className="px-5 py-2.5 font-semibold">Type</th>
-              <th className="px-5 py-2.5 font-semibold">Colour</th>
-              <th className="px-5 py-2.5 font-semibold">Job Card</th>
-              <th className="px-5 py-2.5 font-semibold">Style</th>
-              {/* Change 22 Part E: a hand adjustment records WHY it moved stock. */}
-              <th className="px-5 py-2.5 font-semibold">Reason / note</th>
-              <th className="px-5 py-2.5 text-right font-semibold">Qty</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ledger.map((m) => (
-              <tr key={m.id} className="border-b border-hairline last:border-0">
-                <td className="px-5 py-2.5 text-t2 tnum">{fmtDate(m.date)}</td>
-                <td className="px-5 py-2.5">
-                  <Badge tone={m.type === "ISSUE" ? "danger" : "ok"}>{m.type}</Badge>
-                </td>
-                <td className="px-5 py-2.5 font-medium text-t2">{m.color ?? "—"}</td>
-                <td className="px-5 py-2.5">
-                  {m.jobCard ? (
-                    <Link href={`/job-cards/${m.jobCard.id}`} className="font-semibold text-primary-ink hover:underline">
-                      {m.jobCard.siNo}
-                    </Link>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="px-5 py-2.5 text-t2">{m.jobCard ? jobItem(m.jobCard) : "—"}</td>
-                <td className="px-5 py-2.5 text-t2">
-                  {m.reason ? (
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <Badge tone={m.reason === "DAMAGE" || m.reason === "WASTAGE" ? "warn" : "default"}>{m.reason}</Badge>
-                      {m.note && <span className="t-xs text-faint">{m.note}</span>}
-                    </span>
-                  ) : (
-                    <span className="text-faint">{m.note ?? "—"}</span>
-                  )}
-                </td>
-                <td className={`px-5 py-2.5 text-right font-bold tnum ${m.type === "ISSUE" ? "text-danger" : "text-ok"}`}>
-                  {m.type === "ISSUE" ? "−" : "+"}
-                  {num(m.qty)}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full t-sm">
+            <thead>
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                <th className="px-5 py-2.5 font-semibold">Date</th>
+                <th className="px-5 py-2.5 font-semibold">Type</th>
+                <th className="px-5 py-2.5 font-semibold">Colour</th>
+                <th className="px-5 py-2.5 font-semibold">Job Card</th>
+                <th className="px-5 py-2.5 font-semibold">Style</th>
+                {/* Change 22 Part E: a hand adjustment records WHY it moved stock. */}
+                <th className="px-5 py-2.5 font-semibold">Reason / note</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Qty</th>
               </tr>
-            ))}
-            {ledger.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-5 py-10 text-center text-muted">No movements</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {ledger.map((m) => (
+                <tr key={m.id} className="border-b border-hairline last:border-0">
+                  <td className="px-5 py-2.5 text-t2 tnum">{fmtDate(m.date)}</td>
+                  <td className="px-5 py-2.5">
+                    <Badge tone={m.type === "ISSUE" ? "danger" : "ok"}>{m.type}</Badge>
+                  </td>
+                  <td className="px-5 py-2.5 font-medium text-t2">{m.color ?? "—"}</td>
+                  <td className="px-5 py-2.5">
+                    {m.jobCard ? (
+                      <Link href={`/job-cards/${m.jobCard.id}`} className="font-semibold text-primary-ink hover:underline">
+                        {m.jobCard.siNo}
+                      </Link>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="px-5 py-2.5 text-t2">{m.jobCard ? jobItem(m.jobCard) : "—"}</td>
+                  <td className="px-5 py-2.5 text-t2">
+                    {m.reason ? (
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <Badge tone={m.reason === "DAMAGE" || m.reason === "WASTAGE" ? "warn" : "default"}>{m.reason}</Badge>
+                        {m.note && <span className="t-xs text-faint">{m.note}</span>}
+                      </span>
+                    ) : (
+                      <span className="text-faint">{m.note ?? "—"}</span>
+                    )}
+                  </td>
+                  <td className={`px-5 py-2.5 text-right font-bold tnum ${m.type === "ISSUE" ? "text-danger" : "text-ok"}`}>
+                    {m.type === "ISSUE" ? "−" : "+"}
+                    {num(m.qty)}
+                  </td>
+                </tr>
+              ))}
+              {ledger.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-5 py-10 text-center text-muted">No movements</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
     </div>
   );
