@@ -2,7 +2,8 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createBuyer, updateBuyer, deactivateBuyer } from "@/lib/actions";
+import { createBuyer, updateBuyer, deactivateBuyer, deleteBuyer } from "@/lib/actions";
+import { MasterDelete } from "@/components/master-delete";
 import { runAction } from "@/lib/action-result";
 import {
   Badge,
@@ -302,14 +303,28 @@ export function BuyerManager({ buyers }: { buyers: BuyerRow[] }) {
                   <Td className="text-right tnum text-t2">{activeAddrs(b).length}</Td>
                   <Td className="text-right tnum text-t2">{b.orders}</Td>
                   <Td>
-                    <button onClick={() => toggle(b)} disabled={busy}>
-                      {b.active ? <Badge tone="ok">Active</Badge> : <Badge tone="default">Inactive</Badge>}
-                    </button>
+                    {b.active ? (
+                      <Badge tone="ok">Active</Badge>
+                    ) : (
+                      <button onClick={() => toggle(b)} disabled={busy} title="Reactivate">
+                        <Badge tone="default">Inactive</Badge>
+                      </button>
+                    )}
                   </Td>
                   <Td className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => startEdit(b)} disabled={busy}>
-                      <Pencil size={12} /> Edit
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => startEdit(b)} disabled={busy}>
+                        <Pencil size={12} /> Edit
+                      </Button>
+                      <MasterDelete
+                        kind="buyer"
+                        id={b.id}
+                        label="Firm"
+                        onDelete={() => deleteBuyer({ id: b.id })}
+                        onDeactivate={b.active ? () => deactivateBuyer({ id: b.id, active: false }) : undefined}
+                        disabled={busy}
+                      />
+                    </div>
                   </Td>
                 </tr>
               ))}

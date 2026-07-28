@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { Sidebar, type NavCounts } from "@/components/sidebar";
+import { NotificationBell } from "@/components/notification-bell";
+import { OfflineBanner } from "@/components/offline-banner";
 import { CommandPalette } from "@/components/command-palette";
 import { getCurrentUser } from "@/lib/auth";
 import { getJobs } from "@/lib/jobs";
@@ -41,6 +43,14 @@ export default async function AppLayout({
   if (!user) redirect("/login");
 
   const counts = await navCounts(user.role, user.vendor);
+
+  // Change 36 Part 2 — the inbox. Read here so the sidebar stays a presentational shell.
+  const inbox = await db.notification.findMany({
+    where: { userId: user.userId },
+    orderBy: { at: "desc" },
+    take: 30,
+    select: { id: true, at: true, body: true, template: true, status: true },
+  });
   const actions = ACTIONS.filter((a) => a.roles.includes(user.role)).map(({ label, sub, href }) => ({
     label,
     sub,
@@ -49,8 +59,12 @@ export default async function AppLayout({
 
   return (
     <div className="grid min-h-screen grid-cols-[216px_1fr] bg-app">
-      <Sidebar role={user.role} displayName={user.displayName} counts={counts} />
-      <main className="min-w-0">{children}</main>
+      <Sidebar role={user.role} displayName={user.displayName} counts={counts} bell={<NotificationBell items={inbox} />} />
+      <main className="min-w-0">
+        {/* Change 36 Part 10 — registers the worker and says plainly when we are offline. */}
+        <OfflineBanner />
+        {children}
+      </main>
       <CommandPalette actions={actions} />
     </div>
   );

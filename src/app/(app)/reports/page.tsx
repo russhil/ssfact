@@ -11,6 +11,8 @@ import {
 } from "@/lib/insights";
 import { getCurrentUser, canSeeCost } from "@/lib/auth";
 import { Card, Bar, Badge, PageHeader } from "@/components/ui";
+import { getDefectBreakdown } from "@/lib/quality";
+import { getYieldByVendor } from "@/lib/yield";
 import { num, pct, inr } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +21,7 @@ export default async function ReportsPage() {
   const me = await getCurrentUser();
   const owner = canSeeCost(me);
 
-  const [{ kpis }, jobs, variance, pendency, pipeline, quality, onTime, margins] = await Promise.all([
+  const [{ kpis }, jobs, variance, pendency, pipeline, quality, onTime, margins, defects, yieldByVendor] = await Promise.all([
     getDashboard(),
     getJobs(),
     getVendorFabricVariance(),
@@ -29,6 +31,10 @@ export default async function ReportsPage() {
     getOnTimeDelivery(),
     // Change 25 Part F: margin is owner-only, so it is not even queried otherwise.
     owner ? getJobMargins() : Promise.resolve([]),
+    // Change 36 Part 3 — where the rejects actually come from.
+    getDefectBreakdown(),
+    // Change 36 Part 5 — owner-only: over-consumption is a cost figure.
+    owner ? getYieldByVendor() : Promise.resolve([]),
   ]);
 
   const byItem = new Map<string, { item: string; cut: number; disp: number }>();
@@ -295,6 +301,77 @@ export default async function ReportsPage() {
           </table>
         </Card>
       </div>
+
+      {/* Change 36 Part 3 — defect breakdown. "Reject 4%" is a number; "reject 4%, mostly
+          stitching" is something the owner can act on. */}
+      <Card className="mt-3.5 overflow-hidden p-0">
+        <div className="border-b border-border px-5 py-3 t-body font-bold">
+          Defects <span className="font-medium text-faint">· by category</span>
+        </div>
+        <table className="w-full t-sm">
+          <thead>
+            <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+              <th className="px-5 py-2.5 font-semibold">Defect</th>
+              <th className="px-5 py-2.5 font-semibold">Category</th>
+              <th className="px-5 py-2.5 text-right font-semibold">Pieces</th>
+              <th className="px-5 py-2.5 text-right font-semibold">Share</th>
+            </tr>
+          </thead>
+          <tbody>
+            {defects.slice(0, 12).map((d) => (
+              <tr key={`${d.category}-${d.name}`} className="border-b border-hairline last:border-0">
+                <td className="px-5 py-2 font-semibold">{d.name}</td>
+                <td className="px-5 py-2 text-t2">{d.category}</td>
+                <td className="px-5 py-2 text-right tnum">{num(d.qty)}</td>
+                <td className="px-5 py-2 text-right tnum text-t2">{pct(d.share, 1)}</td>
+              </tr>
+            ))}
+            {defects.length === 0 && (
+              <tr><td colSpan={4} className="px-5 py-8 text-center text-muted">No defects categorised yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
+
+      {/* Change 36 Part 5 — wastage by vendor. Cards with no layers are excluded, not
+          reported as total waste; units are never mixed. */}
+      {owner && yieldByVendor.length > 0 && (
+        <Card className="mt-3.5 overflow-hidden p-0">
+          <div className="border-b border-border px-5 py-3 t-body font-bold">
+            Fabric yield <span className="font-medium text-faint">· standard vs actual by vendor</span>
+          </div>
+          <table className="w-full t-sm">
+            <thead>
+              <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">
+                <th className="px-5 py-2.5 font-semibold">Vendor</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Cards</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Standard</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Actual</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Over</th>
+                <th className="px-5 py-2.5 text-right font-semibold">Waste %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {yieldByVendor.slice(0, 12).map((y) => (
+                <tr key={`${y.key}-${y.unit}`} className="border-b border-hairline last:border-0">
+                  <td className="px-5 py-2 font-semibold">{y.key} <span className="t-xs text-faint">{y.unit}</span></td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{num(y.cards)}</td>
+                  <td className="px-5 py-2 text-right tnum text-t2">{num(y.standard, 2)}</td>
+                  <td className="px-5 py-2 text-right tnum">{num(y.actual, 2)}</td>
+                  <td className={`px-5 py-2 text-right tnum ${y.variance > 0 ? "text-danger" : "text-ok"}`}>
+                    {y.variance > 0 ? "+" : ""}{num(y.variance, 2)}
+                  </td>
+                  <td className="px-5 py-2 text-right">
+                    {y.wastePct != null && y.wastePct > 0.05
+                      ? <Badge tone="danger">{pct(y.wastePct, 1)}</Badge>
+                      : <span className="tnum text-t2">{y.wastePct == null ? "—" : pct(y.wastePct, 1)}</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
     </div>
   );
 }

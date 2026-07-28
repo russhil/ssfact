@@ -148,16 +148,100 @@ enum ProductionLot {
   NEW_LOT
 }
 
+// ── Change 36 Part 1 — the operational money layer ──
+// This is what work is WORTH and what is still OWED, derived from documents ssfact
+// already owns. It is NOT statutory accounting: the books stay in Tally, this exports
+// to it. Payables only — sales receivables belong to the B2B app.
+enum PartyRateType {
+  PER_PIECE
+  PER_DOZEN
+  LUMPSUM
+}
+
+enum LedgerKind {
+  WORK_BILL
+  PO_BILL
+  PAYMENT
+  ADVANCE
+  ADJUSTMENT
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
 model Vendor {
   id                Int                @id @default(autoincrement())
   name              String             @unique
   kind              VendorKind         @default(EXTERNAL)
   active            Boolean            @default(true)
+  // Change 36 Part 1: the default job-work rate for this vendor. Owner-only on read
+  // (canSeeCost). Null means no rate agreed — nothing is billed rather than billed at 0.
+  jobRateType       PartyRateType?
+  jobRate           Float?
+  // Change 36 Part 2: a vendor had no phone or email at all, so "card routed to vendor"
+  // had nowhere to send. Nullable — an unreachable vendor simply gets the in-app row.
+  phone             String?
+  email             String?
+  // Change 36 Part 4: the ONE entered number in capacity planning — everything else is
+  // derived. No default: 0 would make days-to-clear Infinity for every legacy vendor,
+  // and null honestly means "not set", which suppresses the projection rather than
+  // inventing one.
+  dailyCapacityPcs  Float?
+  capacityNote      String?
+  ledgerEntries     PartyLedgerEntry[]
   jobCards          JobCard[]
   stitchAssignments StitchAssignment[]
   materialChallans  MaterialChallan[]
   cuttingLayers     CuttingLayer[] // Change 14: a layer is issued to a vendor
+  reworks           Rework[]
+  samples           Sample[]
   finishingJobs     FinishingJob[] // Change 20: print/emb/wash job-work given to this vendor
+}
+
+// Change 36 Part 1 — the party ledger. APPEND-ONLY and one-directional per row.
+//
+// ★ Money is DERIVED from documents, never hand-typed as a floating number. So this
+// table deliberately does NOT hold the bills: vendor dues are Σ(dispatched pieces ×
+// rate) and supplier payables are Σ(locked inward challan qty × PO rate), both computed
+// live in getPartyStatement. If a derived bill and a stored WORK_BILL row both existed
+// they could disagree, and the stored one would win by accident.
+//
+// What IS stored is the only thing that cannot be derived: what was actually paid.
+// Nothing is ever deleted or edited — a mistake is corrected by posting its inverse,
+// so the trail stays intact.
+model PartyLedgerEntry {
+  id        Int             @id @default(autoincrement())
+  at        DateTime        @default(now())
+  kind      LedgerKind
+  direction LedgerDirection
+  amount    Float
+  note      String?
+
+  // Whose account this sits on — exactly one of the two is set.
+  vendor     Vendor?   @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorId   Int?
+  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierId Int?
+
+  // Provenance, all optional: which document this payment was made against, when known.
+  jobCardId       Int?
+  dispatchEventId Int?
+  finishingJobId  Int?
+  challanId       Int?
+
+  // The rate in force when this was posted, snapshotted so a later rate change can
+  // never restate a settled bill.
+  rateAtPosting Float?
+
+  createdBy   User? @relation("PartyLedgerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById Int?
+  createdAt   DateTime @default(now())
+
+  @@index([vendorId])
+  @@index([supplierId])
+  @@index([at])
 }
 
 model CuttingMaster {
@@ -178,6 +262,11 @@ model Fabric {
   gsm          Float?
   rollWidth    Float?
   form         FabricForm?
+  // Change 36 Part 0: the deactivate fallback when a fabric is referenced and so
+  // cannot be deleted. Every other master already had one (Vendor/Supplier/Buyer/
+  // Colour/CuttingMaster carry `active`; Product/TrimItem use their status enum) —
+  // fabric was the only one with no way to retire it.
+  active       Boolean         @default(true)
   styles         Style[]
   products       Product[]
   colors         FabricColor[]
@@ -263,6 +352,10 @@ model JobCard {
 
   // estimate (auto snapshot from product at create)
   estAvg           Float?
+  // Change 36 Part 5: per-card override of the fabric standard. Falls back to
+  // Product.avgConsumption — there is NO fabric BOM in this schema; Bom/BomLine are
+  // trim-only and no BomLine ever references a Fabric.
+  stdFabricPerPc Float?
   estFabric        Float?
   // actual (entered later by staff)
   actualAvg        Float?
@@ -317,6 +410,8 @@ model JobCard {
   stitchAssignments StitchAssignment[]
   materialChallans  MaterialChallan[]  @relation("JobCardChallans") // Change 17 Part C
   finishingJobs     FinishingJob[] // Change 20: print/emb/wash given out per layer
+  inspections       Inspection[]
+  reworks           Rework[]
 
   // Change 25 Part A — audit stamps (see FabricColor for why @default(now()) @updatedAt).
   createdAt   DateTime @default(now())
@@ -355,11 +450,24 @@ model CuttingLayer {
   // Change 17 Part A: Fabric ISSUED to this lay (hand-entered). Extra = issued − used
   // is derived (may be negative = short-issued), never stored.
   fabricIssued Float?
+  // Change 36 Part 1: this lay's job-work rate, overriding Vendor.jobRate. It lives on
+  // the LAYER and not the card because a card splits across several layer vendors — a
+  // card-level rate would silently bill every vendor on it the same.
+  vendorRate   Float?
+  // Change 36 Part 8: which fabric lot this lay was cut from. Nullable — an untagged
+  // lay behaves exactly as it did before, and most legacy lays will never carry one.
+  fabricLotNo  String?
   // Change 17 Part B: this lay's own editable size ratio, JSON [["S",1],["M",1.5],…].
   // null ⇒ fall back to the card ratio (back-compat for legacy layers).
   sizeRatio String?
 
   cells      CuttingLayerCell[]
+  // Change 37: fabric issued/used per COLOUR on this lay. When these rows exist they are
+  // the truth and fabricMtr/fabricIssued above are their sum; when they don't (every
+  // legacy layer) the old proportional split still runs. See reconcileJobFabricColour.
+  colours    CuttingLayerColour[]
+  inspections Inspection[]
+  reworks     Rework[]
   dispatches DispatchEvent[]    @relation("DispatchLayers") // Change 14: dispatched against these layers
   // Change 20: finishing job-work given out against this lay (same pattern as dispatch).
   finishingJobs FinishingJob[]   @relation("FinishingLayers")
@@ -374,6 +482,27 @@ model CuttingLayer {
 
   @@index([jobCardId])
   @@index([vendorId])
+}
+
+// Change 37 — fabric issued/used at (layer, colour) grain.
+//
+// Fabric physically moves colour by colour: a roll IS a colour. Until now a lay carried
+// one issued and one used figure, and the per-colour stock ledger was fed by splitting
+// that single number across colours BY CUT-PIECE PROPORTION — an estimate. If NAVY eats
+// more metres per piece than BLACK the ledger was quietly wrong, and `Extra = issued -
+// used` was a layer lump that hid which colour actually over-ran.
+//
+// Balance is DERIVED (issued - used, may be negative = over-cut) and never stored.
+model CuttingLayerColour {
+  id           Int          @id @default(autoincrement())
+  layer        CuttingLayer @relation(fields: [layerId], references: [id], onDelete: Cascade)
+  layerId      Int
+  colour       String // canonical colorKey, matches CuttingLayerCell.colour
+  fabricIssued Float?
+  fabricUsed   Float?
+
+  @@unique([layerId, colour])
+  @@index([layerId])
 }
 
 model CuttingLayerCell {
@@ -565,6 +694,10 @@ model User {
   displayName  String
   role         Role     @default(STAFF)
   vendorName   String? // for VENDOR role: matches Vendor.name verbatim
+  // Change 36 Part 2: the owner digest had no address to go to. Nullable by design —
+  // with neither set, notifications stay in-app and nothing breaks.
+  phone        String?
+  email        String?
   // Change 20: logins deactivate rather than delete — username is unique, so a hard
   // delete frees the name for a different person and orphans the audit trail.
   active       Boolean  @default(true)
@@ -595,6 +728,11 @@ model User {
   trimOrdersCreated   TrimOrder[]       @relation("TrimOrderCreatedBy")
   trimOrdersUpdated   TrimOrder[]       @relation("TrimOrderUpdatedBy")
   fabricColorsCreated FabricColor[]     @relation("FabricColorCreatedBy")
+  partyLedgerEntries PartyLedgerEntry[] @relation("PartyLedgerCreatedBy")
+  notifications      Notification[]     @relation("NotificationUser")
+  inspections        Inspection[]       @relation("InspectionBy")
+  samplesRequested   Sample[]           @relation("SampleRequestedBy")
+  notificationPrefs  NotificationPref[] @relation("NotificationPrefUser")
   fabricColorsUpdated FabricColor[]     @relation("FabricColorUpdatedBy")
   trimItemsCreated    TrimItem[]        @relation("TrimItemCreatedBy")
   trimItemsUpdated    TrimItem[]        @relation("TrimItemUpdatedBy")
@@ -609,6 +747,233 @@ model User {
 // `username` is denormalised on purpose: `userId` goes null when a login is deleted,
 // and "who did this" must survive that. `changes` / `meta` are JSON *strings* — this
 // schema stores JSON as TEXT everywhere (see CuttingLayer.sizeRatio), no Prisma Json.
+// ── Change 36 Part 2 — outbound notifications ──
+// ★ ONE gateway, many triggers. Transport is swappable and defaults to LOG-ONLY: every
+// send is recorded here whether or not anything left the building, so the factory gets a
+// working in-app inbox with zero external setup, and wiring a real WhatsApp/SMTP
+// transport later changes one file rather than every call site.
+model Notification {
+  id       String   @id @default(cuid())
+  at       DateTime @default(now())
+  to       String // resolved address, or the party name when log-only
+  channel  String // WHATSAPP | EMAIL | INAPP
+  template String // po.shared, card.routed, stock.low, …
+  body     String
+  entity   String?
+  entityId String?
+  status   String   @default("QUEUED") // QUEUED | SENT | FAILED | READ
+  error    String?
+
+  // Who should see this in their inbox. Null = the owner/admin inbox.
+  user   User? @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId Int?
+
+  @@index([userId])
+  @@index([at])
+  @@index([template])
+}
+
+// Per-user, per-event, per-channel opt-in. Absent row = the template's own default.
+model NotificationPref {
+  id       Int     @id @default(autoincrement())
+  user     User    @relation("NotificationPrefUser", fields: [userId], references: [id], onDelete: Cascade)
+  userId   Int
+  template String
+  channel  String
+  enabled  Boolean @default(true)
+
+  @@unique([userId, template, channel])
+  @@index([userId])
+}
+
+// ── Change 36 Part 3 — quality: a gate that records and warns, never blocks ──
+// ★ The gate NEVER hard-blocks the floor. Dispatching un-inspected or failed pieces is
+// allowed; it shows a confirm and is recorded. A factory that cannot ship because the
+// software disagrees is a factory that stops using the software.
+enum DefectCategory {
+  STITCHING
+  PRINTING
+  FABRIC
+  MEASUREMENT
+  FINISHING
+  OTHER
+}
+
+enum InspectionResult {
+  PASS
+  FAIL
+  PARTIAL
+}
+
+enum ReworkStatus {
+  OPEN
+  CLOSED
+}
+
+model DefectType {
+  id       Int            @id @default(autoincrement())
+  name     String         @unique
+  category DefectCategory @default(OTHER)
+  active   Boolean        @default(true)
+  lines    InspectionDefect[]
+}
+
+model Inspection {
+  id           Int              @id @default(autoincrement())
+  at           DateTime         @default(now())
+  jobCard      JobCard          @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  jobCardId    Int
+  layer        CuttingLayer?    @relation(fields: [layerId], references: [id], onDelete: SetNull)
+  layerId      Int?
+  inspectedBy   User?           @relation("InspectionBy", fields: [inspectedById], references: [id], onDelete: SetNull)
+  inspectedById Int?
+  sampleSize   Int?
+  checkedQty   Float            @default(0)
+  passQty      Float            @default(0)
+  rejectQty    Float            @default(0)
+  reworkQty    Float            @default(0)
+  result       InspectionResult @default(PASS)
+  note         String?
+  // Voided rather than deleted, exactly like a challan — the count it produced may
+  // already have been read, so the row stays and stops counting.
+  voidedAt     DateTime?
+  defects      InspectionDefect[]
+
+  @@index([jobCardId])
+  @@index([layerId])
+}
+
+model InspectionDefect {
+  id           Int        @id @default(autoincrement())
+  inspection   Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  inspectionId Int
+  defectType   DefectType @relation(fields: [defectTypeId], references: [id])
+  defectTypeId Int
+  qty          Float      @default(0)
+
+  @@index([inspectionId])
+}
+
+// Rework is a TRACKING movement, not a stock movement. It must never reach
+// postMaterialMovement: finished-goods stock lives in the ERP, and pieces going back to
+// a vendor for repair have not left the factory's ownership.
+model Rework {
+  id        Int          @id @default(autoincrement())
+  docNo     String?      @unique // "RW-YYYY-NNN" — its own series; JW- is a billing doc
+  at        DateTime     @default(now())
+  jobCard   JobCard      @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  jobCardId Int
+  layer     CuttingLayer? @relation(fields: [layerId], references: [id], onDelete: SetNull)
+  layerId   Int?
+  vendor    Vendor?      @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorId  Int?
+  qty       Float
+  qtyBack   Float        @default(0)
+  status    ReworkStatus @default(OPEN)
+  note      String?
+
+  @@index([jobCardId])
+  @@index([vendorId])
+}
+
+// ── Change 36 Part 7 — sampling & development ──
+//
+// ⚠️ NOT SamplingStatus. That enum has four values — PLANNING,
+// DESIGN_FABRIC_PENDING, SAMPLE_ORDERED, READY — none of which can express approve or
+// reject, and it is a PRODUCT column describing where a style sits in development, not a
+// sample's lifecycle. Extending it would put sample states onto every product.
+enum SampleStatus {
+  REQUESTED
+  IN_PROGRESS
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum SampleCostKind {
+  FABRIC
+  TRIM
+  CUTTING
+  STITCHING
+  FINISHING
+  OVERHEAD
+  OTHER
+}
+
+// ★ The sample is a first-class document that GRADUATES into a job card. Everything
+// ssfact does starts after a style is approved — but the money-losing decisions happen
+// before.
+model Sample {
+  id          Int          @id @default(autoincrement())
+  code        String       @unique // SMP-YYYY-NNN, allocated inside the transaction
+  name        String
+  round       Int          @default(1)
+  status      SampleStatus @default(REQUESTED)
+  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId   Int?
+  vendor      Vendor?      @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorId    Int?
+  requestedBy   User?      @relation("SampleRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  requestedById Int?
+  notes       String?
+  /** Set when APPROVED/REJECTED, with the remark that decided it. */
+  decidedAt   DateTime?
+  remark      String?
+  targetMrp   Float?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @default(now()) @updatedAt
+
+  costLines    SampleCostLine[]
+  measurements SampleMeasurement[]
+  images       ImageAsset[]
+
+  @@index([productId])
+  @@index([status])
+}
+
+model SampleCostLine {
+  id          Int            @id @default(autoincrement())
+  sample      Sample         @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  sampleId    Int
+  kind        SampleCostKind @default(OTHER)
+  description String
+  qty         Float          @default(1)
+  rate        Float          @default(0)
+
+  @@index([sampleId])
+}
+
+// The size × point-of-measure table. It has no home anywhere else in the schema and the
+// tech pack cannot be printed without it.
+model SampleMeasurement {
+  id        Int    @id @default(autoincrement())
+  sample    Sample @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  sampleId  Int
+  pom       String // "Chest", "Sleeve length", …
+  size      String
+  valueCm   Float
+  tolerance Float?
+
+  @@index([sampleId])
+}
+
+// ── Change 36 Part 10 — offline write replay ──
+// ★ Degrade, don't die. A floor write made offline is queued in the browser with a
+// client-generated key and replayed on reconnect. The key is the ONLY thing standing
+// between a flaky connection and a double-posted stock movement, so the server records
+// every key it has honoured along with the result it returned, and a replay returns that
+// result instead of doing the work again.
+model IdempotencyRecord {
+  key        String   @id // client-generated (crypto.randomUUID)
+  action     String
+  userId     Int?
+  username   String // denormalised, like AuditLog — the row outlives the user
+  resultJson String?
+  at         DateTime @default(now())
+
+  @@index([at])
+}
+
 model AuditLog {
   id          String   @id @default(cuid())
   at          DateTime @default(now())
@@ -663,6 +1028,7 @@ model Product {
   jobCards         JobCard[]
   boms             Bom[]
   productionOrders ProductionOrder[]
+  samples          Sample[]
   images           ImageAsset[]
 
   @@index([headCategory])
@@ -764,6 +1130,7 @@ model TrimItem {
 
 // Shared supplier master (fabric orders + every trim category point here).
 model Supplier {
+  ledgerEntries PartyLedgerEntry[]
   id           Int           @id @default(autoincrement())
   name         String        @unique
   type         SupplierType?
@@ -1070,6 +1437,11 @@ model ImageAsset {
   @@index([productId])
   @@index([trimOrderId])
   @@index([materialChallanId])
+  // Change 36 Part 7: a 7th nullable owner. Deliberately NOT a separate SampleImage
+  // model — that would fork the ImageUploader/attachImages/removeImage pipeline.
+  sample   Sample? @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  sampleId Int?
+
 }
 
 model ProductionOrder {
@@ -1173,6 +1545,9 @@ model MaterialChallanLine {
   @@index([challanId])
   @@index([fabricId])
   @@index([trimItemId])
+  lotNo     String?
+  shadeRef  String?
+
 }
 
 // ── Change 20 — finishing as job-work ────────────────────────────────────────

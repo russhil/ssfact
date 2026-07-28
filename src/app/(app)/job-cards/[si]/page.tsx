@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getJob, getJobMatrix, getJobTrimIssues, getJobFabricPosted } from "@/lib/jobs";
 import { getJobCardChallans } from "@/lib/masters";
+import { getJobQuality, getJobInspections, getJobReworks, getDefectTypes } from "@/lib/quality";
+import { getJobYield } from "@/lib/yield";
 import { getJobMargins } from "@/lib/insights";
 import { db } from "@/lib/db";
 import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
@@ -22,6 +24,7 @@ import { STAGE_LABEL, stageTone, normStage, SIZE_ORDER, orderSizes } from "@/lib
 import { jobItem, jobStyle, jobMrp } from "@/lib/job-display";
 import { JobStageSelect } from "@/components/job-stage-select";
 import { JobQualityCard } from "@/components/job-quality-card";
+import { InspectionPanel } from "@/components/inspection-panel";
 import { ArrowLeft, Plus } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +57,13 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   const jobChallans = canEdit ? await getJobCardChallans(j.id) : [];
   // Change 19 A.4: trims actually issued = locked OUTWARD challan lines (drafts = pending).
   const trimIssues = await getJobTrimIssues(j.id);
+  // Change 36 Part 3: the card's inspection position, so dispatch can warn (never block).
+  const jobQuality = await getJobQuality(j.id);
+  // Change 36 Part 5 — owner-only, and not even queried otherwise.
+  const jobYield = canSeeCost ? await getJobYield(j.id) : null;
+  const [jobInspections, jobReworks, defectTypes] = canEdit
+    ? await Promise.all([getJobInspections(j.id), getJobReworks(j.id), getDefectTypes()])
+    : [[], [], []];
   // Change 19 B: net fabric already posted per colour, so the actuals form can preview the
   // real movement (deduct / return / nothing) instead of the old clamped "return" figure.
   const fabricPosted = j.product?.fabricId != null ? await getJobFabricPosted(j.id, j.product.fabricId) : new Map<string, number>();
@@ -369,7 +379,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               </div>
             </div>
           )}
-          {canEdit && <LayerDispatch jobCardId={j.id} layers={dispatchLayers} prior={priorDispatch} defaultArrangedBy={u?.displayName ?? ""} />}
+          {canEdit && <LayerDispatch jobCardId={j.id} layers={dispatchLayers} prior={priorDispatch} defaultArrangedBy={u?.displayName ?? ""} quality={{ status: jobQuality.status, openRework: jobQuality.openRework }} />}
         </Card>
       </div>
 
@@ -424,6 +434,10 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                             vendor: l.vendor?.name ?? null, cuttingMaster: l.cuttingMaster?.name ?? null,
                             rolls: l.rolls, fabricMtr: l.fabricMtr, fabricIssued: l.fabricIssued,
                             fabricBalance: l.fabricBalance, avgConsumption: l.avgConsumption,
+                            // Change 37 — per-colour fabric, so the edit sheet can drive it
+                            colours: (l.colours ?? []).map((c) => ({
+                              colour: c.colour, fabricIssued: c.fabricIssued, fabricUsed: c.fabricUsed,
+                            })),
                             total: ltotal,
                             dispatched: liveDispatches
                               .filter((e) => e.layers.some((x) => x.id === l.id))
@@ -619,8 +633,54 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         )}
       </Card>
 
-      {/* quality / quantity capture (Change 12, Part G) — reject · alter · extra */}
-      {(canEdit || j.rejectQty != null || j.alterQty != null || j.extraQty != null) && (
+      {/* Change 36 Part 5 — standard vs actual. A comparison, not a measurement. */}
+      {jobYield && jobYield.standard != null && jobYield.actual > 0 && (
+        <Card className="mt-3.5 p-4">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h3 className="t-body font-bold">Fabric yield</h3>
+            <span className="t-sm text-t2">
+              Standard <b className="tnum">{num(jobYield.standard, 2)} {jobYield.unit.toLowerCase()}</b>
+              {" · "}Actual <b className="tnum">{num(jobYield.actual, 2)} {jobYield.unit.toLowerCase()}</b>
+              {jobYield.variance != null && (
+                <>
+                  {" · "}
+                  <b className={`tnum ${jobYield.variance > 0 ? "text-danger" : "text-ok"}`}>
+                    {jobYield.variance > 0 ? "+" : ""}{num(jobYield.variance, 2)}
+                  </b>
+                  {jobYield.yieldPct != null && (
+                    <Badge
+                      tone={jobYield.yieldPct < 0.9 ? "danger" : jobYield.yieldPct < 0.97 ? "warn" : "ok"}
+                      className="ml-1.5"
+                    >
+                      {pct(jobYield.yieldPct, 1)} yield
+                    </Badge>
+                  )}
+                </>
+              )}
+            </span>
+          </div>
+        </Card>
+      )}
+
+      {/* Change 36 Part 3 — inspections supersede the card-level figures below, which
+          stay readable for cards inspected before this shipped. */}
+      {canEdit && (
+        <div className="mt-3.5">
+          <InspectionPanel
+            jobCardId={j.id}
+            layers={j.layers.map((l) => ({ id: l.id, layerNo: l.layerNo, label: l.label }))}
+            vendors={vendorNames}
+            defectTypes={defectTypes.map((d) => ({ id: d.id, name: d.name, category: d.category }))}
+            inspections={jobInspections}
+            reworks={jobReworks}
+          />
+        </div>
+      )}
+
+      {/* quality / quantity capture (Change 12, Part G) — reject · alter · extra.
+          Legacy: shown only where it already carries figures, since inspections are now
+          the source. */}
+      {(j.rejectQty != null || j.alterQty != null || j.extraQty != null) && (
         <JobQualityCard
           jobCardId={j.id}
           canEdit={canEdit}

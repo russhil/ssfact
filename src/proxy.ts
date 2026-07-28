@@ -72,6 +72,11 @@ export const config = {
   matcher: [
     // site.webmanifest is public branding metadata — gating it makes the browser
     // fetch fail and drops the install icons for no security benefit.
-    "/((?!api|_next/static|_next/image|favicon.ico|site.webmanifest|.*\\.(?:png|svg|jpg|jpeg|gif|webp)$).*)",
+    //
+    // Change 36 Part 10: sw.js must be excluded for the same reason and more urgently.
+    // This matcher excludes images but NOT .js, so a gated /sw.js 307s to /login and the
+    // browser tries to register an HTML document as a service worker — a MIME-type error
+    // and a silent registration failure. The file is a static asset with no data in it.
+    "/((?!api|_next/static|_next/image|favicon.ico|site.webmanifest|sw.js|.*\\.(?:png|svg|jpg|jpeg|gif|webp)$).*)",
   ],
 };

@@ -45,7 +45,7 @@ export default async function CatalogPage() {
         ))}
       </div>
 
-      <CatalogTable rows={rows} categories={summary.byCategory.map((c) => c.name)} canSeeCost={canSeeCost} />
+      <CatalogTable rows={rows} categories={summary.byCategory.map((c) => c.name)} canSeeCost={canSeeCost} canDelete={u?.role === "ADMIN"} />
     </div>
   );
 }

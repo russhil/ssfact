@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createSupplier, updateSupplier } from "@/lib/actions";
+import { createSupplier, updateSupplier, deleteSupplier } from "@/lib/actions";
+import { MasterDelete } from "@/components/master-delete";
 import { runAction } from "@/lib/action-result";
 import {
   Badge,
@@ -24,7 +26,16 @@ import { ContactRows, blankContact, contactDrafts, contactLabel, type ContactDra
 import { Pencil, Plus } from "lucide-react";
 import type { LookupRow, SupplierRow } from "@/lib/masters";
 
-export function SupplierManager({ suppliers, types = [] }: { suppliers: SupplierRow[]; types?: LookupRow[] }) {
+export function SupplierManager({
+  suppliers,
+  types = [],
+  onTimeById = {},
+}: {
+  suppliers: SupplierRow[];
+  types?: LookupRow[];
+  /** Change 36 Part 6 — on-time rate per supplier, computed in one batched pass. */
+  onTimeById?: Record<number, number | null>;
+}) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [type, setType] = useState("");
@@ -221,7 +232,16 @@ export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier
                   key={s.id}
                   className={`border-b border-hairline last:border-0 ${s.active ? "" : "opacity-55"} ${editingId === s.id ? "bg-accent-soft" : ""}`}
                 >
-                  <Td className="font-semibold">{s.name}</Td>
+                  <Td>
+                    <Link href={`/suppliers/${s.id}`} className="font-semibold text-primary-ink hover:underline">{s.name}</Link>
+                    {onTimeById[s.id] != null && (
+                      <Link href={`/suppliers/${s.id}/scorecard`} className="ml-1.5 align-middle">
+                        <Badge tone={onTimeById[s.id]! >= 0.9 ? "ok" : onTimeById[s.id]! >= 0.7 ? "warn" : "danger"}>
+                          {Math.round(onTimeById[s.id]! * 100)}% on time
+                        </Badge>
+                      </Link>
+                    )}
+                  </Td>
                   <Td className="text-t2">{s.type ?? "—"}</Td>
                   <Td className="text-t2">{s.city ?? "—"}</Td>
                   <Td className="text-t2 tnum">{s.phone ?? "—"}</Td>
@@ -232,14 +252,31 @@ export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier
                   <Td className="text-right tnum text-t2">{s.trims}</Td>
                   <Td className="text-right tnum text-t2">{s.orders}</Td>
                   <Td>
-                    <button onClick={() => toggle(s)} disabled={busy}>
-                      {s.active ? <Badge tone="ok">Active</Badge> : <Badge tone="default">Inactive</Badge>}
-                    </button>
+                    {/* Change 36 Part 0: the pill is now read-only for active rows —
+                        retiring happens through Delete → (blocked) → Deactivate. An
+                        inactive row stays clickable so it can be brought back. */}
+                    {s.active ? (
+                      <Badge tone="ok">Active</Badge>
+                    ) : (
+                      <button onClick={() => toggle(s)} disabled={busy} title="Reactivate">
+                        <Badge tone="default">Inactive</Badge>
+                      </button>
+                    )}
                   </Td>
                   <Td className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => startEdit(s)} disabled={busy}>
-                      <Pencil size={12} /> Edit
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => startEdit(s)} disabled={busy}>
+                        <Pencil size={12} /> Edit
+                      </Button>
+                      <MasterDelete
+                        kind="supplier"
+                        id={s.id}
+                        label="Supplier"
+                        onDelete={() => deleteSupplier({ id: s.id })}
+                        onDeactivate={s.active ? () => updateSupplier({ id: s.id, active: false }) : undefined}
+                        disabled={busy}
+                      />
+                    </div>
                   </Td>
                 </tr>
               ))}

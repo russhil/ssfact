@@ -33,11 +33,18 @@ export function LayerDispatch({
   layers,
   prior = [],
   defaultArrangedBy,
+  quality,
 }: {
   jobCardId: number;
   layers: DispatchLayer[];
   prior?: PriorDispatch[];
   defaultArrangedBy: string;
+  /**
+   * Change 36 Part 3 — this card's inspection position. The confirm CANNOT live on the
+   * server: addDispatch is a server action and cannot prompt, and throwing there would
+   * turn "warns" into "blocks", which the gate explicitly forbids. So it lives here.
+   */
+  quality?: { status: "NONE" | "PASS" | "FAIL" | "PARTIAL" | "OPEN_REJECTS"; openRework: number };
 }) {
   const router = useRouter();
   const [sale, setSale] = useState(false);
@@ -102,7 +109,24 @@ export function LayerDispatch({
   }, [grid, saleGrid, sale]);
   const balance = poolCut - priorDispatched - enteringNow;
 
+  /**
+   * Returns false when the operator backs out. Never blocks on its own — an
+   * un-inspected or failed card ships if they say so, and the confirm is the record
+   * that they were told.
+   */
+  function confirmQuality(): boolean {
+    const q = quality;
+    if (!q || q.status === "PASS") return true;
+    const why =
+      q.status === "NONE" ? "This card has not been inspected."
+      : q.status === "FAIL" ? "The last inspection on this card FAILED."
+      : q.status === "OPEN_REJECTS" ? `${q.openRework} piece(s) are still out for rework.`
+      : "The last inspection passed only partially.";
+    return confirm(`${why}\n\nDispatch anyway?`);
+  }
+
   async function save() {
+    if (!confirmQuality()) return;
     setBusy(true);
     try {
       const lines = sale
@@ -143,6 +167,7 @@ export function LayerDispatch({
   // ── legacy card: no cutting layers → single-qty dispatch ─────────────────────
   if (layers.length === 0) {
     async function saveLegacy() {
+      if (!confirmQuality()) return;
       if (!legacyQty || +legacyQty === 0) return;
       setBusy(true);
       try {

@@ -9,6 +9,11 @@ import { colorKey } from "@/lib/colour";
 import { sizeKey } from "@/lib/job-labels";
 import { num } from "@/lib/format";
 import { getJobTrimIssues } from "@/lib/jobs";
+import { notifyAfter, ownerRecipients } from "@/lib/notify";
+import { getLowStockAlerts } from "@/lib/insights";
+import { getJobQuality } from "@/lib/quality";
+import { withIdempotency } from "@/lib/idempotency";
+import { getMasterRefs, refsMessage, type MasterKind } from "@/lib/master-refs";
 import { revalidatePath } from "next/cache";
 
 type BomDim = "COLOR" | "SIZE" | "FLAT";
@@ -63,6 +68,80 @@ export async function postMaterialMovement(
   }
 }
 
+/**
+ * Change 37 — the ONLY place a job card's fabric stock is driven, for one
+ * (fabric, jobCard, colour) triple.
+ *
+ * Change 19 Part B established the rule and it is unchanged: net the movements for the
+ * triple and post whatever delta makes that net equal USED — in BOTH directions, NEVER
+ * clamped. Negative stock is allowed because it is real over-cut. The old code returned
+ * Math.max(0, issued − used), which clamped: when a lay was over-cut the net stayed
+ * parked at the issued ESTIMATE and the extra fabric consumed was never deducted.
+ * Owner's rule: "It should not look at issued. It should always look at the manually
+ * filled one which is USED."
+ *
+ * What Change 37 adds is that this is now a FUNCTION with several callers rather than a
+ * block inlined in recordFabricActuals. addCuttingLayer used to blindly APPEND an OUT
+ * movement, so it and the actuals form were two writers stacking on one net — which is
+ * exactly why updateCuttingLayer was forbidden from posting at all ("posting here too
+ * would double-count the lay"). Netting is idempotent by construction: re-running with
+ * the same `used` computes delta 0 and posts nothing. So every caller converges on the
+ * same target instead of stacking, and the hazard that comment protected against stops
+ * being possible.
+ *
+ * Returns the delta posted: > 0 deducted more (over-cut), < 0 gave stock back, 0 no-op.
+ */
+async function reconcileJobFabricColour(
+  tx: Tx,
+  a: { fabricId: number; jobCardId: number; siNo: string; colour: string; used: number; reason: string }
+): Promise<number> {
+  const key = colorKey(a.colour);
+  const agg = await tx.stockMovement.groupBy({
+    by: ["type"],
+    where: {
+      fabricId: a.fabricId,
+      jobCardId: a.jobCardId,
+      // legacy colourless movements were stored as null; colorKey("") === ""
+      ...(key === "" ? { OR: [{ color: "" }, { color: null }] } : { color: key }),
+    },
+    _sum: { qty: true },
+  });
+  const sumOf = (t: string) => agg.find((x) => x.type === t)?._sum.qty ?? 0;
+  const postedSoFar = sumOf("ISSUE") - sumOf("RECEIPT");
+
+  const raw = (a.used ?? 0) - postedSoFar;
+  const delta = Math.abs(raw) < 0.005 ? 0 : Math.round(raw * 100) / 100;
+  if (delta === 0) return 0;
+
+  await postMaterialMovement(tx, {
+    direction: delta > 0 ? "OUT" : "IN",
+    qty: Math.abs(delta),
+    date: new Date(),
+    fabricId: a.fabricId,
+    colour: key,
+    jobCardId: a.jobCardId,
+    note: `${delta > 0 ? a.reason : "Return"} ${a.siNo} · ${key || "—"}`,
+  });
+  return delta;
+}
+
+/**
+ * Change 37 — a layer's fabric, per colour, when the lay carries CuttingLayerColour rows.
+ * Returns null for a legacy layer (no colour rows), which is the signal to fall back to
+ * the old proportional split.
+ */
+function layerColourUsed(layer: { colours?: { colour: string; fabricUsed: number | null }[] }): Map<string, number> | null {
+  const rows = layer.colours ?? [];
+  if (rows.length === 0) return null;
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    if (r.fabricUsed == null) continue;
+    const k = colorKey(r.colour);
+    out.set(k, (out.get(k) ?? 0) + r.fabricUsed);
+  }
+  return out.size > 0 ? out : null;
+}
+
 /** Find-or-create a cutting master by name inside a transaction. */
 async function resolveCuttingMaster(tx: Tx, name: string): Promise<number> {
   const cm =
@@ -92,6 +171,9 @@ export type NewJobLayerInput = {
   fabricIssued?: number | null; // Change 17 A: Fabric ISSUED (Extra = issued − used, derived)
   sizeRatio?: string | null; // Change 17 B: this lay's own size ratio JSON
   cells: { colour: string; size: string; qty: number }[];
+  // Change 37: fabric per colour on this lay. When present it REPLACES the proportional
+  // split for those colours — the ledger is driven to the entered USED, not an estimate.
+  fabricByColour?: { colour: string; issued?: number | null; used?: number | null }[] | null;
 };
 
 export type NewJobInput = {
@@ -209,8 +291,25 @@ export async function createJobCard(input: NewJobInput) {
     cutByColour.set(key, e);
   }
 
+  // Change 37 — per-colour fabric entered on the lay. Where a colour carries a real
+  // figure it REPLACES the proportional split below: the entered USED is the truth.
+  const usedByColour = new Map<string, number>();
+  const issuedByColour = new Map<string, number>();
+  const layerColourRows = layers.map((l) =>
+    (l.fabricByColour ?? [])
+      .map((r) => ({ colour: colorKey(r.colour), issued: r.issued ?? null, used: r.used ?? null }))
+      .filter((r) => r.colour !== "" && (r.issued != null || r.used != null))
+  );
+  for (const rows of layerColourRows) {
+    for (const r of rows) {
+      if (r.used != null) usedByColour.set(r.colour, (usedByColour.get(r.colour) ?? 0) + r.used);
+      if (r.issued != null) issuedByColour.set(r.colour, (issuedByColour.get(r.colour) ?? 0) + r.issued);
+    }
+  }
+
   // Per-colour fabric metres contributed by the layer maths (Part C). A layer's
   // fabricMtr is a lay total; split it across the layer's colours by cut proportion.
+  // Skipped for any colour that carries an entered figure (Change 37).
   const mtrByColour = new Map<string, number>();
   const colourHasMtr = new Set<string>();
   for (const l of layers) {
@@ -219,6 +318,7 @@ export async function createJobCard(input: NewJobInput) {
     const byCol = new Map<string, number>();
     for (const c of l.cells) byCol.set(c.colour, (byCol.get(c.colour) ?? 0) + c.qty);
     for (const [col, q] of byCol) {
+      if (usedByColour.has(col) || issuedByColour.has(col)) continue;
       mtrByColour.set(col, (mtrByColour.get(col) ?? 0) + l.fabricMtr * (q / layerTotal));
       colourHasMtr.add(col);
     }
@@ -235,15 +335,23 @@ export async function createJobCard(input: NewJobInput) {
         const ov = overrides.get(key);
         const detail = detailByColour.get(key);
         const lineAvg = ov?.estAvg ?? defaultAvg;
-        const qtyIssued = colourHasMtr.has(key)
-          ? Math.round((mtrByColour.get(key) ?? 0) * 100) / 100
-          : lineAvg != null
-            ? Math.round(qty * lineAvg * 100) / 100
-            : null;
+        // Change 37: an entered per-colour figure wins over both the split and the avg.
+        const entIssued = issuedByColour.get(key) ?? null;
+        const entUsed = usedByColour.get(key) ?? null;
+        const qtyIssued =
+          entIssued != null || entUsed != null
+            ? Math.round(((entIssued ?? entUsed) as number) * 100) / 100
+            : colourHasMtr.has(key)
+              ? Math.round((mtrByColour.get(key) ?? 0) * 100) / 100
+              : lineAvg != null
+                ? Math.round(qty * lineAvg * 100) / 100
+                : null;
+        const qtyUsed = entUsed != null ? Math.round(entUsed * 100) / 100 : null;
         return {
           key,
           cutQty: qty,
           estAvg: lineAvg,
+          qtyUsed,
           gsm: ov?.gsm ?? null,
           rollWidth: ov?.rollWidth ?? null,
           qtyIssued,
@@ -352,11 +460,19 @@ export async function createJobCard(input: NewJobInput) {
     });
 
     // Cutting layers + their colour×size cells (each layer may carry its own date/master/vendor).
-    for (const l of layers) {
+    for (let li = 0; li < layers.length; li++) {
+      const l = layers[li];
       const layerMasterId = l.cuttingMaster
         ? await resolveCuttingMaster(tx, l.cuttingMaster)
         : cuttingMasterId;
       const layerVendorId = (await resolveVendorId(tx, l.vendorName)) ?? vendor.id;
+      // Change 37: when this lay carries per-colour fabric, its totals are the Σ of
+      // those rows rather than a separately typed figure.
+      const rows = layerColourRows[li] ?? [];
+      const rowSum = (k: "issued" | "used") => {
+        const v = rows.map((r) => r[k]).filter((x): x is number => x != null);
+        return v.length ? Math.round(v.reduce((a, b) => a + b, 0) * 100) / 100 : null;
+      };
       await tx.cuttingLayer.create({
         data: {
           jobCardId: created.id,
@@ -367,11 +483,14 @@ export async function createJobCard(input: NewJobInput) {
           vendorId: layerVendorId,
           avgConsumption: l.avgConsumption ?? null,
           rolls: l.rolls ?? null,
-          fabricMtr: l.fabricMtr ?? null,
+          fabricMtr: rows.length ? rowSum("used") : (l.fabricMtr ?? null),
           fabricBalance: l.fabricBalance ?? null,
-          fabricIssued: l.fabricIssued ?? null,
+          fabricIssued: rows.length ? rowSum("issued") : (l.fabricIssued ?? null),
           sizeRatio: l.sizeRatio ?? null,
           cells: { create: l.cells.map((c) => ({ colour: c.colour, size: c.size, qty: c.qty })) },
+          ...(rows.length
+            ? { colours: { create: rows.map((r) => ({ colour: r.colour, fabricIssued: r.issued, fabricUsed: r.used })) } }
+            : {}),
         } as any,
       });
     }
@@ -388,20 +507,23 @@ export async function createJobCard(input: NewJobInput) {
           gsm: line.gsm,
           rollWidth: line.rollWidth,
           qtyIssued: line.qtyIssued,
+          qtyUsed: line.qtyUsed,
           reqPcs: line.reqPcs,
           reqMtr: line.reqMtr,
           rolls: line.rolls,
           imageUrl: line.imageUrl,
         } as any,
       });
+      // Change 37: a colour with an entered USED is driven to exactly that figure;
+      // everything else keeps issuing the estimate as before.
       await postMaterialMovement(tx, {
         direction: "OUT",
-        qty: line.qtyIssued ?? 0,
+        qty: line.qtyUsed ?? line.qtyIssued ?? 0,
         date: now,
         fabricId: fabricId!,
         colour: line.key,
         jobCardId: created.id,
-        note: "Cutting issue",
+        note: line.qtyUsed != null ? "Cutting issue · entered" : "Cutting issue",
       });
     }
 
@@ -552,6 +674,13 @@ export type FabricActualsInput = {
   arrangedBy?: string | null;
   challan?: string | null;
   note?: string;
+  /**
+   * Change 36 Part 10 — accepted for symmetry with the other queued writes, but
+   * deliberately NOT recorded: this action nets the ledger to USED, so replaying it with
+   * the same figures computes delta 0 and posts nothing. It is idempotent by
+   * construction and a record would only add a row that changes no behaviour.
+   */
+  idemKey?: string | null;
 };
 
 export async function recordFabricActuals(input: FabricActualsInput) {
@@ -598,55 +727,20 @@ export async function recordFabricActuals(input: FabricActualsInput) {
       }
       if (!fabricId) continue;
 
-      // ── Change 19 Part B: reconcile the ledger to USED ──
-      // The old code returned Math.max(0, issued − used), which CLAMPED: when a layer was
-      // over-cut (used > issued) it returned nothing, so net stock stayed parked at the
-      // issued ESTIMATE and the extra fabric really consumed was never deducted.
-      // Owner's rule: "It should not look at issued. It should always look at the manually
-      // filled one which is USED." So we post whatever delta makes the net equal USED —
-      // in both directions, never clamped. Negative stock is allowed: it's real over-cut.
-      const agg = await tx.stockMovement.groupBy({
-        by: ["type"],
-        where: {
-          fabricId,
-          jobCardId: job.id,
-          // legacy colourless movements were stored as null; colorKey("") === ""
-          ...(key === "" ? { OR: [{ color: "" }, { color: null }] } : { color: key }),
-        },
-        _sum: { qty: true },
+      // Change 37: the netting that used to live inline here is now the shared helper,
+      // so the layer path and this form drive the same number the same way.
+      const delta = await reconcileJobFabricColour(tx, {
+        fabricId,
+        jobCardId: job.id,
+        siNo: job.siNo,
+        colour: key,
+        used: l.qtyUsed ?? 0,
+        reason: "Actuals true-up",
       });
-      const sumOf = (t: string) => agg.find((a) => a.type === t)?._sum.qty ?? 0;
-      const postedSoFar = sumOf("ISSUE") - sumOf("RECEIPT");
-
-      // Idempotency falls out of this: re-saving the same USED gives delta 0 and posts
-      // nothing, which is why the old one-shot `returnedColours` lock is gone.
-      const raw = (l.qtyUsed ?? 0) - postedSoFar;
-      const delta = Math.abs(raw) < 0.005 ? 0 : Math.round(raw * 100) / 100;
-
-      if (delta > 0) {
-        // used more than we've taken out — deduct the difference (over-cut)
-        await postMaterialMovement(tx, {
-          direction: "OUT",
-          qty: delta,
-          date: new Date(),
-          fabricId,
-          colour: key,
-          jobCardId: job.id,
-          note: `Actuals true-up ${job.siNo} · ${key || "—"}`,
-        });
-        totalIssued += delta;
-      } else if (delta < 0) {
-        // used less — the leftover goes back, and still leaves a human-facing ReturnNote
+      if (delta > 0) totalIssued += delta;
+      else if (delta < 0) {
         const ret = -delta;
-        await postMaterialMovement(tx, {
-          direction: "IN",
-          qty: ret,
-          date: new Date(),
-          fabricId,
-          colour: key,
-          jobCardId: job.id,
-          note: `Return ${job.siNo} · ${key || "—"}`,
-        });
+        // The ledger half is done; the human-facing ReturnNote is this form's own record.
         await tx.returnNote.create({
           data: { qty: ret, fabricId, jobCardId: job.id, color: key, note: input.note ?? null } as any,
         });
@@ -793,6 +887,13 @@ export async function getJobDispatchData(jobCardId: number) {
       cells: l.cells.map((c) => ({ colour: c.colour, size: c.size, qty: c.qty })),
     })),
     prior: job.dispatches.map((e) => ({ id: e.id, qty: e.qty, layerIds: e.layers.map((x) => x.id) })),
+    // Change 36 Part 3: /dispatch is the SECOND surface using LayerDispatch. Wiring the
+    // gate only through the job-card page would leave this one un-gated — this is the
+    // easy-to-miss data path.
+    quality: await (async () => {
+      const q = await getJobQuality(job.id);
+      return { status: q.status, openRework: q.openRework };
+    })(),
   };
 }
 
@@ -872,6 +973,16 @@ export async function addDispatch(input: {
   revalidatePath("/board");
   revalidatePath("/job-cards");
   revalidatePath(`/job-cards/${job.id}`);
+
+  // Change 36 Part 2 — after the transaction. A dispatch is the moment the owner most
+  // wants to know about, and the one most likely to happen while nobody is at a desk.
+  for (const r of await ownerRecipients()) {
+    notifyAfter({
+      to: r.to, template: "dispatch.done", userId: r.userId,
+      entity: "DispatchEvent", entityId: dispatchNo ?? `${job.id}-${newDispatched}`,
+      body: `${job.siNo} — ${num(input.qty)} pcs dispatched${dispatchNo ? ` on ${dispatchNo}` : ""}${closed ? " · card closed" : ""}`,
+    });
+  }
   return { siNo: job.siNo, dispatched: newDispatched, closed, dispatchNo };
 }
 
@@ -893,8 +1004,15 @@ export async function addCuttingLayer(input: {
   fabricIssued?: number | null; // Change 17 A: Fabric ISSUED
   sizeRatio?: string | null; // Change 17 B: this lay's own size ratio JSON
   cells: { colour: string; size: string; qty: number }[];
+  // Change 37: fabric per colour on this lay. When present it REPLACES the proportional
+  // split — the ledger is driven to the entered USED per colour instead of an estimate.
+  fabricByColour?: { colour: string; issued?: number | null; used?: number | null }[] | null;
+  // Change 36 Part 8: which fabric lot this lay was cut from.
+  fabricLotNo?: string | null;
+  // Change 36 Part 10: replay key for a lay recorded offline.
+  idemKey?: string | null;
 }) {
-  await requireRole("ADMIN", "STAFF");
+  const actor = await requireRole("ADMIN", "STAFF");
   // Change 26 E: sizes are hand-typed per lay now, so canonicalise them the way colours
   // already were — otherwise " xl" and "XL" become two columns on the card forever.
   // Deliberately NOT whitelisted against SIZE_ORDER: the client does invent sizes.
@@ -918,7 +1036,30 @@ export async function addCuttingLayer(input: {
   const byCol = new Map<string, number>();
   for (const c of cells) byCol.set(c.colour, (byCol.get(c.colour) ?? 0) + c.qty);
 
-  await db.$transaction(async (tx) => {
+  // Change 37 — per-colour fabric, canonicalised and summed by colour. Empty rows post
+  // nothing (back-compat: a colour with no figure typed behaves as if it were absent).
+  const byColFabric = new Map<string, { issued: number | null; used: number | null }>();
+  for (const r of input.fabricByColour ?? []) {
+    const k = colorKey(r.colour);
+    if (k === "" || (r.issued == null && r.used == null)) continue;
+    const prev = byColFabric.get(k) ?? { issued: null, used: null };
+    byColFabric.set(k, {
+      issued: r.issued == null ? prev.issued : (prev.issued ?? 0) + r.issued,
+      used: r.used == null ? prev.used : (prev.used ?? 0) + r.used,
+    });
+  }
+  const perColour = byColFabric.size > 0;
+  // The layer totals stay populated for every existing read site; when colour rows are
+  // given they are the SUM of those rows rather than a separately typed number.
+  const sumOf = (k: "issued" | "used") => {
+    const vals = [...byColFabric.values()].map((v) => v[k]).filter((v): v is number => v != null);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) * 100) / 100 : null;
+  };
+  const layerIssued = perColour ? sumOf("issued") : (input.fabricIssued ?? null);
+  const layerUsed = perColour ? sumOf("used") : (input.fabricMtr ?? null);
+
+  await db.$transaction(async (tx) =>
+    withIdempotency(tx, actor, input.idemKey, "addCuttingLayer", async () => {
     const layerMasterId = input.cuttingMaster
       ? await resolveCuttingMaster(tx, input.cuttingMaster)
       : job.cuttingMasterId;
@@ -933,50 +1074,85 @@ export async function addCuttingLayer(input: {
         vendorId: layerVendorId,
         avgConsumption: input.avgConsumption ?? null,
         rolls: input.rolls ?? null,
-        fabricMtr: input.fabricMtr ?? null,
+        fabricMtr: layerUsed,
         fabricBalance: input.fabricBalance ?? null,
-        fabricIssued: input.fabricIssued ?? null,
+        fabricIssued: layerIssued,
+        fabricLotNo: input.fabricLotNo?.trim() || null,
         sizeRatio: input.sizeRatio ?? null,
         cells: { create: cells },
+        ...(perColour
+          ? {
+              colours: {
+                create: [...byColFabric.entries()].map(([colour, v]) => ({
+                  colour,
+                  fabricIssued: v.issued,
+                  fabricUsed: v.used,
+                })),
+              },
+            }
+          : {}),
       } as any,
     });
 
     if (fabricId) {
       for (const [col, q] of byCol) {
-        const issued =
-          input.fabricMtr != null && layerTotal > 0
+        const entered = byColFabric.get(col);
+        // Change 37: with colour rows the entered USED is the truth; without them the
+        // lay's single figure is still split across colours by cut proportion (legacy).
+        const issued = perColour
+          ? (entered?.issued ?? entered?.used ?? 0)
+          : input.fabricMtr != null && layerTotal > 0
             ? Math.round(input.fabricMtr * (q / layerTotal) * 100) / 100
             : avg != null
               ? Math.round(q * avg * 100) / 100
               : 0;
         const existing = job.fabricLines.find((f) => colorKey(f.color) === col);
+        const usedDelta = perColour ? (entered?.used ?? 0) : 0;
         if (existing) {
           await tx.jobFabricLine.update({
             where: { id: existing.id },
             data: {
               cutQty: (existing.cutQty ?? 0) + q,
               qtyIssued: (existing.qtyIssued ?? 0) + issued,
+              ...(perColour ? { qtyUsed: (existing.qtyUsed ?? 0) + usedDelta } : {}),
             } as any,
           });
         } else {
           await tx.jobFabricLine.create({
-            data: { color: col, fabricId, jobCardId: job.id, cutQty: q, estAvg: avg, qtyIssued: issued } as any,
+            data: {
+              color: col, fabricId, jobCardId: job.id, cutQty: q, estAvg: avg, qtyIssued: issued,
+              ...(perColour ? { qtyUsed: usedDelta } : {}),
+            } as any,
           });
         }
-        await postMaterialMovement(tx, {
-          direction: "OUT",
-          qty: issued,
-          date: now,
-          fabricId,
-          colour: col,
-          jobCardId: job.id,
-          note: `Layer ${layerNo} issue`,
-        });
+
+        if (perColour) {
+          // NET to the card's total entered USED for this colour — never append. Two
+          // writers (this and the actuals form) on one net is only safe because both
+          // converge on the same target; see reconcileJobFabricColour.
+          const target = ((existing?.qtyUsed ?? 0) + usedDelta);
+          await reconcileJobFabricColour(tx, {
+            fabricId, jobCardId: job.id, siNo: job.siNo, colour: col,
+            used: target, reason: `Layer ${layerNo}`,
+          });
+        } else {
+          await postMaterialMovement(tx, {
+            direction: "OUT",
+            qty: issued,
+            date: now,
+            fabricId,
+            colour: col,
+            jobCardId: job.id,
+            note: `Layer ${layerNo} issue`,
+          });
+        }
       }
     }
 
     await tx.jobCard.update({ where: { id: job.id }, data: { cutQty: { increment: layerTotal } } as any });
-  });
+    return { ok: true, layerNo };
+    })
+  );
 
   revalidatePath(`/job-cards/${job.id}`);
   revalidatePath("/inventory");
@@ -2471,7 +2647,7 @@ async function assertDraft(challanId: number) {
 
 export async function addChallanLine(
   challanId: number,
-  input: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null }
+  input: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null; lotNo?: string | null; shadeRef?: string | null; }
 ) {
   await requireRole("ADMIN", "STAFF");
   await assertDraft(challanId);
@@ -2488,6 +2664,10 @@ export async function addChallanLine(
       unit: input.unit ?? null,
       rate: input.rate ?? null,
       note: input.note ?? null,
+      // Change 36 Part 8 — the supplier's lot and shade, captured where the goods
+      // actually enter the system.
+      lotNo: input.lotNo?.trim() || null,
+      shadeRef: input.shadeRef?.trim() || null,
     },
   });
   await recomputeChallanKind(challanId);
@@ -2627,6 +2807,31 @@ export async function lockChallan(input: { id: number }) {
   revalidatePath("/trims");
   revalidatePath("/fabric-orders");
   revalidatePath("/trim-orders");
+
+  // Change 36 Part 2 — AFTER the transaction, never inside it. This function's tx also
+  // writes the stock ledger through postMaterialMovement; awaiting a transport hiccup in
+  // there would roll back a real stock posting. notifyAfter never throws.
+  if (c.direction === "INWARD") {
+    for (const r of await ownerRecipients()) {
+      notifyAfter({
+        to: r.to, template: "challan.inward", userId: r.userId,
+        entity: "MaterialChallan", entityId: c.id,
+        body: `Received ${challanNo} — ${c.lines.length} line${c.lines.length === 1 ? "" : "s"} into stock`,
+      });
+    }
+    // Low stock is computed, not stored, so this is the natural moment to check it:
+    // stock has just moved. notify() dedupes on (template, entityId) within a day, so a
+    // trim that stays below its level does not re-notify every time anything is received.
+    for (const a of await getLowStockAlerts()) {
+      for (const r of await ownerRecipients()) {
+        notifyAfter({
+          to: r.to, template: "stock.low", userId: r.userId,
+          entity: a.kind, entityId: `${a.kind}-${a.id}`,
+          body: `${a.name}${a.colour ? ` · ${a.colour}` : ""} is at ${num(a.currentStock)} ${a.unit} — reorder level ${num(a.reorderLevel)}`,
+        });
+      }
+    }
+  }
   return { challanNo };
 }
 
@@ -2951,7 +3156,9 @@ export async function draftChallanFromTrimOrder(input: { id: number }) {
  */
 export async function editLockedChallan(input: {
   id: number;
-  lines: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null }[];
+  // Change 36 Part 8: lot/shade MUST be here. This action deletes and recreates every
+  // line, so a field missing from this type is silently wiped on every edit.
+  lines: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null; lotNo?: string | null; shadeRef?: string | null; }[];
   note?: string | null;
   jobCardId?: number | null;
 }) {
@@ -2992,6 +3199,9 @@ export async function editLockedChallan(input: {
           colour: l.fabricId && l.colour ? colorKey(l.colour) : null,
           trimItemId: l.trimItemId ?? null,
           qty: l.qty, unit: l.unit ?? null, rate: l.rate ?? null, note: l.note ?? null,
+          // Change 36 Part 8 — carried through the delete/recreate, or the lot is lost.
+          lotNo: l.lotNo?.trim() || null,
+          shadeRef: l.shadeRef?.trim() || null,
         },
       });
     }
@@ -3460,8 +3670,18 @@ export async function updateJobCard(input: {
 
 /**
  * Change 22 Part D — edit a cutting layer. Cell edits move the card's cut quantity by the
- * delta; they do NOT re-post fabric. Fabric is trued up in exactly one place
- * (recordFabricActuals) and posting here too would double-count the lay.
+ * delta.
+ *
+ * Change 37 revises the old rule here. It used to read: "they do NOT re-post fabric.
+ * Fabric is trued up in exactly one place (recordFabricActuals) and posting here too
+ * would double-count the lay." That was true while addCuttingLayer APPENDED movements —
+ * a second appender would stack on the same net. Now every writer goes through
+ * reconcileJobFabricColour, which NETS to a target, so a second writer converges instead
+ * of stacking and the double-count is no longer possible.
+ *
+ * The constraint it protected still holds and is now enforced by the helper, not by
+ * abstinence: editing per-colour USED re-drives the ledger to the card's total entered
+ * USED for that colour. Layers with no colour rows still post nothing from here.
  */
 export async function updateCuttingLayer(input: {
   id: number;
@@ -3476,11 +3696,15 @@ export async function updateCuttingLayer(input: {
   avgConsumption?: number | null;
   sizeRatio?: string | null;
   cells?: { colour: string; size: string; qty: number }[];
+  // Change 37 — per-colour fabric for this lay. Undefined leaves the rows alone.
+  fabricByColour?: { colour: string; issued?: number | null; used?: number | null }[] | null;
+  // Change 36 Part 8 — the lot this lay was cut from.
+  fabricLotNo?: string | null;
 }) {
   const user = await requireRole("ADMIN", "STAFF");
   const layer = await db.cuttingLayer.findUnique({
     where: { id: input.id },
-    include: { cells: true, jobCard: { select: { siNo: true } } },
+    include: { cells: true, colours: true, jobCard: { select: { id: true, siNo: true, product: { select: { fabricId: true } } } } },
   });
   if (!layer) throw new Error("Cutting layer not found");
 
@@ -3491,15 +3715,34 @@ export async function updateCuttingLayer(input: {
   if (cells && cells.length === 0) throw new Error("A layer needs at least one cell — remove the layer instead");
   const newTotal = cells ? cells.reduce((a, c) => a + c.qty, 0) : oldTotal;
 
+  // Change 37 — canonicalise the incoming colour rows and derive the layer totals from
+  // them, so fabricMtr/fabricIssued stay the sum of the colour rows for every read site.
+  const colourRows =
+    input.fabricByColour === undefined
+      ? undefined
+      : (input.fabricByColour ?? [])
+          .map((r) => ({ colour: colorKey(r.colour), issued: r.issued ?? null, used: r.used ?? null }))
+          .filter((r) => r.colour !== "" && (r.issued != null || r.used != null));
+  const rowSum = (k: "issued" | "used") => {
+    const vals = (colourRows ?? []).map((r) => r[k]).filter((v): v is number => v != null);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) * 100) / 100 : null;
+  };
+  const hasRows = colourRows != null && colourRows.length > 0;
+
   const patch = {
         ...(input.cutDate !== undefined ? { cutDate: input.cutDate ? new Date(input.cutDate) : null } : {}),
         ...(input.label !== undefined ? { label: input.label } : {}),
         ...(input.rolls !== undefined ? { rolls: input.rolls } : {}),
+        ...(hasRows
+          ? { fabricMtr: rowSum("used"), fabricIssued: rowSum("issued") }
+          : {
         ...(input.fabricMtr !== undefined ? { fabricMtr: input.fabricMtr } : {}),
         ...(input.fabricIssued !== undefined ? { fabricIssued: input.fabricIssued } : {}),
+            }),
         ...(input.fabricBalance !== undefined ? { fabricBalance: input.fabricBalance } : {}),
         ...(input.avgConsumption !== undefined ? { avgConsumption: input.avgConsumption } : {}),
         ...(input.sizeRatio !== undefined ? { sizeRatio: input.sizeRatio } : {}),
+        ...(input.fabricLotNo !== undefined ? { fabricLotNo: input.fabricLotNo?.trim() || null } : {}),
   } as Record<string, unknown>;
 
   await db.$transaction(async (tx) => {
@@ -3524,6 +3767,45 @@ export async function updateCuttingLayer(input: {
         data: { cutQty: { increment: newTotal - oldTotal }, updatedById: user.userId } as any,
       });
     }
+
+    // ── Change 37: per-colour fabric, and the ledger drive that follows from it ──
+    if (colourRows !== undefined) {
+      await tx.cuttingLayerColour.deleteMany({ where: { layerId: layer.id } });
+      for (const r of colourRows) {
+        await tx.cuttingLayerColour.create({
+          data: { layerId: layer.id, colour: r.colour, fabricIssued: r.issued, fabricUsed: r.used },
+        });
+      }
+
+      const fabricId = layer.jobCard.product?.fabricId ?? null;
+      if (fabricId && hasRows) {
+        // The target is the CARD's total entered USED for the colour — Σ across every
+        // layer that carries rows — not this layer's figure alone. The ledger has no
+        // layer dimension (StockMovement is keyed fabric+jobCard+colour), so a per-layer
+        // target would have each layer fighting the others for the same net.
+        const sibling = await tx.cuttingLayerColour.findMany({
+          where: { layer: { jobCardId: layer.jobCardId } },
+          select: { colour: true, fabricUsed: true },
+        });
+        const target = new Map<string, number>();
+        for (const s of sibling) {
+          if (s.fabricUsed == null) continue;
+          const k = colorKey(s.colour);
+          target.set(k, (target.get(k) ?? 0) + s.fabricUsed);
+        }
+        for (const [colour, used] of target) {
+          await tx.jobFabricLine.updateMany({
+            where: { jobCardId: layer.jobCardId, fabricId, color: colour },
+            data: { qtyUsed: used },
+          });
+          await reconcileJobFabricColour(tx, {
+            fabricId, jobCardId: layer.jobCardId, siNo: layer.jobCard.siNo,
+            colour, used, reason: `Layer ${layer.layerNo}`,
+          });
+        }
+      }
+    }
+
     const changes = computeChanges(layer as unknown as Record<string, unknown>, patch);
     await logAudit(tx, user, {
       action: "updateCuttingLayer",
@@ -3562,6 +3844,7 @@ export async function removeCuttingLayer(input: { id: number }) {
     where: { id: input.id },
     include: {
       cells: true,
+      colours: true,
       dispatches: { where: { voidedAt: null }, select: { id: true, dispatchNo: true } },
       jobCard: { select: { id: true, siNo: true, estAvg: true, product: { select: { fabricId: true } } } },
     },
@@ -3577,8 +3860,14 @@ export async function removeCuttingLayer(input: { id: number }) {
   const layerTotal = layer.cells.reduce((a, c) => a + c.qty, 0);
   const now = new Date();
 
+  // Change 37: a lay that carries per-colour rows is reversed by re-netting the card to
+  // what remains, not by posting an inverse of a recomputed estimate. The recomputed
+  // route was always slightly lossy (createJobCard rounds once at the end, the layer
+  // paths round per colour), and with entered figures there is no need to guess at all.
+  const perColour = layerColourUsed(layer) != null;
+
   await db.$transaction(async (tx) => {
-    if (fabricId) {
+    if (fabricId && !perColour) {
       for (const [colour, qty] of issued) {
         // put the lay's fabric back — the inverse of the OUT that issued it
         await postMaterialMovement(tx, {
@@ -3608,7 +3897,34 @@ export async function removeCuttingLayer(input: { id: number }) {
       }
     }
     await tx.cuttingLayerCell.deleteMany({ where: { layerId: layer.id } });
-    await tx.cuttingLayer.delete({ where: { id: layer.id } });
+    await tx.cuttingLayer.delete({ where: { id: layer.id } }); // colours cascade
+
+    if (fabricId && perColour) {
+      // Every colour this lay touched has to be re-driven, including any that drop to
+      // zero once it is gone — otherwise a removed layer leaves its metres deducted.
+      const remaining = await tx.cuttingLayerColour.findMany({
+        where: { layer: { jobCardId: layer.jobCard.id } },
+        select: { colour: true, fabricUsed: true },
+      });
+      const target = new Map<string, number>();
+      for (const c of layer.colours) target.set(colorKey(c.colour), 0);
+      for (const r of remaining) {
+        if (r.fabricUsed == null) continue;
+        const k = colorKey(r.colour);
+        target.set(k, (target.get(k) ?? 0) + r.fabricUsed);
+      }
+      for (const [colour, used] of target) {
+        const cut = layer.cells.filter((c) => colorKey(c.colour) === colour).reduce((a, c) => a + c.qty, 0);
+        await tx.jobFabricLine.updateMany({
+          where: { jobCardId: layer.jobCard.id, fabricId, color: colour },
+          data: { qtyUsed: used, cutQty: { decrement: cut } },
+        });
+        await reconcileJobFabricColour(tx, {
+          fabricId, jobCardId: layer.jobCard.id, siNo: layer.jobCard.siNo,
+          colour, used, reason: `Reverse layer ${layer.layerNo}`,
+        });
+      }
+    }
     if (layerTotal > 0) {
       await tx.jobCard.update({
         where: { id: layer.jobCard.id },
@@ -3967,4 +4283,985 @@ export async function deleteFinishingJob(input: { id: number }) {
   await db.finishingJob.delete({ where: { id: jw.id } });
   revalidateFinishing(jw.jobCardId, jw.vendor.name);
   return { ok: true, docNo: jw.docNo };
+}
+
+// ── Change 36 Part 0 — master lifecycle: delete, where-used, deactivate ──
+//
+// Transactional documents have had guarded deletes since Change 20 (deleteJobCard,
+// deleteFabricOrder, deleteTrimOrder, deleteFinishingJob). The MASTERS never did, and
+// a blind delete on one is worse than on a document: almost every FK pointing at a
+// master is OPTIONAL, and Prisma defaults an optional relation to SetNull — so the
+// delete SUCCEEDS and quietly blanks the supplier off historical POs and challans.
+// Required FKs throw P2003 instead. So neither a try/catch nor a raw delete is safe:
+// every blocker is counted explicitly by getMasterRefs (src/lib/master-refs.ts) and we
+// refuse before touching the row, offering deactivate as the fallback.
+//
+// These are requireRole("ADMIN") alone, not ("ADMIN","STAFF"): a master affects every
+// future entry, not one transaction. Same reasoning as user administration above.
+
+/** Shared body for all eight master deletes — guard, delete, audit, revalidate. */
+async function deleteMaster(
+  kind: MasterKind,
+  id: number,
+  opts: {
+    what: string;
+    entity: string;
+    action: string;
+    del: (tx: Tx, id: number) => Promise<unknown>;
+    paths: string[];
+  }
+) {
+  const user = await requireRole("ADMIN");
+  const refs = await getMasterRefs(kind, id);
+  if (refs.total > 0) throw new Error(refsMessage(opts.what, refs));
+
+  await db.$transaction(async (tx) => {
+    await opts.del(tx, id);
+    // The row is gone but the log keeps the name — AuditLog holds no FK to it.
+    await logAudit(tx, user, {
+      action: opts.action,
+      entity: opts.entity,
+      entityId: id,
+      entityLabel: refs.name,
+      summary: `Deleted ${opts.what.toLowerCase()} ${refs.name}`,
+      meta: { before_snapshot: { name: refs.name } },
+    });
+  });
+  for (const p of opts.paths) revalidatePath(p);
+  return { ok: true, name: refs.name };
+}
+
+export async function deleteSupplier(input: { id: number }) {
+  // Contact cascades — a supplier's own people go with it.
+  return deleteMaster("supplier", input.id, {
+    what: "Supplier", entity: "Supplier", action: "deleteSupplier",
+    del: (tx, id) => tx.supplier.delete({ where: { id } }),
+    paths: ["/suppliers", "/masters"],
+  });
+}
+
+export async function deleteVendor(input: { id: number }) {
+  return deleteMaster("vendor", input.id, {
+    what: "Vendor", entity: "Vendor", action: "deleteVendor",
+    del: (tx, id) => tx.vendor.delete({ where: { id } }),
+    paths: ["/vendors", "/masters"],
+  });
+}
+
+export async function deleteProduct(input: { id: number }) {
+  // ProductColor and ImageAsset cascade — the product's own data.
+  return deleteMaster("product", input.id, {
+    what: "Product", entity: "Product", action: "deleteProduct",
+    del: (tx, id) => tx.product.delete({ where: { id } }),
+    paths: ["/catalog", "/masters"],
+  });
+}
+
+export async function deleteFabric(input: { id: number }) {
+  return deleteMaster("fabric", input.id, {
+    what: "Fabric", entity: "Fabric", action: "deleteFabric",
+    del: (tx, id) => tx.fabric.delete({ where: { id } }),
+    paths: ["/inventory", "/masters"],
+  });
+}
+
+export async function deleteTrim(input: { id: number }) {
+  return deleteMaster("trim", input.id, {
+    what: "Trim", entity: "TrimItem", action: "deleteTrim",
+    del: (tx, id) => tx.trimItem.delete({ where: { id } }),
+    paths: ["/trims", "/masters"],
+  });
+}
+
+export async function deleteBuyer(input: { id: number }) {
+  // Contact and BuyerDeliveryAddress cascade — the firm's own data.
+  return deleteMaster("buyer", input.id, {
+    what: "Firm", entity: "Buyer", action: "deleteBuyer",
+    del: (tx, id) => tx.buyer.delete({ where: { id } }),
+    paths: ["/buyers", "/masters"],
+  });
+}
+
+export async function deleteColour(input: { id: number }) {
+  return deleteMaster("colour", input.id, {
+    what: "Colour", entity: "Colour", action: "deleteColour",
+    del: (tx, id) => tx.colour.delete({ where: { id } }),
+    paths: ["/masters"],
+  });
+}
+
+export async function deleteCuttingMaster(input: { id: number }) {
+  return deleteMaster("cuttingMaster", input.id, {
+    what: "Cutting master", entity: "CuttingMaster", action: "deleteCuttingMaster",
+    del: (tx, id) => tx.cuttingMaster.delete({ where: { id } }),
+    paths: ["/vendors", "/masters"],
+  });
+}
+
+/**
+ * The panel's read side. A server action rather than a selector because the master
+ * managers are client components: they call this on Delete, and only when it comes
+ * back with total > 0 do they open the where-used panel. Attempting the delete and
+ * parsing the thrown string would not work — a thrown Error cannot carry the groups.
+ */
+export async function checkMasterRefs(input: { kind: MasterKind; id: number }) {
+  await requireRole("ADMIN");
+  return getMasterRefs(input.kind, input.id);
+}
+
+/** Deactivate fallback for the masters whose retire flag is a boolean. */
+export async function deactivateFabric(input: { id: number; active?: boolean }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const next = input.active ?? false;
+  await db.$transaction(async (tx) => {
+    const f = await tx.fabric.update({ where: { id: input.id }, data: { active: next }, select: { name: true } });
+    await logAudit(tx, user, {
+      action: "deactivateFabric", entity: "Fabric", entityId: input.id, entityLabel: f.name,
+      summary: `${next ? "Reactivated" : "Deactivated"} fabric ${f.name}`,
+      changes: { active: { old: !next, new: next } },
+    });
+  });
+  revalidatePath("/inventory");
+  revalidatePath("/masters");
+  return { ok: true };
+}
+
+// ── Change 36 Part 1 — the operational money layer ──
+//
+// ★ Money is DERIVED from documents, never hand-typed. The bills are computed live in
+// getPartyStatement (src/lib/party-ledger.ts) from dispatched pieces and locked inward
+// challans; the only figures entered by a human are the ones below — what was actually
+// paid. Nothing here is ever deleted or edited: a mistake is corrected by posting its
+// inverse, so the trail survives.
+//
+// ADMIN only. These are not "reachable by direct POST no matter what the sidebar
+// renders" hypotheticals — a payment is the most sensitive write in the app.
+
+async function postLedgerEntry(
+  input: {
+    vendorId?: number | null;
+    supplierId?: number | null;
+    amount: number;
+    note?: string | null;
+    at?: string | null;
+    jobCardId?: number | null;
+    challanId?: number | null;
+  },
+  kind: "PAYMENT" | "ADVANCE" | "ADJUSTMENT",
+  direction: "DEBIT" | "CREDIT",
+  action: string
+) {
+  const user = await requireRole("ADMIN");
+  const amount = Math.round((input.amount ?? 0) * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter an amount greater than zero");
+  const vendorId = input.vendorId ?? null;
+  const supplierId = input.supplierId ?? null;
+  if ((vendorId == null) === (supplierId == null))
+    throw new Error("A ledger entry belongs to exactly one vendor or one supplier");
+
+  const party = vendorId
+    ? await db.vendor.findUnique({ where: { id: vendorId }, select: { name: true, jobRate: true } })
+    : await db.supplier.findUnique({ where: { id: supplierId! }, select: { name: true } });
+  if (!party) throw new Error("Party not found");
+
+  await db.$transaction(async (tx) => {
+    await tx.partyLedgerEntry.create({
+      data: {
+        kind, direction, amount,
+        note: input.note?.trim() || null,
+        at: input.at ? new Date(input.at) : new Date(),
+        vendorId, supplierId,
+        jobCardId: input.jobCardId ?? null,
+        challanId: input.challanId ?? null,
+        // Snapshot the rate in force so a later rate change cannot restate this.
+        rateAtPosting: (party as { jobRate?: number | null }).jobRate ?? null,
+        createdById: user.userId,
+      },
+    });
+    await logAudit(tx, user, {
+      action,
+      entity: "PartyLedgerEntry",
+      entityId: vendorId ?? supplierId!,
+      entityLabel: party.name,
+      summary: `${kind === "ADJUSTMENT" ? "Adjustment" : kind === "ADVANCE" ? "Advance" : "Payment"} ${num(amount)} ${direction === "CREDIT" ? "to" : "from"} ${party.name}`,
+      meta: { kind, direction, amount, note: input.note ?? null },
+    });
+  });
+
+  if (vendorId) revalidatePath("/vendors");
+  else revalidatePath("/suppliers");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function recordPayment(input: Parameters<typeof postLedgerEntry>[0]) {
+  return postLedgerEntry(input, "PAYMENT", "CREDIT", "recordPayment");
+}
+
+export async function recordAdvance(input: Parameters<typeof postLedgerEntry>[0]) {
+  return postLedgerEntry(input, "ADVANCE", "CREDIT", "recordAdvance");
+}
+
+export async function recordAdjustment(input: Parameters<typeof postLedgerEntry>[0] & { reason: string }) {
+  if (!input.reason?.trim()) throw new Error("An adjustment needs a reason");
+  return postLedgerEntry(
+    { ...input, note: `${input.reason.trim()}${input.note ? ` — ${input.note}` : ""}` },
+    "ADJUSTMENT",
+    "CREDIT",
+    "recordAdjustment"
+  );
+}
+
+/**
+ * Reverse an entry by posting its inverse. The original row is never touched — that is
+ * the whole point of an append-only ledger, and it is why there is no deletePayment.
+ */
+export async function reversePartyLedgerEntry(input: { id: number; reason?: string | null }) {
+  const user = await requireRole("ADMIN");
+  const e = await db.partyLedgerEntry.findUnique({ where: { id: input.id } });
+  if (!e) throw new Error("Ledger entry not found");
+
+  await db.$transaction(async (tx) => {
+    await tx.partyLedgerEntry.create({
+      data: {
+        kind: "ADJUSTMENT",
+        direction: e.direction === "CREDIT" ? "DEBIT" : "CREDIT",
+        amount: e.amount,
+        note: `Reversal of #${e.id}${input.reason ? ` — ${input.reason}` : ""}`,
+        vendorId: e.vendorId, supplierId: e.supplierId,
+        jobCardId: e.jobCardId, challanId: e.challanId,
+        createdById: user.userId,
+      },
+    });
+    await logAudit(tx, user, {
+      action: "reversePartyLedgerEntry",
+      entity: "PartyLedgerEntry",
+      entityId: e.id,
+      summary: `Reversed ${e.kind} of ${num(e.amount)} by inverse posting`,
+      meta: { reason: input.reason ?? null },
+    });
+  });
+  revalidatePath("/vendors");
+  revalidatePath("/suppliers");
+  return { ok: true };
+}
+
+/** The vendor's default job-work rate. Null clears it — no rate means nothing is billed. */
+export async function setVendorJobRate(input: { id: number; jobRate?: number | null; jobRateType?: string | null }) {
+  const user = await requireRole("ADMIN");
+  const before = await db.vendor.findUnique({ where: { id: input.id }, select: { name: true, jobRate: true, jobRateType: true } });
+  if (!before) throw new Error("Vendor not found");
+  const patch = {
+    ...(input.jobRate !== undefined ? { jobRate: input.jobRate } : {}),
+    ...(input.jobRateType !== undefined ? { jobRateType: (input.jobRateType || null) as never } : {}),
+  };
+  await db.$transaction(async (tx) => {
+    await tx.vendor.update({ where: { id: input.id }, data: patch });
+    await logAudit(tx, user, {
+      action: "setVendorJobRate", entity: "Vendor", entityId: input.id, entityLabel: before.name,
+      summary: `Set job rate for ${before.name}`,
+      changes: computeChanges(before as unknown as Record<string, unknown>, patch as Record<string, unknown>),
+    });
+  });
+  revalidatePath("/vendors");
+  return { ok: true };
+}
+
+/** This lay's own rate, overriding the vendor default. See CuttingLayer.vendorRate. */
+export async function setLayerVendorRate(input: { layerId: number; vendorRate?: number | null }) {
+  const user = await requireRole("ADMIN");
+  const layer = await db.cuttingLayer.findUnique({
+    where: { id: input.layerId },
+    select: { layerNo: true, vendorRate: true, jobCardId: true, jobCard: { select: { siNo: true } } },
+  });
+  if (!layer) throw new Error("Cutting layer not found");
+  await db.$transaction(async (tx) => {
+    await tx.cuttingLayer.update({ where: { id: input.layerId }, data: { vendorRate: input.vendorRate ?? null } });
+    await logAudit(tx, user, {
+      action: "setLayerVendorRate", entity: "CuttingLayer", entityId: input.layerId,
+      entityLabel: `${layer.jobCard.siNo} · layer ${layer.layerNo}`,
+      summary: `Set layer ${layer.layerNo} rate on ${layer.jobCard.siNo}`,
+      changes: { vendorRate: { old: layer.vendorRate, new: input.vendorRate ?? null } },
+    });
+  });
+  revalidatePath(`/job-cards/${layer.jobCardId}`);
+  return { ok: true };
+}
+
+// ── Change 36 Part 2 — the in-app inbox ──
+
+/** Mark this user's unread notifications read. Deliberately not a delete: the log stays. */
+export async function markNotificationsRead(input?: { ids?: string[] }) {
+  const user = await requireRole("ADMIN", "STAFF", "VENDOR", "TRIMS");
+  await db.notification.updateMany({
+    where: {
+      userId: user.userId,
+      status: { not: "READ" },
+      ...(input?.ids?.length ? { id: { in: input.ids } } : {}),
+    },
+    data: { status: "READ" },
+  });
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/** Per-event, per-channel opt-out. An absent row means the template is on. */
+export async function setNotificationPref(input: { template: string; channel: string; enabled: boolean }) {
+  const user = await requireRole("ADMIN", "STAFF", "VENDOR", "TRIMS");
+  await db.notificationPref.upsert({
+    where: { userId_template_channel: { userId: user.userId, template: input.template, channel: input.channel } },
+    create: { userId: user.userId, template: input.template, channel: input.channel, enabled: input.enabled },
+    update: { enabled: input.enabled },
+  });
+  revalidatePath("/settings/notifications");
+  return { ok: true };
+}
+
+/** Owner contact details — without these the digest has nowhere to go. */
+export async function setMyContact(input: { phone?: string | null; email?: string | null }) {
+  const user = await requireRole("ADMIN", "STAFF", "VENDOR", "TRIMS");
+  await db.user.update({
+    where: { id: user.userId },
+    data: {
+      ...(input.phone !== undefined ? { phone: input.phone?.trim() || null } : {}),
+      ...(input.email !== undefined ? { email: input.email?.trim() || null } : {}),
+    },
+  });
+  revalidatePath("/settings/notifications");
+  return { ok: true };
+}
+
+// ── Change 36 Part 3 — quality inspection & rework ──
+//
+// ★ The gate NEVER hard-blocks the floor. It records and warns; dispatching
+// un-inspected or failed pieces is allowed, shows a confirm, and is logged. A factory
+// that cannot ship because the software disagrees stops using the software.
+//
+// Two hard rules:
+//  - Rework NEVER calls postMaterialMovement and never touches dispatchedQty. Pieces
+//    going back to a vendor for repair have not left the factory's ownership, and
+//    finished-goods stock lives in the ERP.
+//  - Inspections are VOIDED, never deleted: the count may already have been read.
+
+export async function createInspection(input: {
+  jobCardId: number;
+  layerId?: number | null;
+  sampleSize?: number | null;
+  checkedQty: number;
+  passQty: number;
+  rejectQty: number;
+  reworkQty?: number | null;
+  note?: string | null;
+  defects?: { defectTypeId: number; qty: number }[];
+  // Change 36 Part 10: replay key for an inspection recorded offline.
+  idemKey?: string | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.findUnique({ where: { id: input.jobCardId }, select: { id: true, siNo: true } });
+  if (!job) throw new Error("Job card not found");
+
+  const checked = Math.max(0, input.checkedQty ?? 0);
+  const pass = Math.max(0, input.passQty ?? 0);
+  const reject = Math.max(0, input.rejectQty ?? 0);
+  const rework = Math.max(0, input.reworkQty ?? 0);
+  if (checked <= 0) throw new Error("Enter how many pieces were checked");
+  if (pass + reject + rework > checked + 0.001)
+    throw new Error(`Pass + reject + rework (${num(pass + reject + rework)}) is more than the ${num(checked)} checked`);
+
+  const result = reject === 0 && rework === 0 ? "PASS" : pass === 0 ? "FAIL" : "PARTIAL";
+
+  const created = await db.$transaction(async (tx) =>
+    withIdempotency(tx, user, input.idemKey, "createInspection", async () => {
+    const row = await tx.inspection.create({
+      data: {
+        jobCardId: job.id,
+        layerId: input.layerId ?? null,
+        inspectedById: user.userId,
+        sampleSize: input.sampleSize ?? null,
+        checkedQty: checked, passQty: pass, rejectQty: reject, reworkQty: rework,
+        result: result as never,
+        note: input.note?.trim() || null,
+        ...(input.defects?.length
+          ? { defects: { create: input.defects.filter((d) => d.qty > 0).map((d) => ({ defectTypeId: d.defectTypeId, qty: d.qty })) } }
+          : {}),
+      },
+    });
+    await logAudit(tx, user, {
+      action: "createInspection", entity: "Inspection", entityId: row.id,
+      entityLabel: job.siNo,
+      summary: `Inspected ${num(checked)} pcs on ${job.siNo} — ${result.toLowerCase()} (${num(reject)} reject, ${num(rework)} rework)`,
+    });
+    return row;
+    })
+  );
+
+  revalidatePath(`/job-cards/${job.id}`);
+  revalidatePath("/reports");
+  return { ok: true, id: created.result.id, result };
+}
+
+export async function voidInspection(input: { id: number; reason?: string | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const insp = await db.inspection.findUnique({
+    where: { id: input.id },
+    select: { id: true, voidedAt: true, jobCardId: true, jobCard: { select: { siNo: true } } },
+  });
+  if (!insp) throw new Error("Inspection not found");
+  if (insp.voidedAt) throw new Error("This inspection is already void");
+
+  await db.$transaction(async (tx) => {
+    await tx.inspection.update({ where: { id: insp.id }, data: { voidedAt: new Date() } });
+    await logAudit(tx, user, {
+      action: "voidInspection", entity: "Inspection", entityId: insp.id,
+      entityLabel: insp.jobCard.siNo,
+      summary: `Voided inspection on ${insp.jobCard.siNo}${input.reason ? ` — ${input.reason}` : ""}`,
+    });
+  });
+  revalidatePath(`/job-cards/${insp.jobCardId}`);
+  revalidatePath("/reports");
+  return { ok: true };
+}
+
+/**
+ * Send rejected pieces back for repair. A tracking movement only — see the header.
+ * Gets its own RW- series: JW- is a vendor BILLING document and reusing it would put
+ * unbilled rework into the finishing job-work ledger.
+ */
+export async function sendToRework(input: {
+  jobCardId: number;
+  layerId?: number | null;
+  qty: number;
+  vendorName?: string | null;
+  note?: string | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.findUnique({ where: { id: input.jobCardId }, select: { id: true, siNo: true } });
+  if (!job) throw new Error("Job card not found");
+  const qty = Math.max(0, input.qty ?? 0);
+  if (qty <= 0) throw new Error("Enter how many pieces are going for rework");
+
+  const rw = await db.$transaction(async (tx) => {
+    const vendorId = input.vendorName ? await resolveVendorId(tx, input.vendorName) : null;
+
+    // Allocate inside the transaction, like JW-/DC-/CH-: two concurrent creates would
+    // otherwise collide on the @unique docNo.
+    const year = new Date().getFullYear();
+    const prefix = `RW-${year}-`;
+    const existing = await tx.rework.findMany({ where: { docNo: { startsWith: prefix } }, select: { docNo: true } });
+    const maxN = existing.reduce((m, e) => Math.max(m, parseInt((e.docNo ?? "").slice(prefix.length), 10) || 0), 0);
+    const docNo = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+
+    const row = await tx.rework.create({
+      data: {
+        docNo, jobCardId: job.id, layerId: input.layerId ?? null,
+        vendorId, qty, status: "OPEN", note: input.note?.trim() || null,
+      },
+    });
+    await logAudit(tx, user, {
+      action: "sendToRework", entity: "Rework", entityId: row.id, entityLabel: docNo,
+      summary: `Sent ${num(qty)} pcs from ${job.siNo} for rework${input.vendorName ? ` to ${input.vendorName}` : ""}`,
+    });
+    return row;
+  });
+
+  revalidatePath(`/job-cards/${job.id}`);
+  return { ok: true, docNo: rw.docNo };
+}
+
+export async function receiveRework(input: { id: number; qtyBack: number }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const rw = await db.rework.findUnique({
+    where: { id: input.id },
+    select: { id: true, docNo: true, qty: true, qtyBack: true, jobCardId: true, jobCard: { select: { siNo: true } } },
+  });
+  if (!rw) throw new Error("Rework not found");
+  const add = Math.max(0, input.qtyBack ?? 0);
+  if (add <= 0) throw new Error("Enter how many pieces came back");
+  const total = rw.qtyBack + add;
+  if (total > rw.qty + 0.001) throw new Error(`Only ${num(rw.qty - rw.qtyBack)} pcs are still out on ${rw.docNo}`);
+
+  await db.$transaction(async (tx) => {
+    await tx.rework.update({
+      where: { id: rw.id },
+      data: { qtyBack: total, status: total >= rw.qty - 0.001 ? "CLOSED" : "OPEN" },
+    });
+    await logAudit(tx, user, {
+      action: "receiveRework", entity: "Rework", entityId: rw.id, entityLabel: rw.docNo ?? String(rw.id),
+      summary: `${num(add)} pcs back from rework on ${rw.jobCard.siNo}${total >= rw.qty - 0.001 ? " · closed" : ""}`,
+    });
+  });
+  revalidatePath(`/job-cards/${rw.jobCardId}`);
+  return { ok: true };
+}
+
+/** Owner-managed defect list, mirroring the other simple masters. */
+export async function upsertDefectType(input: { id?: number; name: string; category?: string; active?: boolean }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const name = input.name.trim();
+  if (!name) throw new Error("A defect needs a name");
+  await db.$transaction(async (tx) => {
+    const row = input.id
+      ? await tx.defectType.update({
+          where: { id: input.id },
+          data: {
+            name,
+            ...(input.category ? { category: input.category as never } : {}),
+            ...(input.active !== undefined ? { active: input.active } : {}),
+          },
+        })
+      : await tx.defectType.create({ data: { name, category: (input.category ?? "OTHER") as never } });
+    await logAudit(tx, user, {
+      action: input.id ? "updateDefectType" : "createDefectType",
+      entity: "DefectType", entityId: row.id, entityLabel: name,
+      summary: `${input.id ? "Updated" : "Added"} defect ${name}`,
+    });
+  });
+  revalidatePath("/masters");
+  return { ok: true };
+}
+
+/**
+ * Change 36 Part 6 Part C — draft a purchase order for a shortfall.
+ *
+ * Pre-fills, never places: the order lands in PLANNING with no PO number, so the owner
+ * still confirms and generates it. "No automated ordering" is the rule.
+ */
+export async function draftReorderPO(input: {
+  kind: "FABRIC" | "TRIM";
+  /** FabricColor.id for fabric, TrimItem.id for trim — matching getLowStockAlerts. */
+  id: number;
+  qty: number;
+  supplierId?: number | null;
+  rate?: number | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const qty = Math.max(0, input.qty ?? 0);
+  if (qty <= 0) throw new Error("Nothing to order — the shortfall is zero");
+
+  if (input.kind === "TRIM") {
+    const trim = await db.trimItem.findUnique({ where: { id: input.id }, select: { id: true, name: true, supplierId: true, ratePerUnit: true } });
+    if (!trim) throw new Error("Trim not found");
+    const order = await db.$transaction(async (tx) => {
+      const row = await tx.trimOrder.create({
+        data: {
+          trimItemId: trim.id,
+          supplierId: input.supplierId ?? trim.supplierId ?? null,
+          qty,
+          rate: input.rate ?? trim.ratePerUnit ?? null,
+          status: "PLANNING",
+          orderDate: new Date(),
+        },
+      });
+      await logAudit(tx, user, {
+        action: "draftReorderPO", entity: "TrimOrder", entityId: row.id, entityLabel: trim.name,
+        summary: `Drafted a trim order for ${num(qty)} of ${trim.name} from a reorder alert`,
+      });
+      return row;
+    });
+    revalidatePath("/trim-orders");
+    return { ok: true, kind: "TRIM" as const, id: order.id };
+  }
+
+  const colour = await db.fabricColor.findUnique({
+    where: { id: input.id },
+    select: { id: true, color: true, fabricId: true, fabric: { select: { name: true, unit: true, ratePerUnit: true } } },
+  });
+  if (!colour) throw new Error("Fabric colour not found");
+
+  const order = await db.$transaction(async (tx) => {
+    const row = await tx.fabricOrder.create({
+      data: {
+        fabricId: colour.fabricId,
+        supplierId: input.supplierId ?? null,
+        qty,
+        rate: input.rate ?? colour.fabric.ratePerUnit ?? null,
+        unit: colour.fabric.unit,
+        status: "PLANNING",
+        orderDate: new Date(),
+        lines: { create: [{ colour: colorKey(colour.color), qty }] },
+      },
+    });
+    await logAudit(tx, user, {
+      action: "draftReorderPO", entity: "FabricOrder", entityId: row.id, entityLabel: colour.fabric.name,
+      summary: `Drafted a fabric order for ${num(qty)} ${colour.fabric.unit} of ${colour.fabric.name} · ${colour.color} from a reorder alert`,
+    });
+    return row;
+  });
+  revalidatePath("/fabric-orders");
+  return { ok: true, kind: "FABRIC" as const, id: order.id };
+}
+
+/**
+ * Change 36 Part 4 — the one entered number in capacity planning.
+ * Null clears it, which suppresses the projection rather than implying zero throughput.
+ */
+export async function setVendorCapacity(input: { id: number; dailyCapacityPcs?: number | null; capacityNote?: string | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const before = await db.vendor.findUnique({
+    where: { id: input.id },
+    select: { name: true, dailyCapacityPcs: true, capacityNote: true },
+  });
+  if (!before) throw new Error("Vendor not found");
+  const patch = {
+    ...(input.dailyCapacityPcs !== undefined ? { dailyCapacityPcs: input.dailyCapacityPcs } : {}),
+    ...(input.capacityNote !== undefined ? { capacityNote: input.capacityNote?.trim() || null } : {}),
+  };
+  await db.$transaction(async (tx) => {
+    await tx.vendor.update({ where: { id: input.id }, data: patch });
+    await logAudit(tx, user, {
+      action: "setVendorCapacity", entity: "Vendor", entityId: input.id, entityLabel: before.name,
+      summary: `Set capacity for ${before.name}`,
+      changes: computeChanges(before as unknown as Record<string, unknown>, patch as Record<string, unknown>),
+    });
+  });
+  revalidatePath("/planning");
+  revalidatePath("/vendors");
+  return { ok: true };
+}
+
+/** Change 36 Part 5 — the per-card override of the fabric standard. */
+export async function setJobStdFabric(input: { jobCardId: number; stdFabricPerPc?: number | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const job = await db.jobCard.findUnique({ where: { id: input.jobCardId }, select: { siNo: true, stdFabricPerPc: true } });
+  if (!job) throw new Error("Job card not found");
+  await db.$transaction(async (tx) => {
+    await tx.jobCard.update({ where: { id: input.jobCardId }, data: { stdFabricPerPc: input.stdFabricPerPc ?? null } });
+    await logAudit(tx, user, {
+      action: "setJobStdFabric", entity: "JobCard", entityId: input.jobCardId, entityLabel: job.siNo,
+      summary: `Set the fabric standard on ${job.siNo}`,
+      changes: { stdFabricPerPc: { old: job.stdFabricPerPc, new: input.stdFabricPerPc ?? null } },
+    });
+  });
+  revalidatePath(`/job-cards/${input.jobCardId}`);
+  return { ok: true };
+}
+
+// ── Change 36 Part 7 — sampling & development ──
+//
+// ★ The sample is a first-class document that GRADUATES into a job card. Everything else
+// in ssfact starts after a style is approved; the money-losing decisions happen before.
+//
+// ⚠️ "Start bulk" PRE-FILLS a job card, it does not create one. createJobCard is not
+// inert: it snapshots the BOM into JobBomLine, sets trimsPending and drives fabric maths.
+// A speculative card would be real inventory pressure and a real SI- number. See
+// startBulkHref below.
+
+export async function createSample(input: {
+  name: string;
+  productId?: number | null;
+  vendorName?: string | null;
+  notes?: string | null;
+  targetMrp?: number | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const name = input.name?.trim();
+  if (!name) throw new Error("A sample needs a name");
+
+  const sample = await db.$transaction(async (tx) => {
+    const vendorId = input.vendorName ? await resolveVendorId(tx, input.vendorName) : null;
+
+    // Allocate inside the transaction, like JW-/DC-/CH-/RW-.
+    const year = new Date().getFullYear();
+    const prefix = `SMP-${year}-`;
+    const existing = await tx.sample.findMany({ where: { code: { startsWith: prefix } }, select: { code: true } });
+    const maxN = existing.reduce((m, e) => Math.max(m, parseInt(e.code.slice(prefix.length), 10) || 0), 0);
+    const code = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+
+    const row = await tx.sample.create({
+      data: {
+        code, name,
+        productId: input.productId ?? null,
+        vendorId,
+        requestedById: user.userId,
+        notes: input.notes?.trim() || null,
+        targetMrp: input.targetMrp ?? null,
+      },
+    });
+    await logAudit(tx, user, {
+      action: "createSample", entity: "Sample", entityId: row.id, entityLabel: code,
+      summary: `Opened sample ${code} — ${name}`,
+    });
+    return row;
+  });
+
+  revalidatePath("/samples");
+  return { ok: true, id: sample.id, code: sample.code };
+}
+
+export async function updateSample(input: {
+  id: number;
+  name?: string;
+  vendorName?: string | null;
+  notes?: string | null;
+  targetMrp?: number | null;
+  round?: number | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const before = await db.sample.findUnique({ where: { id: input.id }, select: { code: true, name: true, notes: true, targetMrp: true, round: true } });
+  if (!before) throw new Error("Sample not found");
+
+  await db.$transaction(async (tx) => {
+    const vendorId = input.vendorName !== undefined ? await resolveVendorId(tx, input.vendorName) : undefined;
+    const patch = {
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.notes !== undefined ? { notes: input.notes?.trim() || null } : {}),
+      ...(input.targetMrp !== undefined ? { targetMrp: input.targetMrp } : {}),
+      ...(input.round !== undefined && input.round != null ? { round: input.round } : {}),
+      ...(vendorId !== undefined ? { vendorId } : {}),
+    };
+    await tx.sample.update({ where: { id: input.id }, data: patch });
+    await logAudit(tx, user, {
+      action: "updateSample", entity: "Sample", entityId: input.id, entityLabel: before.code,
+      summary: `Edited sample ${before.code}`,
+      changes: computeChanges(before as unknown as Record<string, unknown>, patch as Record<string, unknown>),
+    });
+  });
+  revalidatePath("/samples");
+  revalidatePath(`/samples/${input.id}`);
+  return { ok: true };
+}
+
+/**
+ * Move a sample along. Approval and rejection are reversible — a decision reverted is a
+ * normal thing on a development sample, and the remark records why either way.
+ */
+export async function setSampleStatus(input: { id: number; status: string; remark?: string | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const valid = ["REQUESTED", "IN_PROGRESS", "SUBMITTED", "APPROVED", "REJECTED"];
+  if (!valid.includes(input.status)) throw new Error("Unknown sample status");
+  const before = await db.sample.findUnique({ where: { id: input.id }, select: { code: true, status: true } });
+  if (!before) throw new Error("Sample not found");
+  if (input.status === "REJECTED" && !input.remark?.trim()) throw new Error("Say why it was rejected");
+
+  const decided = input.status === "APPROVED" || input.status === "REJECTED";
+  await db.$transaction(async (tx) => {
+    await tx.sample.update({
+      where: { id: input.id },
+      data: {
+        status: input.status as never,
+        decidedAt: decided ? new Date() : null,
+        ...(input.remark !== undefined ? { remark: input.remark?.trim() || null } : {}),
+      },
+    });
+    await logAudit(tx, user, {
+      action: "setSampleStatus", entity: "Sample", entityId: input.id, entityLabel: before.code,
+      summary: `${before.code} → ${input.status.toLowerCase().replace("_", " ")}${input.remark ? ` — ${input.remark}` : ""}`,
+      changes: { status: { old: before.status, new: input.status } },
+    });
+  });
+  revalidatePath("/samples");
+  revalidatePath(`/samples/${input.id}`);
+  return { ok: true };
+}
+
+/** Start the next round: bump the counter and reopen the sample. */
+export async function nextSampleRound(input: { id: number }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const s = await db.sample.findUnique({ where: { id: input.id }, select: { code: true, round: true } });
+  if (!s) throw new Error("Sample not found");
+  await db.$transaction(async (tx) => {
+    await tx.sample.update({
+      where: { id: input.id },
+      data: { round: s.round + 1, status: "IN_PROGRESS", decidedAt: null, remark: null },
+    });
+    await logAudit(tx, user, {
+      action: "nextSampleRound", entity: "Sample", entityId: input.id, entityLabel: s.code,
+      summary: `${s.code} — started round ${s.round + 1}`,
+    });
+  });
+  revalidatePath(`/samples/${input.id}`);
+  return { ok: true, round: s.round + 1 };
+}
+
+export async function upsertSampleCostLine(input: {
+  id?: number;
+  sampleId: number;
+  kind: string;
+  description: string;
+  qty: number;
+  rate: number;
+}) {
+  await requireRole("ADMIN");
+  const description = input.description?.trim();
+  if (!description) throw new Error("A cost line needs a description");
+  if (input.id) {
+    await db.sampleCostLine.update({
+      where: { id: input.id },
+      data: { kind: input.kind as never, description, qty: input.qty, rate: input.rate },
+    });
+  } else {
+    await db.sampleCostLine.create({
+      data: { sampleId: input.sampleId, kind: input.kind as never, description, qty: input.qty, rate: input.rate },
+    });
+  }
+  revalidatePath(`/samples/${input.sampleId}`);
+  return { ok: true };
+}
+
+export async function deleteSampleCostLine(input: { id: number; sampleId: number }) {
+  await requireRole("ADMIN");
+  await db.sampleCostLine.delete({ where: { id: input.id } });
+  revalidatePath(`/samples/${input.sampleId}`);
+  return { ok: true };
+}
+
+export async function upsertSampleMeasurement(input: {
+  id?: number;
+  sampleId: number;
+  pom: string;
+  size: string;
+  valueCm: number;
+  tolerance?: number | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const pom = input.pom?.trim();
+  const size = sizeKey(input.size);
+  if (!pom || !size) throw new Error("A measurement needs a point and a size");
+  if (input.id) {
+    await db.sampleMeasurement.update({
+      where: { id: input.id },
+      data: { pom, size, valueCm: input.valueCm, tolerance: input.tolerance ?? null },
+    });
+  } else {
+    await db.sampleMeasurement.create({
+      data: { sampleId: input.sampleId, pom, size, valueCm: input.valueCm, tolerance: input.tolerance ?? null },
+    });
+  }
+  revalidatePath(`/samples/${input.sampleId}`);
+  return { ok: true };
+}
+
+export async function deleteSampleMeasurement(input: { id: number; sampleId: number }) {
+  await requireRole("ADMIN", "STAFF");
+  await db.sampleMeasurement.delete({ where: { id: input.id } });
+  revalidatePath(`/samples/${input.sampleId}`);
+  return { ok: true };
+}
+
+export async function deleteSample(input: { id: number }) {
+  const user = await requireRole("ADMIN");
+  const s = await db.sample.findUnique({ where: { id: input.id }, select: { code: true, status: true } });
+  if (!s) throw new Error("Sample not found");
+  if (s.status === "APPROVED") throw new Error(`${s.code} is approved — reject or reopen it before deleting`);
+  await db.$transaction(async (tx) => {
+    await tx.sample.delete({ where: { id: input.id } }); // cost lines, measurements and images cascade
+    await logAudit(tx, user, {
+      action: "deleteSample", entity: "Sample", entityId: input.id, entityLabel: s.code,
+      summary: `Deleted sample ${s.code}`,
+    });
+  });
+  revalidatePath("/samples");
+  return { ok: true };
+}
+
+// ── Change 36 Part 10 — the writes the floor can make offline ──
+//
+// Only these queue. Everything else (money, void/edit, PO generation) stays online-only:
+// a queued write is replayed blind on reconnect, and that is only safe where replaying
+// is provably a no-op.
+
+/**
+ * One call that creates an inward challan, adds its lines and locks it.
+ *
+ * The existing chain — createChallan → addChallanLine × N → lockChallan — CANNOT be
+ * queued, because calls 2 and 3 need the id that call 1 returns and an offline client
+ * does not have it. Collapsing it into a single intent is what makes the receipt
+ * queueable at all.
+ */
+export async function recordInwardReceipt(input: {
+  /** Client-generated key. Replaying with the same key returns the first result. */
+  idemKey?: string | null;
+  supplierId?: number | null;
+  jobCardId?: number | null;
+  fabricOrderId?: number | null;
+  date?: string | null;
+  note?: string | null;
+  lines: {
+    fabricId?: number | null;
+    colour?: string | null;
+    trimItemId?: number | null;
+    qty: number;
+    unit?: string | null;
+    rate?: number | null;
+    lotNo?: string | null;
+    shadeRef?: string | null;
+  }[];
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const lines = input.lines.filter((l) => l.qty > 0 && (l.fabricId || l.trimItemId));
+  if (!lines.length) throw new Error("A receipt needs at least one line");
+
+  const out = await db.$transaction(async (tx) => {
+    return withIdempotency(tx, user, input.idemKey, "recordInwardReceipt", async () => {
+      const now = input.date ? new Date(input.date) : new Date();
+
+      // Same CH-IN- series idiom as lockChallan; allocated inside the transaction.
+      const year = now.getFullYear();
+      const prefix = `CH-IN-${year}-`;
+      const existing = await tx.materialChallan.findMany({
+        where: { challanNo: { startsWith: prefix } },
+        select: { challanNo: true },
+      });
+      const maxN = existing.reduce((m, e) => Math.max(m, parseInt((e.challanNo ?? "").slice(prefix.length), 10) || 0), 0);
+      const challanNo = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+
+      const challan = await tx.materialChallan.create({
+        data: {
+          direction: "INWARD",
+          status: "LOCKED",
+          challanNo,
+          date: now,
+          lockedAt: new Date(),
+          supplierId: input.supplierId ?? null,
+          jobCardId: input.jobCardId ?? null,
+          fabricOrderId: input.fabricOrderId ?? null,
+          note: input.note?.trim() || null,
+          lines: {
+            create: lines.map((l) => ({
+              fabricId: l.fabricId ?? null,
+              colour: l.fabricId && l.colour ? colorKey(l.colour) : null,
+              trimItemId: l.trimItemId ?? null,
+              qty: l.qty,
+              unit: l.unit ?? null,
+              rate: l.rate ?? null,
+              lotNo: l.lotNo?.trim() || null,
+              shadeRef: l.shadeRef?.trim() || null,
+            })),
+          },
+        },
+      });
+
+      for (const l of lines) {
+        // ⚠️ jobCardId is deliberately NOT stamped here, for the reason spelled out in
+        // lockChallan: Change 19 B reconciles a card's fabric ledger by netting movements
+        // keyed on (fabricId, jobCardId, colour), and folding challan traffic into that
+        // net would silently corrupt the true-up.
+        await postMaterialMovement(tx, {
+          direction: "IN",
+          qty: l.qty,
+          date: now,
+          fabricId: l.fabricId ?? null,
+          colour: l.fabricId ? l.colour ?? null : null,
+          trimItemId: l.trimItemId ?? null,
+          rate: l.rate ?? null,
+          note: `Challan ${challanNo}`,
+        });
+      }
+
+      await logAudit(tx, user, {
+        action: "recordInwardReceipt",
+        entity: "MaterialChallan",
+        entityId: challan.id,
+        entityLabel: challanNo,
+        summary: `Received ${challanNo} — ${lines.length} line${lines.length === 1 ? "" : "s"}`,
+      });
+
+      return { ok: true, id: challan.id, challanNo };
+    });
+  });
+
+  revalidatePath("/challans");
+  revalidatePath("/inventory");
+  revalidatePath("/trims");
+  return out.result;
 }

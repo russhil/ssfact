@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createColour, deactivateColour } from "@/lib/actions";
+import { createColour, deactivateColour, deleteColour } from "@/lib/actions";
+import { MasterDelete } from "@/components/master-delete";
 import { MasterListManager } from "@/components/masters/master-list-manager";
 import { CategoryTree } from "@/components/masters/category-tree";
 import { Card, Badge } from "@/components/ui";
@@ -71,11 +72,28 @@ function ColourManager({ colours }: { colours: Colour[] }) {
         <button onClick={() => name.trim() && run(async () => { await createColour({ name }); setName(""); })} disabled={busy || !name.trim()} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 t-body font-semibold text-accent-on disabled:opacity-40"><Plus size={14} /> Add</button>
       </div>
       <div className="flex flex-wrap gap-1.5">
+        {/* Change 36 Part 0: the chip no longer toggles active on click — a stray click
+            used to silently retire a colour. Clicking an inactive chip brings it back;
+            retiring now goes through Delete → (blocked) → Deactivate. */}
         {colours.map((c) => (
-          <button key={c.id} onClick={() => run(() => deactivateColour({ id: c.id, active: !c.active }))} disabled={busy} className={`inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 t-xs font-semibold ${c.active ? "" : "opacity-40"}`}>
+          <span key={c.id} className={`inline-flex items-center gap-1.5 rounded-full border border-border py-1 pl-2.5 pr-1 t-xs font-semibold ${c.active ? "" : "opacity-40"}`}>
             {c.hex && <span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ background: c.hex }} />}
-            {c.name}
-          </button>
+            {c.active ? (
+              c.name
+            ) : (
+              <button onClick={() => run(() => deactivateColour({ id: c.id, active: true }))} disabled={busy} title="Reactivate">
+                {c.name}
+              </button>
+            )}
+            <MasterDelete
+              kind="colour"
+              id={c.id}
+              label="Colour"
+              onDelete={() => deleteColour({ id: c.id })}
+              onDeactivate={c.active ? () => deactivateColour({ id: c.id, active: false }) : undefined}
+              disabled={busy}
+            />
+          </span>
         ))}
       </div>
     </div>

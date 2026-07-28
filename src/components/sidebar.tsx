@@ -24,6 +24,11 @@ import {
   Truck,
   Users,
   Sparkles,
+  CalendarClock,
+  FlaskConical,
+  Search,
+  ListChecks,
+  Activity,
 } from "lucide-react";
 import { logout } from "@/lib/auth-actions";
 import type { Role } from "@/lib/session";
@@ -51,16 +56,22 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/", label: "Dashboard", icon: LayoutDashboard, roles: ALL },
       { href: "/board", label: "Production Board", icon: LayoutGrid, roles: STAFF },
+      // Change 36 Part 4 — open work against each vendor's daily capacity.
+      { href: "/planning", label: "Planning", icon: CalendarClock, roles: STAFF },
     ],
   },
   {
     group: "Production",
     items: [
+      // Change 36 Part 9 — the floor lens. Everyone has one; it just differs by role.
+      { href: "/my-work", label: "My work", icon: ListChecks, roles: ALL },
       { href: "/job-cards", label: "Job Cards", icon: ClipboardList, roles: ["ADMIN", "STAFF", "VENDOR"], count: "jobs" },
       { href: "/production-orders", label: "Production", icon: PackageCheck, roles: ["ADMIN"] },
       // Change 20: finishing given out as job-work, between the machine and dispatch —
       // which is where it sits on the floor.
       { href: "/finishing", label: "Finishing", icon: Sparkles, roles: STAFF },
+      // Change 36 Part 7 — development before bulk.
+      { href: "/samples", label: "Samples", icon: FlaskConical, roles: STAFF },
       { href: "/dispatch", label: "Dispatch", icon: Truck, roles: STAFF },
     ],
   },
@@ -71,6 +82,8 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
       { href: "/fabric-orders", label: "Fabric Orders", icon: ShoppingCart, roles: STAFF },
       { href: "/trim-orders", label: "Trim Orders", icon: ShoppingCart, roles: STAFF },
       { href: "/challans", label: "Challans", icon: FileText, roles: STAFF },
+      // Change 36 Part 8 — roll to garment, and back.
+      { href: "/trace", label: "Trace", icon: Search, roles: STAFF },
       { href: "/trims", label: "Trims", icon: Scissors, roles: ["ADMIN", "STAFF", "TRIMS"] },
       {
         href: "/pending-trims",
@@ -98,6 +111,8 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
       { href: "/audit", label: "Audit", icon: History, roles: ["ADMIN"] },
       { href: "/reports", label: "Reports", icon: BarChart3, roles: ["ADMIN"] },
       { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] },
+      // Change 36 Part 10 — DB size, last backup, replay-key depth.
+      { href: "/status", label: "Status", icon: Activity, roles: ["ADMIN"] },
     ],
   },
 ];
@@ -115,10 +130,13 @@ export function Sidebar({
   role,
   displayName,
   counts = {},
+  bell,
 }: {
   role: Role;
   displayName: string;
   counts?: NavCounts;
+  /** Change 36 Part 2 — the inbox, rendered by the layout so this stays a pure shell. */
+  bell?: React.ReactNode;
 }) {
   const path = usePathname();
   const initial = (displayName.trim()[0] ?? "?").toUpperCase();
@@ -184,6 +202,7 @@ export function Sidebar({
         <div className="flex items-center gap-1">
           <ThemeToggle />
           <DensityToggle />
+          {bell}
           <form action={logout} className="ml-auto">
             <button
               type="submit"

@@ -32,6 +32,8 @@ export type LayerEditable = {
   fabricIssued: number | null;
   fabricBalance: number | null;
   avgConsumption: number | null;
+  /** Change 37 — this lay's per-colour fabric, when it has any. */
+  colours: { colour: string; fabricIssued: number | null; fabricUsed: number | null }[];
   total: number;
   /** live (non-voided) dispatches booked against this layer */
   dispatched: number;
@@ -62,8 +64,30 @@ export function LayerActions({
   const [balance, setBalance] = useState(layer.fabricBalance != null ? String(layer.fabricBalance) : "");
   const [avg, setAvg] = useState(layer.avgConsumption != null ? String(layer.avgConsumption) : "");
 
+  // Change 37 — edit fabric per colour. Editing these RE-DRIVES the ledger (netting, so
+  // it converges rather than stacking); a layer with no colour rows still posts nothing.
+  const [colF, setColF] = useState<Record<string, { issued: string; used: string }>>(() =>
+    Object.fromEntries(
+      layer.colours.map((c) => [c.colour, {
+        issued: c.fabricIssued != null ? String(c.fabricIssued) : "",
+        used: c.fabricUsed != null ? String(c.fabricUsed) : "",
+      }])
+    )
+  );
+  const cf = (c: string) => colF[c] ?? { issued: "", used: "" };
+  const setCf = (c: string, k: "issued" | "used", v: string) =>
+    setColF((p) => ({ ...p, [c]: { ...(p[c] ?? { issued: "", used: "" }), [k]: v } }));
+
   const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
-  const extra = numOrNull(issued) != null ? Math.round((Number(issued) - (Number(used) || 0)) * 100) / 100 : null;
+  const colourNames = layer.colours.map((c) => c.colour);
+  const hasColours = colourNames.length > 0;
+  const sumCf = (k: "issued" | "used") => {
+    const v = colourNames.map((c) => numOrNull(cf(c)[k])).filter((x): x is number => x != null);
+    return v.length ? Math.round(v.reduce((a, b) => a + b, 0) * 100) / 100 : null;
+  };
+  const effIssued = hasColours ? sumCf("issued") : numOrNull(issued);
+  const effUsed = hasColours ? sumCf("used") : numOrNull(used);
+  const extra = effIssued != null ? Math.round((effIssued - (effUsed ?? 0)) * 100) / 100 : null;
 
   async function save() {
     setBusy(true);
@@ -79,6 +103,9 @@ export function LayerActions({
         fabricIssued: numOrNull(issued),
         fabricBalance: numOrNull(balance),
         avgConsumption: numOrNull(avg),
+        fabricByColour: hasColours
+          ? colourNames.map((c) => ({ colour: c, issued: numOrNull(cf(c).issued), used: numOrNull(cf(c).used) }))
+          : undefined,
       });
       setOpen(false);
       router.refresh();
@@ -159,14 +186,58 @@ export function LayerActions({
         </Field>
         <datalist id="layer-masters">{masters.map((m) => <option key={m} value={m} />)}</datalist>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={`Fabric issued (${unit.toLowerCase()})`}>
-            <Input type="number" step="any" value={issued} onChange={(e) => setIssued(e.target.value)} placeholder="—" className="text-right tnum" />
-          </Field>
-          <Field label={`Fabric used (${unit.toLowerCase()})`}>
-            <Input type="number" step="any" value={used} onChange={(e) => setUsed(e.target.value)} placeholder="—" className="text-right tnum" />
-          </Field>
-        </div>
+        {/* Change 37 — a lay that carries per-colour rows is edited colour by colour, and
+            the layer figures become their Σ. Editing used here re-drives the ledger. */}
+        {hasColours ? (
+          <div className="rounded-lg border border-hairline">
+            <table className="w-full t-sm">
+              <thead>
+                <tr className="t-micro font-bold text-faint">
+                  <th className="px-2 py-1 text-left">Colour</th>
+                  <th className="px-2 py-1 text-right">Issued</th>
+                  <th className="px-2 py-1 text-right">Used</th>
+                  <th className="px-2 py-1 text-right">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {colourNames.map((c) => {
+                  const i = numOrNull(cf(c).issued);
+                  const u = numOrNull(cf(c).used);
+                  const bal = i != null || u != null ? Math.round(((i ?? 0) - (u ?? 0)) * 100) / 100 : null;
+                  return (
+                    <tr key={c} className="border-t border-hairline">
+                      <td className="px-2 py-1 font-semibold text-t1">{c || "—"}</td>
+                      <td className="px-1 py-1">
+                        <Input type="number" step="any" value={cf(c).issued} onChange={(e) => setCf(c, "issued", e.target.value)} placeholder="—" className="text-right tnum" />
+                      </td>
+                      <td className="px-1 py-1">
+                        <Input type="number" step="any" value={cf(c).used} onChange={(e) => setCf(c, "used", e.target.value)} placeholder="—" className="text-right tnum" />
+                      </td>
+                      <td className={`px-2 py-1 text-right tnum font-semibold ${bal != null && bal < 0 ? "text-danger" : "text-t1"}`}>
+                        {bal != null ? num(bal, 2) : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr className="border-t border-border">
+                  <td className="px-2 py-1 t-xs font-bold text-faint">Layer</td>
+                  <td className="px-2 py-1 text-right tnum font-bold">{effIssued != null ? num(effIssued, 2) : "—"}</td>
+                  <td className="px-2 py-1 text-right tnum font-bold">{effUsed != null ? num(effUsed, 2) : "—"}</td>
+                  <td className="px-2 py-1" />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={`Fabric issued (${unit.toLowerCase()})`}>
+              <Input type="number" step="any" value={issued} onChange={(e) => setIssued(e.target.value)} placeholder="—" className="text-right tnum" />
+            </Field>
+            <Field label={`Fabric used (${unit.toLowerCase()})`}>
+              <Input type="number" step="any" value={used} onChange={(e) => setUsed(e.target.value)} placeholder="—" className="text-right tnum" />
+            </Field>
+          </div>
+        )}
         {extra != null && (
           <p className="-mt-2 t-xs text-t3">
             Extra = issued − used ={" "}

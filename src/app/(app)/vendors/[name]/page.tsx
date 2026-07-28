@@ -68,6 +68,15 @@ export default async function VendorDetail({ params }: { params: Promise<{ name:
       <div className="mb-1 flex items-center gap-2.5">
         <h1 className="t-display font-bold tracking-tight">{vendor.name}</h1>
         <Badge tone={vendor.kind === "INHOUSE" ? "ok" : "default"}>{vendor.kind === "INHOUSE" ? "In-house" : "External"}</Badge>
+        {/* Change 36 Part 1 — owner-only; the account is money. */}
+        {canSeeCost && (
+          <Link
+            href={`/vendors/${encodeURIComponent(vendor.name)}/account`}
+            className="ml-auto rounded-lg border border-border px-3 py-1.5 t-sm font-semibold text-primary-ink hover:bg-surface-2"
+          >
+            Account →
+          </Link>
+        )}
       </div>
       <p className="mb-5 t-body text-muted">
         {layers.length} layer{layers.length === 1 ? "" : "s"} issued · {num(totalCut)} cut · {num(totalDispatched)} dispatched · {pct(totalCut ? totalDispatched / totalCut : 0)} returned
