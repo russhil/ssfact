@@ -167,6 +167,9 @@ export type NewJobLayerInput = {
   fabricIssued?: number | null; // Change 17 A: Fabric ISSUED (Extra = issued − used, derived)
   sizeRatio?: string | null; // Change 17 B: this lay's own size ratio JSON
   cells: { colour: string; size: string; qty: number }[];
+  // Change 37: fabric per colour on this lay. When present it REPLACES the proportional
+  // split for those colours — the ledger is driven to the entered USED, not an estimate.
+  fabricByColour?: { colour: string; issued?: number | null; used?: number | null }[] | null;
 };
 
 export type NewJobInput = {
@@ -284,8 +287,25 @@ export async function createJobCard(input: NewJobInput) {
     cutByColour.set(key, e);
   }
 
+  // Change 37 — per-colour fabric entered on the lay. Where a colour carries a real
+  // figure it REPLACES the proportional split below: the entered USED is the truth.
+  const usedByColour = new Map<string, number>();
+  const issuedByColour = new Map<string, number>();
+  const layerColourRows = layers.map((l) =>
+    (l.fabricByColour ?? [])
+      .map((r) => ({ colour: colorKey(r.colour), issued: r.issued ?? null, used: r.used ?? null }))
+      .filter((r) => r.colour !== "" && (r.issued != null || r.used != null))
+  );
+  for (const rows of layerColourRows) {
+    for (const r of rows) {
+      if (r.used != null) usedByColour.set(r.colour, (usedByColour.get(r.colour) ?? 0) + r.used);
+      if (r.issued != null) issuedByColour.set(r.colour, (issuedByColour.get(r.colour) ?? 0) + r.issued);
+    }
+  }
+
   // Per-colour fabric metres contributed by the layer maths (Part C). A layer's
   // fabricMtr is a lay total; split it across the layer's colours by cut proportion.
+  // Skipped for any colour that carries an entered figure (Change 37).
   const mtrByColour = new Map<string, number>();
   const colourHasMtr = new Set<string>();
   for (const l of layers) {
@@ -294,6 +314,7 @@ export async function createJobCard(input: NewJobInput) {
     const byCol = new Map<string, number>();
     for (const c of l.cells) byCol.set(c.colour, (byCol.get(c.colour) ?? 0) + c.qty);
     for (const [col, q] of byCol) {
+      if (usedByColour.has(col) || issuedByColour.has(col)) continue;
       mtrByColour.set(col, (mtrByColour.get(col) ?? 0) + l.fabricMtr * (q / layerTotal));
       colourHasMtr.add(col);
     }
@@ -310,15 +331,23 @@ export async function createJobCard(input: NewJobInput) {
         const ov = overrides.get(key);
         const detail = detailByColour.get(key);
         const lineAvg = ov?.estAvg ?? defaultAvg;
-        const qtyIssued = colourHasMtr.has(key)
-          ? Math.round((mtrByColour.get(key) ?? 0) * 100) / 100
-          : lineAvg != null
-            ? Math.round(qty * lineAvg * 100) / 100
-            : null;
+        // Change 37: an entered per-colour figure wins over both the split and the avg.
+        const entIssued = issuedByColour.get(key) ?? null;
+        const entUsed = usedByColour.get(key) ?? null;
+        const qtyIssued =
+          entIssued != null || entUsed != null
+            ? Math.round(((entIssued ?? entUsed) as number) * 100) / 100
+            : colourHasMtr.has(key)
+              ? Math.round((mtrByColour.get(key) ?? 0) * 100) / 100
+              : lineAvg != null
+                ? Math.round(qty * lineAvg * 100) / 100
+                : null;
+        const qtyUsed = entUsed != null ? Math.round(entUsed * 100) / 100 : null;
         return {
           key,
           cutQty: qty,
           estAvg: lineAvg,
+          qtyUsed,
           gsm: ov?.gsm ?? null,
           rollWidth: ov?.rollWidth ?? null,
           qtyIssued,
@@ -427,11 +456,19 @@ export async function createJobCard(input: NewJobInput) {
     });
 
     // Cutting layers + their colour×size cells (each layer may carry its own date/master/vendor).
-    for (const l of layers) {
+    for (let li = 0; li < layers.length; li++) {
+      const l = layers[li];
       const layerMasterId = l.cuttingMaster
         ? await resolveCuttingMaster(tx, l.cuttingMaster)
         : cuttingMasterId;
       const layerVendorId = (await resolveVendorId(tx, l.vendorName)) ?? vendor.id;
+      // Change 37: when this lay carries per-colour fabric, its totals are the Σ of
+      // those rows rather than a separately typed figure.
+      const rows = layerColourRows[li] ?? [];
+      const rowSum = (k: "issued" | "used") => {
+        const v = rows.map((r) => r[k]).filter((x): x is number => x != null);
+        return v.length ? Math.round(v.reduce((a, b) => a + b, 0) * 100) / 100 : null;
+      };
       await tx.cuttingLayer.create({
         data: {
           jobCardId: created.id,
@@ -442,11 +479,14 @@ export async function createJobCard(input: NewJobInput) {
           vendorId: layerVendorId,
           avgConsumption: l.avgConsumption ?? null,
           rolls: l.rolls ?? null,
-          fabricMtr: l.fabricMtr ?? null,
+          fabricMtr: rows.length ? rowSum("used") : (l.fabricMtr ?? null),
           fabricBalance: l.fabricBalance ?? null,
-          fabricIssued: l.fabricIssued ?? null,
+          fabricIssued: rows.length ? rowSum("issued") : (l.fabricIssued ?? null),
           sizeRatio: l.sizeRatio ?? null,
           cells: { create: l.cells.map((c) => ({ colour: c.colour, size: c.size, qty: c.qty })) },
+          ...(rows.length
+            ? { colours: { create: rows.map((r) => ({ colour: r.colour, fabricIssued: r.issued, fabricUsed: r.used })) } }
+            : {}),
         } as any,
       });
     }
@@ -463,20 +503,23 @@ export async function createJobCard(input: NewJobInput) {
           gsm: line.gsm,
           rollWidth: line.rollWidth,
           qtyIssued: line.qtyIssued,
+          qtyUsed: line.qtyUsed,
           reqPcs: line.reqPcs,
           reqMtr: line.reqMtr,
           rolls: line.rolls,
           imageUrl: line.imageUrl,
         } as any,
       });
+      // Change 37: a colour with an entered USED is driven to exactly that figure;
+      // everything else keeps issuing the estimate as before.
       await postMaterialMovement(tx, {
         direction: "OUT",
-        qty: line.qtyIssued ?? 0,
+        qty: line.qtyUsed ?? line.qtyIssued ?? 0,
         date: now,
         fabricId: fabricId!,
         colour: line.key,
         jobCardId: created.id,
-        note: "Cutting issue",
+        note: line.qtyUsed != null ? "Cutting issue · entered" : "Cutting issue",
       });
     }
 
@@ -3680,7 +3723,7 @@ export async function updateCuttingLayer(input: {
         for (const [colour, used] of target) {
           await tx.jobFabricLine.updateMany({
             where: { jobCardId: layer.jobCardId, fabricId, color: colour },
-            data: { qtyUsed: used } as any,
+            data: { qtyUsed: used },
           });
           await reconcileJobFabricColour(tx, {
             fabricId, jobCardId: layer.jobCardId, siNo: layer.jobCard.siNo,
@@ -3801,7 +3844,7 @@ export async function removeCuttingLayer(input: { id: number }) {
         const cut = layer.cells.filter((c) => colorKey(c.colour) === colour).reduce((a, c) => a + c.qty, 0);
         await tx.jobFabricLine.updateMany({
           where: { jobCardId: layer.jobCard.id, fabricId, color: colour },
-          data: { qtyUsed: used, cutQty: { decrement: cut } } as any,
+          data: { qtyUsed: used, cutQty: { decrement: cut } },
         });
         await reconcileJobFabricColour(tx, {
           fabricId, jobCardId: layer.jobCard.id, siNo: layer.jobCard.siNo,
