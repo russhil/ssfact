@@ -1,5 +1,8 @@
 import { getDashboard } from "@/lib/queries";
 import { getLowStockAlerts, getDelayedOrders } from "@/lib/insights";
+import { getPayables } from "@/lib/party-ledger";
+import { getCurrentUser, canSeeCost } from "@/lib/auth";
+import { inr } from "@/lib/format";
 import { Bar, Badge, ButtonLink, EmptyState, Panel, PageHeader, StatCard } from "@/components/ui";
 import { CountUp } from "@/components/count-up";
 import { TrendChart } from "@/components/trend-chart";
@@ -12,10 +15,16 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   // Change 25 E/L: both widgets read the single selector that also drives the
   // list filters, so the count here and the length of the filtered list agree.
-  const [{ kpis, vendors, overdue, trend }, lowStock, delayed] = await Promise.all([
+  // Change 36 Part 1: payables are cost data, so they are gated by canSeeCost AND not
+  // even queried otherwise — the discipline /reports already follows. This matters here
+  // more than elsewhere: `/` is in no proxy.ts rule, so every role reaches this page.
+  const me = await getCurrentUser();
+  const owner = canSeeCost(me);
+  const [{ kpis, vendors, overdue, trend }, lowStock, delayed, payables] = await Promise.all([
     getDashboard(),
     getLowStockAlerts(),
     getDelayedOrders(),
+    owner ? getPayables() : Promise.resolve([]),
   ]);
 
   const cards = [
@@ -125,6 +134,36 @@ export default async function DashboardPage() {
             </div>
           )}
         </Panel>
+
+        {/* Change 36 Part 1 — owner-only. Worst-aged first: the oldest money is the
+            money most likely to have been forgotten. */}
+        {owner && payables.length > 0 && (
+          <Panel
+            title="Payables"
+            note={`${num(payables.length)} ${payables.length === 1 ? "party" : "parties"}`}
+          >
+            <div className="-my-1">
+              {payables.slice(0, 6).map((p) => (
+                <Link
+                  key={`${p.kind}-${p.partyId}`}
+                  href={p.kind === "VENDOR" ? `/vendors/${encodeURIComponent(p.name)}/account` : `/suppliers/${p.partyId}/account`}
+                  className="flex items-center justify-between gap-3 border-b border-hairline py-2.5 t-sm transition-opacity duration-150 last:border-0 hover:opacity-70"
+                >
+                  <span className="min-w-0 truncate">
+                    <span className="font-semibold">{p.name}</span>
+                    <span className="ml-1.5 text-t3">{p.kind === "VENDOR" ? "vendor" : "supplier"}</span>
+                  </span>
+                  <span className="shrink-0 tnum">{inr(Math.abs(p.outstanding))}</span>
+                  {p.ageing.d90plus > 0 ? (
+                    <Badge tone="danger">90+</Badge>
+                  ) : p.outstanding < 0 ? (
+                    <Badge tone="ok">advance</Badge>
+                  ) : null}
+                </Link>
+              ))}
+            </div>
+          </Panel>
+        )}
 
         {/* Change 25 Part L */}
         <Panel title="Delayed deliveries" note={delayed.length ? `${num(delayed.length)} open` : undefined}>

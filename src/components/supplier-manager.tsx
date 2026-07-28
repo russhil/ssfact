@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupplier, updateSupplier, deleteSupplier } from "@/lib/actions";
 import { MasterDelete } from "@/components/master-delete";
@@ -222,7 +223,7 @@ export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier
                   key={s.id}
                   className={`border-b border-hairline last:border-0 ${s.active ? "" : "opacity-55"} ${editingId === s.id ? "bg-accent-soft" : ""}`}
                 >
-                  <Td className="font-semibold">{s.name}</Td>
+                  <Td><Link href={`/suppliers/${s.id}`} className="font-semibold text-primary-ink hover:underline">{s.name}</Link></Td>
                   <Td className="text-t2">{s.type ?? "—"}</Td>
                   <Td className="text-t2">{s.city ?? "—"}</Td>
                   <Td className="text-t2 tnum">{s.phone ?? "—"}</Td>

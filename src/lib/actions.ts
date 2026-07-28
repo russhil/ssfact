@@ -4352,3 +4352,165 @@ export async function deactivateFabric(input: { id: number; active?: boolean }) 
   revalidatePath("/masters");
   return { ok: true };
 }
+
+// ── Change 36 Part 1 — the operational money layer ──
+//
+// ★ Money is DERIVED from documents, never hand-typed. The bills are computed live in
+// getPartyStatement (src/lib/party-ledger.ts) from dispatched pieces and locked inward
+// challans; the only figures entered by a human are the ones below — what was actually
+// paid. Nothing here is ever deleted or edited: a mistake is corrected by posting its
+// inverse, so the trail survives.
+//
+// ADMIN only. These are not "reachable by direct POST no matter what the sidebar
+// renders" hypotheticals — a payment is the most sensitive write in the app.
+
+async function postLedgerEntry(
+  input: {
+    vendorId?: number | null;
+    supplierId?: number | null;
+    amount: number;
+    note?: string | null;
+    at?: string | null;
+    jobCardId?: number | null;
+    challanId?: number | null;
+  },
+  kind: "PAYMENT" | "ADVANCE" | "ADJUSTMENT",
+  direction: "DEBIT" | "CREDIT",
+  action: string
+) {
+  const user = await requireRole("ADMIN");
+  const amount = Math.round((input.amount ?? 0) * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter an amount greater than zero");
+  const vendorId = input.vendorId ?? null;
+  const supplierId = input.supplierId ?? null;
+  if ((vendorId == null) === (supplierId == null))
+    throw new Error("A ledger entry belongs to exactly one vendor or one supplier");
+
+  const party = vendorId
+    ? await db.vendor.findUnique({ where: { id: vendorId }, select: { name: true, jobRate: true } })
+    : await db.supplier.findUnique({ where: { id: supplierId! }, select: { name: true } });
+  if (!party) throw new Error("Party not found");
+
+  await db.$transaction(async (tx) => {
+    await tx.partyLedgerEntry.create({
+      data: {
+        kind, direction, amount,
+        note: input.note?.trim() || null,
+        at: input.at ? new Date(input.at) : new Date(),
+        vendorId, supplierId,
+        jobCardId: input.jobCardId ?? null,
+        challanId: input.challanId ?? null,
+        // Snapshot the rate in force so a later rate change cannot restate this.
+        rateAtPosting: (party as { jobRate?: number | null }).jobRate ?? null,
+        createdById: user.userId,
+      },
+    });
+    await logAudit(tx, user, {
+      action,
+      entity: "PartyLedgerEntry",
+      entityId: vendorId ?? supplierId!,
+      entityLabel: party.name,
+      summary: `${kind === "ADJUSTMENT" ? "Adjustment" : kind === "ADVANCE" ? "Advance" : "Payment"} ${num(amount)} ${direction === "CREDIT" ? "to" : "from"} ${party.name}`,
+      meta: { kind, direction, amount, note: input.note ?? null },
+    });
+  });
+
+  if (vendorId) revalidatePath("/vendors");
+  else revalidatePath("/suppliers");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function recordPayment(input: Parameters<typeof postLedgerEntry>[0]) {
+  return postLedgerEntry(input, "PAYMENT", "CREDIT", "recordPayment");
+}
+
+export async function recordAdvance(input: Parameters<typeof postLedgerEntry>[0]) {
+  return postLedgerEntry(input, "ADVANCE", "CREDIT", "recordAdvance");
+}
+
+export async function recordAdjustment(input: Parameters<typeof postLedgerEntry>[0] & { reason: string }) {
+  if (!input.reason?.trim()) throw new Error("An adjustment needs a reason");
+  return postLedgerEntry(
+    { ...input, note: `${input.reason.trim()}${input.note ? ` — ${input.note}` : ""}` },
+    "ADJUSTMENT",
+    "CREDIT",
+    "recordAdjustment"
+  );
+}
+
+/**
+ * Reverse an entry by posting its inverse. The original row is never touched — that is
+ * the whole point of an append-only ledger, and it is why there is no deletePayment.
+ */
+export async function reversePartyLedgerEntry(input: { id: number; reason?: string | null }) {
+  const user = await requireRole("ADMIN");
+  const e = await db.partyLedgerEntry.findUnique({ where: { id: input.id } });
+  if (!e) throw new Error("Ledger entry not found");
+
+  await db.$transaction(async (tx) => {
+    await tx.partyLedgerEntry.create({
+      data: {
+        kind: "ADJUSTMENT",
+        direction: e.direction === "CREDIT" ? "DEBIT" : "CREDIT",
+        amount: e.amount,
+        note: `Reversal of #${e.id}${input.reason ? ` — ${input.reason}` : ""}`,
+        vendorId: e.vendorId, supplierId: e.supplierId,
+        jobCardId: e.jobCardId, challanId: e.challanId,
+        createdById: user.userId,
+      },
+    });
+    await logAudit(tx, user, {
+      action: "reversePartyLedgerEntry",
+      entity: "PartyLedgerEntry",
+      entityId: e.id,
+      summary: `Reversed ${e.kind} of ${num(e.amount)} by inverse posting`,
+      meta: { reason: input.reason ?? null },
+    });
+  });
+  revalidatePath("/vendors");
+  revalidatePath("/suppliers");
+  return { ok: true };
+}
+
+/** The vendor's default job-work rate. Null clears it — no rate means nothing is billed. */
+export async function setVendorJobRate(input: { id: number; jobRate?: number | null; jobRateType?: string | null }) {
+  const user = await requireRole("ADMIN");
+  const before = await db.vendor.findUnique({ where: { id: input.id }, select: { name: true, jobRate: true, jobRateType: true } });
+  if (!before) throw new Error("Vendor not found");
+  const patch = {
+    ...(input.jobRate !== undefined ? { jobRate: input.jobRate } : {}),
+    ...(input.jobRateType !== undefined ? { jobRateType: (input.jobRateType || null) as never } : {}),
+  };
+  await db.$transaction(async (tx) => {
+    await tx.vendor.update({ where: { id: input.id }, data: patch });
+    await logAudit(tx, user, {
+      action: "setVendorJobRate", entity: "Vendor", entityId: input.id, entityLabel: before.name,
+      summary: `Set job rate for ${before.name}`,
+      changes: computeChanges(before as unknown as Record<string, unknown>, patch as Record<string, unknown>),
+    });
+  });
+  revalidatePath("/vendors");
+  return { ok: true };
+}
+
+/** This lay's own rate, overriding the vendor default. See CuttingLayer.vendorRate. */
+export async function setLayerVendorRate(input: { layerId: number; vendorRate?: number | null }) {
+  const user = await requireRole("ADMIN");
+  const layer = await db.cuttingLayer.findUnique({
+    where: { id: input.layerId },
+    select: { layerNo: true, vendorRate: true, jobCardId: true, jobCard: { select: { siNo: true } } },
+  });
+  if (!layer) throw new Error("Cutting layer not found");
+  await db.$transaction(async (tx) => {
+    await tx.cuttingLayer.update({ where: { id: input.layerId }, data: { vendorRate: input.vendorRate ?? null } });
+    await logAudit(tx, user, {
+      action: "setLayerVendorRate", entity: "CuttingLayer", entityId: input.layerId,
+      entityLabel: `${layer.jobCard.siNo} · layer ${layer.layerNo}`,
+      summary: `Set layer ${layer.layerNo} rate on ${layer.jobCard.siNo}`,
+      changes: { vendorRate: { old: layer.vendorRate, new: input.vendorRate ?? null } },
+    });
+  });
+  revalidatePath(`/job-cards/${layer.jobCardId}`);
+  return { ok: true };
+}

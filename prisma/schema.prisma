@@ -148,16 +148,88 @@ enum ProductionLot {
   NEW_LOT
 }
 
+// ── Change 36 Part 1 — the operational money layer ──
+// This is what work is WORTH and what is still OWED, derived from documents ssfact
+// already owns. It is NOT statutory accounting: the books stay in Tally, this exports
+// to it. Payables only — sales receivables belong to the B2B app.
+enum PartyRateType {
+  PER_PIECE
+  PER_DOZEN
+  LUMPSUM
+}
+
+enum LedgerKind {
+  WORK_BILL
+  PO_BILL
+  PAYMENT
+  ADVANCE
+  ADJUSTMENT
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
 model Vendor {
   id                Int                @id @default(autoincrement())
   name              String             @unique
   kind              VendorKind         @default(EXTERNAL)
   active            Boolean            @default(true)
+  // Change 36 Part 1: the default job-work rate for this vendor. Owner-only on read
+  // (canSeeCost). Null means no rate agreed — nothing is billed rather than billed at 0.
+  jobRateType       PartyRateType?
+  jobRate           Float?
+  ledgerEntries     PartyLedgerEntry[]
   jobCards          JobCard[]
   stitchAssignments StitchAssignment[]
   materialChallans  MaterialChallan[]
   cuttingLayers     CuttingLayer[] // Change 14: a layer is issued to a vendor
   finishingJobs     FinishingJob[] // Change 20: print/emb/wash job-work given to this vendor
+}
+
+// Change 36 Part 1 — the party ledger. APPEND-ONLY and one-directional per row.
+//
+// ★ Money is DERIVED from documents, never hand-typed as a floating number. So this
+// table deliberately does NOT hold the bills: vendor dues are Σ(dispatched pieces ×
+// rate) and supplier payables are Σ(locked inward challan qty × PO rate), both computed
+// live in getPartyStatement. If a derived bill and a stored WORK_BILL row both existed
+// they could disagree, and the stored one would win by accident.
+//
+// What IS stored is the only thing that cannot be derived: what was actually paid.
+// Nothing is ever deleted or edited — a mistake is corrected by posting its inverse,
+// so the trail stays intact.
+model PartyLedgerEntry {
+  id        Int             @id @default(autoincrement())
+  at        DateTime        @default(now())
+  kind      LedgerKind
+  direction LedgerDirection
+  amount    Float
+  note      String?
+
+  // Whose account this sits on — exactly one of the two is set.
+  vendor     Vendor?   @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorId   Int?
+  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierId Int?
+
+  // Provenance, all optional: which document this payment was made against, when known.
+  jobCardId       Int?
+  dispatchEventId Int?
+  finishingJobId  Int?
+  challanId       Int?
+
+  // The rate in force when this was posted, snapshotted so a later rate change can
+  // never restate a settled bill.
+  rateAtPosting Float?
+
+  createdBy   User? @relation("PartyLedgerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById Int?
+  createdAt   DateTime @default(now())
+
+  @@index([vendorId])
+  @@index([supplierId])
+  @@index([at])
 }
 
 model CuttingMaster {
@@ -360,6 +432,10 @@ model CuttingLayer {
   // Change 17 Part A: Fabric ISSUED to this lay (hand-entered). Extra = issued − used
   // is derived (may be negative = short-issued), never stored.
   fabricIssued Float?
+  // Change 36 Part 1: this lay's job-work rate, overriding Vendor.jobRate. It lives on
+  // the LAYER and not the card because a card splits across several layer vendors — a
+  // card-level rate would silently bill every vendor on it the same.
+  vendorRate   Float?
   // Change 17 Part B: this lay's own editable size ratio, JSON [["S",1],["M",1.5],…].
   // null ⇒ fall back to the card ratio (back-compat for legacy layers).
   sizeRatio String?
@@ -625,6 +701,7 @@ model User {
   trimOrdersCreated   TrimOrder[]       @relation("TrimOrderCreatedBy")
   trimOrdersUpdated   TrimOrder[]       @relation("TrimOrderUpdatedBy")
   fabricColorsCreated FabricColor[]     @relation("FabricColorCreatedBy")
+  partyLedgerEntries PartyLedgerEntry[] @relation("PartyLedgerCreatedBy")
   fabricColorsUpdated FabricColor[]     @relation("FabricColorUpdatedBy")
   trimItemsCreated    TrimItem[]        @relation("TrimItemCreatedBy")
   trimItemsUpdated    TrimItem[]        @relation("TrimItemUpdatedBy")
@@ -794,6 +871,7 @@ model TrimItem {
 
 // Shared supplier master (fabric orders + every trim category point here).
 model Supplier {
+  ledgerEntries PartyLedgerEntry[]
   id           Int           @id @default(autoincrement())
   name         String        @unique
   type         SupplierType?
