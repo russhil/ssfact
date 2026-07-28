@@ -27,6 +27,7 @@ import {
   CalendarClock,
   FlaskConical,
   Search,
+  ListChecks,
 } from "lucide-react";
 import { logout } from "@/lib/auth-actions";
 import type { Role } from "@/lib/session";
@@ -61,6 +62,8 @@ const GROUPS: { group: string; items: NavItem[] }[] = [
   {
     group: "Production",
     items: [
+      // Change 36 Part 9 — the floor lens. Everyone has one; it just differs by role.
+      { href: "/my-work", label: "My work", icon: ListChecks, roles: ALL },
       { href: "/job-cards", label: "Job Cards", icon: ClipboardList, roles: ["ADMIN", "STAFF", "VENDOR"], count: "jobs" },
       { href: "/production-orders", label: "Production", icon: PackageCheck, roles: ["ADMIN"] },
       // Change 20: finishing given out as job-work, between the machine and dispatch —
