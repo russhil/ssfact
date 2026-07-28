@@ -18,8 +18,9 @@ Nothing here blocks the rest: skip a section and that feature simply stays off.
   migrating. The repo copy can never overwrite production.
 - **No new npm dependencies.** `npm ci` needs nothing new; only two scripts were added
   (`verify:ledger`, `seed:defects`).
-- **`.env` is excluded from rsync**, so the variables below must be set on the box, not
-  committed.
+- **This app has no `.env`.** Its environment lives inline in
+  `/etc/systemd/system/sportsun-factory.service` (`PORT`, `NODE_ENV`, `SESSION_SECRET`,
+  `UPLOAD_DIR`). Anything new goes there and needs a `daemon-reload`.
 - Every page, route, action and selector — masters delete, per-colour fabric, accounts,
   quality, planning, yield, scorecards, samples, trace, `/my-work`, `/status`,
   `/api/health`.
@@ -31,10 +32,14 @@ Nothing here blocks the rest: skip a section and that feature simply stays off.
 Without `CRON_SECRET` the route answers `503` and refuses to run. That is deliberate: an
 unguarded endpoint that emails the owner's payables position is worse than no digest.
 
-**On the box**, add to `.env`:
+**On the box.** ⚠️ sportsun-factory has **no `.env`** — its environment is inline in the
+systemd unit, so the secret goes there:
 
 ```bash
-CRON_SECRET="$(openssl rand -hex 32)"
+UNIT=/etc/systemd/system/sportsun-factory.service
+sudo cp "$UNIT" "$UNIT.bak-$(date +%Y%m%d-%H%M%S)"
+sudo sed -i "/^Environment=UPLOAD_DIR=/a Environment=CRON_SECRET=$(openssl rand -hex 32)" "$UNIT"
+sudo systemctl daemon-reload && sudo systemctl restart sportsun-factory
 ```
 
 Then install the cron the same way the backup one is installed — a file with a user
@@ -83,7 +88,11 @@ or add more afterwards.
 
 ---
 
-## 3. Off-box backup — needs rclone and a remote *(Part 10)*
+## 3. Off-box backup — needs rclone and a remote *(Part 10)* — **DEFERRED**
+
+> Skipped for now at the owner's request. The code path is in place and dormant: with no
+> `BACKUP_REMOTE` set, `npm run backup` prints "BACKUP_REMOTE not set — this snapshot
+> exists only on this box" and behaves exactly as before. Nothing to undo when you want it.
 
 Backups already run nightly, but **onto the same disk as the database**. That survives a
 mistake, not a dead box. You chose an S3-compatible bucket (Backblaze B2 / S3).
@@ -93,11 +102,14 @@ sudo apt-get install -y rclone
 sudo rclone config          # create a remote, e.g. named "b2", pointing at your bucket
 ```
 
-Then in `.env`:
+Then add to the systemd unit (same method as `CRON_SECRET` above):
 
-```bash
-BACKUP_REMOTE="b2:ssfact-backups"
 ```
+Environment=BACKUP_REMOTE=b2:ssfact-backups
+```
+
+The backup runs from cron rather than the service, so it also needs the value in the cron
+environment — simplest is to put `BACKUP_REMOTE=…` directly in `/etc/cron.d/ssfact-backup`.
 
 `npm run backup` now copies each snapshot off-box straight after writing it. **A copy
 failure is reported but does not fail the run** — a local backup that exists beats no
