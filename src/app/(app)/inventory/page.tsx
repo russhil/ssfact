@@ -38,7 +38,7 @@ export default async function InventoryPage() {
         </div>
       )}
 
-      <InventoryTable rows={rows} />
+      <InventoryTable rows={rows} canDelete={user?.role === "ADMIN"} />
     </div>
   );
 }

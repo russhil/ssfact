@@ -6,8 +6,12 @@ import type { ProductRow } from "@/lib/catalog";
 import { STATUS_LABEL, statusTone } from "@/lib/catalog-labels";
 import { Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { inr } from "@/lib/format";
+import { MasterDelete } from "@/components/master-delete";
+import { deleteProduct, updateProduct } from "@/lib/actions";
 
-export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: ProductRow[]; categories: string[]; canSeeCost?: boolean }) {
+// Delete is ADMIN-only (Change 36 Part 0); the column is hidden for everyone else so
+// nobody is offered a button that would throw Forbidden.
+export function CatalogTable({ rows, categories, canSeeCost = true, canDelete = false }: { rows: ProductRow[]; categories: string[]; canSeeCost?: boolean; canDelete?: boolean }) {
   // Change 23 Part G: search + status + category kept exactly as they were, moved onto
   // the shared toolbar, and click-to-sort added.
   const filters: FilterDef<ProductRow>[] = useMemo(
@@ -88,6 +92,7 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
               )}
               <th className="px-4 py-2.5 font-semibold">Stage</th>
               <th className="px-4 py-2.5 font-semibold">Status</th>
+              {canDelete && <th className="px-4 py-2.5" />}
             </tr>
           </thead>
           <tbody>
@@ -125,6 +130,19 @@ export function CatalogTable({ rows, categories, canSeeCost = true }: { rows: Pr
                 <td className="px-4 py-2.5">
                   <Badge tone={statusTone(r.status)}>{STATUS_LABEL[r.status] ?? r.status}</Badge>
                 </td>
+                {canDelete && (
+                  <td className="px-4 py-2.5 text-right">
+                    {/* Change 36 Part 0. A product has no `active` flag — retiring it
+                        means status = DISCONTINUED. */}
+                    <MasterDelete
+                      kind="product"
+                      id={r.id}
+                      label="Product"
+                      onDelete={() => deleteProduct({ id: r.id })}
+                      onDeactivate={r.status !== "DISCONTINUED" ? () => updateProduct({ id: r.id, status: "DISCONTINUED" }) : undefined}
+                    />
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

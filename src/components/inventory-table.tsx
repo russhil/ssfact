@@ -4,6 +4,8 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { Badge, Card, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, pct } from "@/lib/format";
+import { MasterDelete } from "@/components/master-delete";
+import { deleteFabric, deactivateFabric } from "@/lib/actions";
 
 /**
  * Change 23 Part E — the fabric list, sliceable, with its KPI cards wired to the
@@ -41,7 +43,8 @@ export function stockStatus(s: { available: number; usedPct: number }): "short" 
   return "ok";
 }
 
-export function InventoryTable({ rows }: { rows: FabricRow[] }) {
+// Delete is ADMIN-only (Change 36 Part 0); the column is hidden for everyone else.
+export function InventoryTable({ rows, canDelete = false }: { rows: FabricRow[]; canDelete?: boolean }) {
   const counts = useMemo(() => {
     const c = { all: rows.length, short: 0, low: 0, ok: 0 };
     for (const r of rows) c[stockStatus(r)]++;
@@ -129,6 +132,7 @@ export function InventoryTable({ rows }: { rows: FabricRow[] }) {
                 <th className="px-4 py-2.5 text-right"><SortHeader view={view} sortKey="available" align="right">Available</SortHeader></th>
                 <th className="px-4 py-2.5"><SortHeader view={view} sortKey="used">Utilisation</SortHeader></th>
                 <th className="px-4 py-2.5 font-semibold">Status</th>
+                {canDelete && <th className="px-4 py-2.5" />}
               </tr>
             </thead>
             <tbody>
@@ -184,6 +188,17 @@ export function InventoryTable({ rows }: { rows: FabricRow[] }) {
                     <td className="px-4 py-2.5">
                       {st === "short" ? <Badge tone="danger">Indent</Badge> : st === "low" ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}
                     </td>
+                    {canDelete && (
+                      <td className="px-4 py-2.5 text-right">
+                        <MasterDelete
+                          kind="fabric"
+                          id={s.id}
+                          label="Fabric"
+                          onDelete={() => deleteFabric({ id: s.id })}
+                          onDeactivate={() => deactivateFabric({ id: s.id, active: false })}
+                        />
+                      </td>
+                    )}
                   </tr>
                 );
               })}

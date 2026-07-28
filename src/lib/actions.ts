@@ -9,6 +9,7 @@ import { colorKey } from "@/lib/colour";
 import { sizeKey } from "@/lib/job-labels";
 import { num } from "@/lib/format";
 import { getJobTrimIssues } from "@/lib/jobs";
+import { getMasterRefs, refsMessage, type MasterKind } from "@/lib/master-refs";
 import { revalidatePath } from "next/cache";
 
 type BomDim = "COLOR" | "SIZE" | "FLAT";
@@ -3967,4 +3968,145 @@ export async function deleteFinishingJob(input: { id: number }) {
   await db.finishingJob.delete({ where: { id: jw.id } });
   revalidateFinishing(jw.jobCardId, jw.vendor.name);
   return { ok: true, docNo: jw.docNo };
+}
+
+// ── Change 36 Part 0 — master lifecycle: delete, where-used, deactivate ──
+//
+// Transactional documents have had guarded deletes since Change 20 (deleteJobCard,
+// deleteFabricOrder, deleteTrimOrder, deleteFinishingJob). The MASTERS never did, and
+// a blind delete on one is worse than on a document: almost every FK pointing at a
+// master is OPTIONAL, and Prisma defaults an optional relation to SetNull — so the
+// delete SUCCEEDS and quietly blanks the supplier off historical POs and challans.
+// Required FKs throw P2003 instead. So neither a try/catch nor a raw delete is safe:
+// every blocker is counted explicitly by getMasterRefs (src/lib/master-refs.ts) and we
+// refuse before touching the row, offering deactivate as the fallback.
+//
+// These are requireRole("ADMIN") alone, not ("ADMIN","STAFF"): a master affects every
+// future entry, not one transaction. Same reasoning as user administration above.
+
+/** Shared body for all eight master deletes — guard, delete, audit, revalidate. */
+async function deleteMaster(
+  kind: MasterKind,
+  id: number,
+  opts: {
+    what: string;
+    entity: string;
+    action: string;
+    del: (tx: Tx, id: number) => Promise<unknown>;
+    paths: string[];
+  }
+) {
+  const user = await requireRole("ADMIN");
+  const refs = await getMasterRefs(kind, id);
+  if (refs.total > 0) throw new Error(refsMessage(opts.what, refs));
+
+  await db.$transaction(async (tx) => {
+    await opts.del(tx, id);
+    // The row is gone but the log keeps the name — AuditLog holds no FK to it.
+    await logAudit(tx, user, {
+      action: opts.action,
+      entity: opts.entity,
+      entityId: id,
+      entityLabel: refs.name,
+      summary: `Deleted ${opts.what.toLowerCase()} ${refs.name}`,
+      meta: { before_snapshot: { name: refs.name } },
+    });
+  });
+  for (const p of opts.paths) revalidatePath(p);
+  return { ok: true, name: refs.name };
+}
+
+export async function deleteSupplier(input: { id: number }) {
+  // Contact cascades — a supplier's own people go with it.
+  return deleteMaster("supplier", input.id, {
+    what: "Supplier", entity: "Supplier", action: "deleteSupplier",
+    del: (tx, id) => tx.supplier.delete({ where: { id } }),
+    paths: ["/suppliers", "/masters"],
+  });
+}
+
+export async function deleteVendor(input: { id: number }) {
+  return deleteMaster("vendor", input.id, {
+    what: "Vendor", entity: "Vendor", action: "deleteVendor",
+    del: (tx, id) => tx.vendor.delete({ where: { id } }),
+    paths: ["/vendors", "/masters"],
+  });
+}
+
+export async function deleteProduct(input: { id: number }) {
+  // ProductColor and ImageAsset cascade — the product's own data.
+  return deleteMaster("product", input.id, {
+    what: "Product", entity: "Product", action: "deleteProduct",
+    del: (tx, id) => tx.product.delete({ where: { id } }),
+    paths: ["/catalog", "/masters"],
+  });
+}
+
+export async function deleteFabric(input: { id: number }) {
+  return deleteMaster("fabric", input.id, {
+    what: "Fabric", entity: "Fabric", action: "deleteFabric",
+    del: (tx, id) => tx.fabric.delete({ where: { id } }),
+    paths: ["/inventory", "/masters"],
+  });
+}
+
+export async function deleteTrim(input: { id: number }) {
+  return deleteMaster("trim", input.id, {
+    what: "Trim", entity: "TrimItem", action: "deleteTrim",
+    del: (tx, id) => tx.trimItem.delete({ where: { id } }),
+    paths: ["/trims", "/masters"],
+  });
+}
+
+export async function deleteBuyer(input: { id: number }) {
+  // Contact and BuyerDeliveryAddress cascade — the firm's own data.
+  return deleteMaster("buyer", input.id, {
+    what: "Firm", entity: "Buyer", action: "deleteBuyer",
+    del: (tx, id) => tx.buyer.delete({ where: { id } }),
+    paths: ["/buyers", "/masters"],
+  });
+}
+
+export async function deleteColour(input: { id: number }) {
+  return deleteMaster("colour", input.id, {
+    what: "Colour", entity: "Colour", action: "deleteColour",
+    del: (tx, id) => tx.colour.delete({ where: { id } }),
+    paths: ["/masters"],
+  });
+}
+
+export async function deleteCuttingMaster(input: { id: number }) {
+  return deleteMaster("cuttingMaster", input.id, {
+    what: "Cutting master", entity: "CuttingMaster", action: "deleteCuttingMaster",
+    del: (tx, id) => tx.cuttingMaster.delete({ where: { id } }),
+    paths: ["/vendors", "/masters"],
+  });
+}
+
+/**
+ * The panel's read side. A server action rather than a selector because the master
+ * managers are client components: they call this on Delete, and only when it comes
+ * back with total > 0 do they open the where-used panel. Attempting the delete and
+ * parsing the thrown string would not work — a thrown Error cannot carry the groups.
+ */
+export async function checkMasterRefs(input: { kind: MasterKind; id: number }) {
+  await requireRole("ADMIN");
+  return getMasterRefs(input.kind, input.id);
+}
+
+/** Deactivate fallback for the masters whose retire flag is a boolean. */
+export async function deactivateFabric(input: { id: number; active?: boolean }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const next = input.active ?? false;
+  await db.$transaction(async (tx) => {
+    const f = await tx.fabric.update({ where: { id: input.id }, data: { active: next }, select: { name: true } });
+    await logAudit(tx, user, {
+      action: "deactivateFabric", entity: "Fabric", entityId: input.id, entityLabel: f.name,
+      summary: `${next ? "Reactivated" : "Deactivated"} fabric ${f.name}`,
+      changes: { active: { old: !next, new: next } },
+    });
+  });
+  revalidatePath("/inventory");
+  revalidatePath("/masters");
+  return { ok: true };
 }

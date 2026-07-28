@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createTrim, updateTrim } from "@/lib/actions";
+import { createTrim, updateTrim, deleteTrim } from "@/lib/actions";
+import { MasterDelete } from "@/components/master-delete";
 import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { StockAdjust } from "@/components/stock-adjust";
 import { LookupSelect } from "@/components/masters/lookup-select";
@@ -270,6 +271,15 @@ function TrimRow({ t, units, onSaved }: { t: TrimMasterRow; units: LookupRow[]; 
                 recordTrimReceipt. */}
             <StockAdjust target={{ kind: "trim", trimItemId: t.id }} name={t.name} current={t.current} unit={t.unit} />
             <button onClick={() => setEditing((v) => !v)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2"><Settings2 size={12} /> Edit</button>
+            {/* Change 36 Part 0. A trim has no `active` flag — its retire state is the
+                status enum, so "deactivate" here means status = DISCONTINUED. */}
+            <MasterDelete
+              kind="trim"
+              id={t.id}
+              label="Trim"
+              onDelete={() => deleteTrim({ id: t.id })}
+              onDeactivate={t.status !== "DISCONTINUED" ? () => updateTrim({ id: t.id, status: "DISCONTINUED" }) : undefined}
+            />
           </span>
         </td>
       </tr>

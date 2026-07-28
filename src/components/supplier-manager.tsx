@@ -2,7 +2,8 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createSupplier, updateSupplier } from "@/lib/actions";
+import { createSupplier, updateSupplier, deleteSupplier } from "@/lib/actions";
+import { MasterDelete } from "@/components/master-delete";
 import { runAction } from "@/lib/action-result";
 import {
   Badge,
@@ -232,14 +233,31 @@ export function SupplierManager({ suppliers, types = [] }: { suppliers: Supplier
                   <Td className="text-right tnum text-t2">{s.trims}</Td>
                   <Td className="text-right tnum text-t2">{s.orders}</Td>
                   <Td>
-                    <button onClick={() => toggle(s)} disabled={busy}>
-                      {s.active ? <Badge tone="ok">Active</Badge> : <Badge tone="default">Inactive</Badge>}
-                    </button>
+                    {/* Change 36 Part 0: the pill is now read-only for active rows —
+                        retiring happens through Delete → (blocked) → Deactivate. An
+                        inactive row stays clickable so it can be brought back. */}
+                    {s.active ? (
+                      <Badge tone="ok">Active</Badge>
+                    ) : (
+                      <button onClick={() => toggle(s)} disabled={busy} title="Reactivate">
+                        <Badge tone="default">Inactive</Badge>
+                      </button>
+                    )}
                   </Td>
                   <Td className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => startEdit(s)} disabled={busy}>
-                      <Pencil size={12} /> Edit
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => startEdit(s)} disabled={busy}>
+                        <Pencil size={12} /> Edit
+                      </Button>
+                      <MasterDelete
+                        kind="supplier"
+                        id={s.id}
+                        label="Supplier"
+                        onDelete={() => deleteSupplier({ id: s.id })}
+                        onDeactivate={s.active ? () => updateSupplier({ id: s.id, active: false }) : undefined}
+                        disabled={busy}
+                      />
+                    </div>
                   </Td>
                 </tr>
               ))}

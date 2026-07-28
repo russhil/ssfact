@@ -178,6 +178,11 @@ model Fabric {
   gsm          Float?
   rollWidth    Float?
   form         FabricForm?
+  // Change 36 Part 0: the deactivate fallback when a fabric is referenced and so
+  // cannot be deleted. Every other master already had one (Vendor/Supplier/Buyer/
+  // Colour/CuttingMaster carry `active`; Product/TrimItem use their status enum) —
+  // fabric was the only one with no way to retire it.
+  active       Boolean         @default(true)
   styles         Style[]
   products       Product[]
   colors         FabricColor[]
