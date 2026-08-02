@@ -1,4 +1,4 @@
-import { getTrimOrders, getTrimPickList, getSuppliers, getColours, listLookups, getBuyerOptions, getSignatoryOptions } from "@/lib/masters";
+import { getTrimOrders, getTrimPickList, getSuppliers, getColours, listLookups, getBuyerOptions } from "@/lib/masters";
 import { getCurrentUser, canSeeCost } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import { num } from "@/lib/format";
@@ -9,14 +9,13 @@ export const dynamic = "force-dynamic";
 // Change 18 Part B: trims are bought the same way fabric is — order, PO, inward challan.
 export default async function TrimOrdersPage() {
   const me = await getCurrentUser();
-  const [orders, trims, suppliers, colours, units, buyers, signatories] = await Promise.all([
+  const [orders, trims, suppliers, colours, units, buyers] = await Promise.all([
     getTrimOrders(),
     getTrimPickList(),
     getSuppliers(),
     getColours(),
     listLookups("UNIT"),
     getBuyerOptions(),
-    getSignatoryOptions(),
   ]);
   const pending = orders.filter((o) => o.status === "ORDER_PLACED").length;
   const planning = orders.filter((o) => o.status === "PLANNING" || o.status === "SAMPLE_PENDING").length;
@@ -40,9 +39,6 @@ export default async function TrimOrdersPage() {
         colours={colours.map((c) => c.name)}
         units={units.map((u) => u.label)}
         buyers={buyers}
-        signatories={signatories}
-        meId={me?.userId ?? 0}
-        canOverrideSignatory={canSeeCost(me)}
       />
     </div>
   );

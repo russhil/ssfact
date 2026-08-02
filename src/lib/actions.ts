@@ -1882,6 +1882,42 @@ export async function createFabricQuick(input: {
   return { id: f.id, name: f.name };
 }
 
+/**
+ * Change 38 Part G — quick-create a trim while ordering, the mirror of createFabricQuick.
+ *
+ * Deliberately NOT a call to createTrim: TrimItem.name is @unique and createTrim has no
+ * duplicate guard, so ordering a trim whose name already exists threw a raw Prisma P2002
+ * that the calling form swallowed. Upsert-by-name is the behaviour the fabric flow has
+ * always had, and it is what "add this trim to the order" actually means — if it exists,
+ * use it. Supplier, unit and rate ride up to the master exactly as they do for fabric.
+ */
+export async function createTrimQuick(input: {
+  name: string;
+  unit?: string | null;
+  supplierId?: number | null;
+  rate?: number | null;
+}) {
+  await requireRole("ADMIN", "STAFF");
+  const name = input.name.trim();
+  if (!name) throw new Error("Trim name required");
+  const existing = await db.trimItem.findUnique({ where: { name } });
+  const t =
+    existing ??
+    (await db.trimItem.create({
+      data: {
+        name,
+        // must match createTrim's derivation or the two paths disagree on the same name
+        normName: name.toUpperCase().replace(/[^A-Z0-9]/g, ""),
+        unit: input.unit?.trim() || "pcs",
+        supplierId: input.supplierId ?? null,
+        ratePerUnit: input.rate ?? null,
+      } as any,
+    }));
+  revalidatePath("/trim-orders");
+  revalidatePath("/trims");
+  return { id: t.id, name: t.name, unit: t.unit };
+}
+
 /** First-class create of a fabric master (Change 17 Part F "Add Fabric"). */
 export async function createFabric(input: {
   name: string;
@@ -1924,7 +1960,10 @@ export async function createFabricOrder(input: {
   // Change 17 Part E/G: the unit comes from the master by default (override per order).
   const fabric = await db.fabric.findUnique({ where: { id: input.fabricId }, select: { unit: true } });
   const unit = (input.unit ?? fabric?.unit ?? "MTR") as any;
-  await db.fabricOrder.create({
+  // Change 38 Part H: capture the created row. This used to discard it and return
+  // { ok: true }, so the form had no way to know which order it had just made — and
+  // therefore no entity id to attach a shade card to.
+  const order = await db.fabricOrder.create({
     data: {
       fabricId: input.fabricId, supplierId: input.supplierId ?? null,
       qty: total, rate: input.rate ?? null, gsm: input.gsm ?? null, unit,
@@ -1945,7 +1984,7 @@ export async function createFabricOrder(input: {
   );
   revalidatePath("/fabric-orders");
   revalidatePath("/inventory");
-  return { ok: true };
+  return { id: order.id };
 }
 
 export async function updateFabricOrder(input: {
@@ -2071,6 +2110,20 @@ export type PoIssueInput = {
   deliveryAddressId?: number | null;
   gstRate?: number | null;
   placedById?: number | null;
+  /**
+   * Change 38 Part F — the authorised signatory: a contact of the issuing firm, by NAME.
+   *
+   * Snapshotted rather than referenced because updateBuyer deletes and recreates a buyer's
+   * contacts on every save, so contact ids are not stable. placedById is still recorded
+   * alongside it as the audit of who generated the document.
+   */
+  signatoryName?: string | null;
+};
+
+/** Trim to a printable signatory name, or null when nothing usable was chosen. */
+const cleanSignatory = (s?: string | null) => {
+  const n = s?.trim();
+  return n ? n.slice(0, 120) : null;
 };
 
 /** Resolve the signatory: an owner may name someone else, anyone else signs their own. */
@@ -2106,6 +2159,7 @@ export async function generatePO(input: { id: number } & PoIssueInput) {
         poNumber,
         poGeneratedAt: new Date(),
         placedById,
+        signatoryName: cleanSignatory(input.signatoryName),
         ...(input.buyerId !== undefined ? { buyerId: input.buyerId } : {}),
         ...(input.deliveryAddressId !== undefined ? { deliveryAddressId: input.deliveryAddressId } : {}),
         ...(input.gstRate !== undefined ? { gstRate: input.gstRate } : {}),
@@ -2124,6 +2178,7 @@ export async function generatePO(input: { id: number } & PoIssueInput) {
         deliveryAddressId: input.deliveryAddressId ?? null,
         gstRate: input.gstRate ?? null,
         placedById,
+        signatoryName: cleanSignatory(input.signatoryName),
       },
     });
   });
@@ -2290,6 +2345,7 @@ export async function generateTrimPO(input: { id: number } & PoIssueInput) {
         poNumber,
         poGeneratedAt: new Date(),
         placedById,
+        signatoryName: cleanSignatory(input.signatoryName),
         ...(input.buyerId !== undefined ? { buyerId: input.buyerId } : {}),
         ...(input.deliveryAddressId !== undefined ? { deliveryAddressId: input.deliveryAddressId } : {}),
         ...(input.gstRate !== undefined ? { gstRate: input.gstRate } : {}),
@@ -2308,6 +2364,7 @@ export async function generateTrimPO(input: { id: number } & PoIssueInput) {
         deliveryAddressId: input.deliveryAddressId ?? null,
         gstRate: input.gstRate ?? null,
         placedById,
+        signatoryName: cleanSignatory(input.signatoryName),
       },
     });
   });
@@ -2432,6 +2489,10 @@ export async function attachImages(input: { entity: ImgEntity; entityId: number;
   if (input.entity === "fabric" || input.entity === "fabricOrder") revalidatePath("/inventory");
   if (input.entity === "trim") revalidatePath("/trims");
   if (input.entity === "fabricOrder") revalidatePath("/fabric-orders");
+  // Change 38 Part H — trimOrder and challan were missing from this list, so an attach
+  // there relied entirely on the uploader's own router.refresh().
+  if (input.entity === "trimOrder") revalidatePath("/trim-orders");
+  if (input.entity === "challan") revalidatePath("/challans");
   return { ok: true };
 }
 

@@ -9,7 +9,9 @@ import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFr
 import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
 import { orderFlag } from "@/lib/order-flags";
-import { GeneratePoButton, type BuyerOption, type SignatoryOption } from "@/components/generate-po";
+import { GeneratePoButton, type BuyerOption } from "@/components/generate-po";
+// Change 38 Part H — attach the shade card right here, not only on the PO document.
+import { ImageUploader } from "@/components/image-uploader";
 import { Plus, Check, X, FileText, Truck, Pencil, Trash2, Undo2, CornerUpLeft } from "lucide-react";
 
 type Line = { colour: string; qty: number };
@@ -24,6 +26,8 @@ type Order = {
   challans: ChallanLink[];
   // Change 22 Part A: Σ locked challan line qty — what has actually arrived.
   receivedQty: number;
+  // Change 38 Part H — photos attached to this order.
+  images: { id: number; url: string; thumbUrl: string | null; caption: string | null }[];
 };
 type Pick = { id: number; name: string };
 type FabricPick = { id: number; name: string; unit?: string };
@@ -36,11 +40,12 @@ const STAGE_TONE: Record<string, "default" | "primary" | "ok"> = { Draft: "defau
 const ADD = "__add__";
 
 export function FabricOrderManager({
-  orders, fabrics, suppliers, colours, buyers, signatories, meId, canOverrideSignatory,
+  orders, fabrics, suppliers, colours, buyers,
 }: {
   orders: Order[]; fabrics: FabricPick[]; suppliers: Pick[]; colours: ColourOpt[];
-  // Change 25 G.3 / I.2 / K.2 — issued from which firm, GST %, and who signs it.
-  buyers: BuyerOption[]; signatories: SignatoryOption[]; meId: number; canOverrideSignatory: boolean;
+  // Change 25 G.3 / K.2 — issued from which firm and at what GST %.
+  // Change 38 Part F — the signatory now comes from that firm's own contacts.
+  buyers: BuyerOption[];
 }) {
   const router = useRouter();
   const [fabricList, setFabricList] = useState<FabricPick[]>(fabrics);
@@ -70,6 +75,9 @@ export function FabricOrderManager({
   const [busy, setBusy] = useState(false);
   // Change 20: the same form doubles as the edit form for an unlocked order.
   const [editingId, setEditingId] = useState<number | null>(null);
+  // Change 38 Part H — the order the photo uploader is pointed at: the one being edited,
+  // or the one just created.
+  const [attachId, setAttachId] = useState<number | null>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
   // keep a trailing empty row once the last row is filled
@@ -125,13 +133,14 @@ export function FabricOrderManager({
     setFabricId(""); setSupplierId(""); setExpected(""); setRate(""); setGsm(""); setUnit("MTR"); setRemarks("");
     setLines([{ colour: "", qty: 0 }]);
     setAddColourRow(null); setColourDraft(""); setAddFabric(false); setFabricDraft("");
+    setAttachId(null);
   }
 
   async function create() {
     if (!fabricId || filled.length === 0) return;
     setBusy(true);
     try {
-      await createFabricOrder({
+      const created = await createFabricOrder({
         fabricId: +fabricId, supplierId: supplierId ? +supplierId : null,
         expectedDate: expected || null, rate: rate ? +rate : null, gsm: gsm ? +gsm : null,
         unit: unit as "KG" | "MTR",
@@ -139,12 +148,17 @@ export function FabricOrderManager({
         lines: filled,
       });
       resetForm();
+      // Change 38 Part H — hold on to what we just created so its photo uploader can
+      // appear immediately. ImageUploader attaches on file-drop and so needs a persisted
+      // row; there is no pre-save mode, which is why this is save-then-attach.
+      setAttachId(created.id);
       router.refresh();
     } catch (e) { alert((e as Error).message); } finally { setBusy(false); }
   }
 
   function startEdit(o: Order) {
     setEditingId(o.id);
+    setAttachId(o.id);
     setFabricId(String(o.fabricId));
     setSupplierId(o.supplierId ? String(o.supplierId) : "");
     setExpected(dateInput(o.expectedDate));
@@ -436,6 +450,20 @@ export function FabricOrderManager({
               <button onClick={editingId ? save : create} disabled={busy || !fabricId || filled.length === 0} className="mt-4 w-full rounded-lg bg-primary px-4 py-2.5 t-body font-semibold text-accent-on shadow-sm transition hover:opacity-90 disabled:opacity-40">
                 {busy ? "Saving…" : editingId ? "Save changes" : "Create order"}
               </button>
+
+              {/* Change 38 Part H — shade card / fabric photos on the order itself. */}
+              {attachId != null && (
+                <div className="mt-4 border-t border-hairline pt-3">
+                  <ImageUploader
+                    entity="fabricOrder"
+                    entityId={attachId}
+                    kind="shade_card"
+                    multiple
+                    label="Shade card"
+                    images={orders.find((o) => o.id === attachId)?.images ?? []}
+                  />
+                </div>
+              )}
             </>
           )}
         </Card>
@@ -536,9 +564,6 @@ export function FabricOrderManager({
                         orderId={o.id}
                         kind="FABRIC"
                         buyers={buyers}
-                        signatories={signatories}
-                        meId={meId}
-                        canOverrideSignatory={canOverrideSignatory}
                         disabled={busy}
                       />
                     )}

@@ -79,19 +79,13 @@ export async function getBuyerOptions() {
     select: {
       id: true, name: true, gstNo: true,
       deliveryAddrs: { where: { active: true }, select: { id: true, label: true, address: true }, orderBy: { id: "asc" } },
+      // Change 38 Part F — the PO's authorised signatory is one of the issuing firm's own
+      // people, so the contacts travel with the buyer into the generate dialog.
+      contacts: { select: { id: true, name: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
     },
     orderBy: { name: "asc" },
   });
   return rows;
-}
-
-/** Change 25 Part I — who can be named as the PO's authorised signatory. */
-export async function getSignatoryOptions() {
-  return db.user.findMany({
-    where: { active: true, role: { in: ["ADMIN", "STAFF"] } },
-    select: { id: true, displayName: true, signatureUrl: true },
-    orderBy: { displayName: "asc" },
-  });
 }
 
 export async function getColours() {
@@ -168,7 +162,7 @@ const receivedQtyOf = (cs: OrderChallanLink[]) =>
 
 export async function getFabricOrders() {
   const orders = await db.fabricOrder.findMany({
-    include: { fabric: true, supplier: true, lines: true, challans: CHALLAN_LINK },
+    include: { fabric: true, supplier: true, lines: true, challans: CHALLAN_LINK , images: { select: { id: true, url: true, thumbUrl: true, caption: true }, orderBy: { sortOrder: "asc" as const } } },
     orderBy: [{ status: "asc" }, { expectedDate: "asc" }],
   });
   return orders.map((o) => {
@@ -187,6 +181,8 @@ export async function getFabricOrders() {
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
       poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
       challans, receivedOn: receivedOnOf(challans), receivedQty: receivedQtyOf(challans),
+      // Change 38 Part H — the shade card / sample photos attached to this order.
+      images: o.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, caption: i.caption })),
     };
   });
 }
@@ -214,6 +210,7 @@ type PoDocBuyer = {
 export const contactLabel = (c: { name: string; role?: string | null }) => (c.role ? `${c.name} (${c.role})` : c.name);
 
 function poParties(o: {
+  signatoryName?: string | null;
   supplier: PoDocSupplier;
   buyer: PoDocBuyer;
   deliveryAddress: { label: string | null; address: string } | null;
@@ -242,7 +239,14 @@ function poParties(o: {
         }
       : null,
     shipTo: o.deliveryAddress ? { label: o.deliveryAddress.label, address: o.deliveryAddress.address } : null,
-    signatory: o.placedBy ? { name: o.placedBy.displayName, signatureUrl: o.placedBy.signatureUrl } : null,
+    // Change 38 Part F — the signatory is a contact of the issuing firm, printed as a name
+    // and nothing else. POs issued before this still print their login-user signatory (and
+    // its signature graphic) so an already-filed document never changes shape.
+    signatory: o.signatoryName
+      ? { name: o.signatoryName, signatureUrl: null }
+      : o.placedBy
+        ? { name: o.placedBy.displayName, signatureUrl: o.placedBy.signatureUrl }
+        : null,
     gstRate: o.gstRate,
     images: o.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, caption: i.caption })),
   };
@@ -269,7 +273,7 @@ export async function getFabricOrder(id: number) {
 
 export async function getTrimOrders() {
   const orders = await db.trimOrder.findMany({
-    include: { trimItem: true, supplier: true, lines: true, challans: CHALLAN_LINK },
+    include: { trimItem: true, supplier: true, lines: true, challans: CHALLAN_LINK , images: { select: { id: true, url: true, thumbUrl: true, caption: true }, orderBy: { sortOrder: "asc" as const } } },
     orderBy: [{ status: "asc" }, { expectedDate: "asc" }],
   });
   return orders.map((o) => {
@@ -282,6 +286,8 @@ export async function getTrimOrders() {
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
       poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
       challans, receivedOn: receivedOnOf(challans), receivedQty: receivedQtyOf(challans),
+      // Change 38 Part H — the shade card / sample photos attached to this order.
+      images: o.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, caption: i.caption })),
     };
   });
 }

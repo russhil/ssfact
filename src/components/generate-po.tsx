@@ -26,9 +26,9 @@ export type BuyerOption = {
   name: string;
   gstNo: string | null;
   deliveryAddrs: { id: number; label: string | null; address: string }[];
+  /** Change 38 Part F — the issuing firm's own people; one of them signs the PO. */
+  contacts: { id: number; name: string }[];
 };
-
-export type SignatoryOption = { id: number; displayName: string; signatureUrl: string | null };
 
 const GST_RATES = ["", "0", "5", "12", "18", "28"];
 
@@ -36,18 +36,11 @@ export function GeneratePoButton({
   orderId,
   kind,
   buyers,
-  signatories,
-  meId,
-  canOverrideSignatory,
   disabled,
 }: {
   orderId: number;
   kind: "FABRIC" | "TRIM";
   buyers: BuyerOption[];
-  signatories: SignatoryOption[];
-  meId: number;
-  /** Only an owner may sign on someone else's behalf; the server enforces this too. */
-  canOverrideSignatory: boolean;
   disabled?: boolean;
 }) {
   const router = useRouter();
@@ -58,10 +51,15 @@ export function GeneratePoButton({
   const [buyerId, setBuyerId] = useState(() => (buyers.length === 1 ? String(buyers[0].id) : ""));
   const [addrId, setAddrId] = useState("");
   const [gst, setGst] = useState("");
-  const [placedById, setPlacedById] = useState(String(meId));
+  // Change 38 Part F — the signatory is a contact of whichever firm is issuing, so it is
+  // keyed off the buyer above and resets when that changes.
+  const [signatoryName, setSignatoryName] = useState("");
 
   const buyer = useMemo(() => buyers.find((b) => String(b.id) === buyerId) ?? null, [buyers, buyerId]);
   const addrs = buyer?.deliveryAddrs ?? [];
+  const contacts = buyer?.contacts ?? [];
+  // Default to the firm's first contact, and never carry a name across a change of firm.
+  const effectiveSignatory = contacts.some((c) => c.name === signatoryName) ? signatoryName : contacts[0]?.name ?? "";
   // The chosen address must belong to the chosen firm; default to its first.
   const effectiveAddrId = addrs.some((a) => String(a.id) === addrId) ? addrId : addrs[0] ? String(addrs[0].id) : "";
 
@@ -72,7 +70,7 @@ export function GeneratePoButton({
       buyerId: buyerId ? Number(buyerId) : null,
       deliveryAddressId: effectiveAddrId ? Number(effectiveAddrId) : null,
       gstRate: gst === "" ? null : Number(gst),
-      placedById: Number(placedById),
+      signatoryName: effectiveSignatory || null,
     };
     const ok = await runAction(async () => {
       await (kind === "FABRIC" ? generatePO(args) : generateTrimPO(args));
@@ -111,7 +109,7 @@ export function GeneratePoButton({
         }
       >
         <Field label="Issued from">
-          <Select value={buyerId} onChange={(e) => { setBuyerId(e.target.value); setAddrId(""); }}>
+          <Select value={buyerId} onChange={(e) => { setBuyerId(e.target.value); setAddrId(""); setSignatoryName(""); }}>
             <option value="">—</option>
             {buyers.map((b) => (
               <option key={b.id} value={b.id}>
@@ -145,17 +143,21 @@ export function GeneratePoButton({
           </Select>
         </Field>
 
+        {/* Change 38 Part F — the signatory is a person at the issuing firm, printed by
+            name alone. No login user, no signature graphic. */}
         <Field label="Authorised signatory">
-          {canOverrideSignatory ? (
-            <Select value={placedById} onChange={(e) => setPlacedById(e.target.value)}>
-              {signatories.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.displayName}
+          {!buyer ? (
+            <Input value="" readOnly placeholder="Pick the issuing firm first" />
+          ) : contacts.length === 0 ? (
+            <Input value="" readOnly placeholder={`${buyer.name} has no contacts — add one under Masters`} />
+          ) : (
+            <Select value={effectiveSignatory} onChange={(e) => setSignatoryName(e.target.value)}>
+              {contacts.map((c) => (
+                <option key={c.id} value={c.name}>
+                  {c.name}
                 </option>
               ))}
             </Select>
-          ) : (
-            <Input value={signatories.find((s) => s.id === meId)?.displayName ?? ""} readOnly />
           )}
         </Field>
       </Sheet>
