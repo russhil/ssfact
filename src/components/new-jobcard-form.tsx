@@ -7,39 +7,46 @@ import { createJobCard } from "@/lib/actions";
 import { uploadImage } from "@/lib/uploads";
 import type { JobProductOption } from "@/lib/inventory";
 import { colorKey } from "@/lib/colour";
-import { STAGES, STAGE_LABEL, splitByRatio, DEFAULT_SIZE_RATIO, orderSizes, sizeKey, type Stage } from "@/lib/job-labels";
+import { STAGES, STAGE_LABEL, DEFAULT_SIZE_RATIO, orderSizes, type Stage } from "@/lib/job-labels";
 import { Badge } from "@/components/ui";
 import { useMemoKeyboardList } from "@/components/use-keyboard-list";
 import { num, inr } from "@/lib/format";
 import { Check, AlertTriangle, ArrowLeft, Plus, X, Layers, Image as ImageIcon } from "lucide-react";
+// Change 38 Part D — one layer UI for every layer, and one home for the cell-key helpers
+// that used to be copy-pasted into this file, add-cutting-layer and layer-actions.
+import {
+  COLORLESS,
+  CuttingLayerGrid,
+  deriveLayerCells,
+  emptyLayer,
+  intOrNull,
+  layerCellRows,
+  layerFabricPayload,
+  layerTotal,
+  numOrNull,
+  resolveColourRatio,
+  splitCellKey,
+  type LayerState,
+} from "@/components/job-card/layer-grid";
 
-const COLORLESS = "—";
-const cellKey = (size: string, color: string) => `${size}|||${color}`;
-const splitCellKey = (k: string): [string, string] => {
-  const i = k.indexOf("|||");
-  return [k.slice(0, i), k.slice(i + 3)];
-};
-const numOrNull = (s: string): number | null => (s.trim() === "" || Number.isNaN(+s) ? null : +s);
-const intOrNull = (s: string): number | null => (s.trim() === "" || Number.isNaN(+s) ? null : Math.round(+s));
-
-type CutMode = "ratio" | "manual";
-type ColorMode = "ratio" | "manual";
 type BomDim = "COLOR" | "SIZE" | "FLAT";
 type BomRow = { trimItemId: number | null; material: string; color: string; dimension: BomDim; perPieceQty: number };
-// Change 17 A: `mtr` is Fabric USED; `issued` is Fabric ISSUED (Extra = issued − used, derived).
-// Change 17 B: `ratio` is this lay's own size ratio (null ⇒ fall back to the card ratio).
-// Change 37: `byColour` holds this lay's fabric issued/used per colour. When any colour
-// carries a figure it is the truth and `mtr`/`issued` become the read-only sum of them.
-type LayerMaths = { avg: string; rolls: string; mtr: string; balance: string; issued: string; date: string; master: string; vendor: string; label: string; ratio: [string, number][] | null; byColour: Record<string, { issued: string; used: string }> };
-// Change 26 C: `sizes` is this lay's OWN size list — a real lay may drop 3XL or add 4XL.
-// Seeded from the card's sizes when the layer is created, editable thereafter.
-type ExtraLayer = { id: number; cells: Record<string, number>; maths: LayerMaths; fillColour: string; fillQty: string; sizes: string[]; newSize: string };
 
-const emptyMaths = (): LayerMaths => ({ avg: "", rolls: "", mtr: "", balance: "", issued: "", date: "", master: "", vendor: "", label: "", ratio: null, byColour: {} });
+/** A layer plus the key React needs. Layer 1 is layers[0] — there is no special case. */
+type Layer = LayerState & { id: number };
 
-// Change 26 B: sentinel for the fill dropdown — spread the qty across every colour by the
-// colour ratio, then each colour's share across sizes by the size ratio.
-const ALL_COLOURS = " ALL";
+let layerSeq = 0;
+/**
+ * Change 17 B / 26 C: a new lay seeds its own size list and ratio from the card's default,
+ * and owns both thereafter. A module counter rather than Date.now(), so two layers added in
+ * the same millisecond can't collide on their React key.
+ */
+function newLayer(seed: [string, number][]): Layer {
+  return {
+    ...emptyLayer(seed.map(([s]) => s), seed.map(([s, w]) => [s, w] as [string, number])),
+    id: ++layerSeq,
+  };
+}
 
 export function NewJobCardForm({
   products,
@@ -73,7 +80,6 @@ export function NewJobCardForm({
   const [etd, setEtd] = useState("");
   const [stage, setStage] = useState<Stage>("CUTTING");
   const [remark, setRemark] = useState("");
-  const [newSize, setNewSize] = useState("");
   const [saving, setSaving] = useState(false);
 
   // header additions (Change 10, Part E)
@@ -83,23 +89,18 @@ export function NewJobCardForm({
   const [merchandiser, setMerchandiser] = useState("");
   const [mrpInput, setMrpInput] = useState("");
 
-  // cut sizing (Layer 1 primary grid)
-  const [cutMode, setCutMode] = useState<CutMode>("ratio");
-  const [cutQtyInput, setCutQtyInput] = useState(1200);
-  const [sizeRatio, setSizeRatio] = useState<[string, number][]>([]); // editable, from product
-  const [manualSizeQty, setManualSizeQty] = useState<Record<string, number>>({});
+  // The card's default size ratio, from the product master. It seeds each new lay and is
+  // editable per lay thereafter — the card itself no longer cuts anything directly.
+  const [sizeRatio, setSizeRatio] = useState<[string, number][]>([]);
 
-  // color split (shared across layers)
-  const [colorMode, setColorMode] = useState<ColorMode>("ratio");
+  // colours are a property of the CARD, shared across every lay
   const [activeColors, setActiveColors] = useState<string[]>([]);
-  const [manualCell, setManualCell] = useState<Record<string, number>>({});
   // Change 26 A: hand-edited colour weights, keyed by colour name. Only holds colours the
-  // user actually touched — everything else resolves through the product master, then 1.
+  // user actually touched — everything else resolves through the product master.
   const [colorWeight, setColorWeight] = useState<Record<string, number>>({});
 
-  // Layer 1 fabric maths + extra layers (Change 10, Part B/C/D)
-  const [l1, setL1] = useState<LayerMaths>(emptyMaths());
-  const [extraLayers, setExtraLayers] = useState<ExtraLayer[]>([]);
+  // Change 38 Part D: every lay, including the first, is one of these.
+  const [layers, setLayers] = useState<Layer[]>([]);
 
   // Change 14 Part C: average is ONE value per job card (not per colour).
   const [cardAvg, setCardAvg] = useState("");
@@ -117,7 +118,6 @@ export function NewJobCardForm({
   // editable trim sheet (Change 02)
   const [bomRows, setBomRows] = useState<BomRow[]>([]);
 
-  const sizes = useMemo(() => sizeRatio.map(([s]) => s), [sizeRatio]);
   const colors = picked?.colors ?? [];
   const hasColors = colors.length > 0 && activeColors.length > 0;
   const gridColours = colors.length > 0 ? activeColors : [""]; // colourless products cut in one row
@@ -131,89 +131,40 @@ export function NewJobCardForm({
    * instead means there is no longer a code path where an active colour has no weight:
    * hand-edited → product master → 1.
    */
-  const colourRatio = useMemo<[string, number][]>(() => {
-    const fromProduct = new Map(picked?.colorRatio ?? []);
-    // A colour the master has never heard of joins as an EQUAL share, not weight 1 — the
-    // master stores fractions (0.1667 each), so a literal 1 would hand the new colour six
-    // times everyone else's cut.
-    const known = gridColours.map((c) => fromProduct.get(c)).filter((w): w is number => w != null);
-    const fallback = known.length ? known.reduce((a, w) => a + w, 0) / known.length : 1;
-    return gridColours.map((c) => [c, colorWeight[c] ?? fromProduct.get(c) ?? fallback]);
-  }, [gridColours, colorWeight, picked]);
+  const colourRatio = useMemo<[string, number][]>(
+    () => resolveColourRatio(gridColours, colorWeight, new Map(picked?.colorRatio ?? [])),
+    [gridColours, colorWeight, picked]
+  );
 
-  // per-size totals (Layer 1)
-  const sizeQty = useMemo<Record<string, number>>(() => {
-    if (cutMode === "manual") {
-      const out: Record<string, number> = {};
-      for (const s of sizes) out[s] = Math.max(0, Math.round(manualSizeQty[s] ?? 0));
-      return out;
-    }
-    const split = splitByRatio(cutQtyInput, sizeRatio);
-    const out: Record<string, number> = {};
-    for (const s of sizes) out[s] = split.get(s) ?? 0;
-    return out;
-  }, [cutMode, manualSizeQty, cutQtyInput, sizeRatio, sizes]);
+  /** Every lay's derived cells, in layer order. The single source of truth for all roll-ups. */
+  const layerCells = useMemo(
+    () => layers.map((L) => deriveLayerCells(L, gridColours, colourRatio)),
+    [layers, gridColours, colourRatio]
+  );
 
-  // Layer 1 matrix = {size,color,qty}[]
-  const matrix = useMemo(() => {
-    const rows: { size: string; color: string; qty: number }[] = [];
-    if (!hasColors) {
-      for (const s of sizes) rows.push({ size: s, color: "", qty: sizeQty[s] ?? 0 });
-      return rows;
-    }
-    for (const s of sizes) {
-      if (colorMode === "manual") {
-        for (const c of activeColors) rows.push({ size: s, color: c, qty: Math.max(0, Math.round(manualCell[cellKey(s, c)] ?? 0)) });
-      } else {
-        // Change 26 A: split on the resolved colour ratio — every active colour has a weight.
-        const split = splitByRatio(sizeQty[s] ?? 0, colourRatio);
-        for (const c of activeColors) rows.push({ size: s, color: c, qty: split.get(c) ?? 0 });
-      }
-    }
-    return rows;
-  }, [hasColors, sizes, sizeQty, colourRatio, activeColors, colorMode, manualCell]);
-
-  const layer1Total = matrix.reduce((a, m) => a + m.qty, 0);
-  const matrixByCell = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const r of matrix) m.set(cellKey(r.size, r.color || COLORLESS), r.qty);
-    return m;
-  }, [matrix]);
-  const colTotals = useMemo(() => {
-    // Change 26 D: seeded from the cells, not from the size axis, so a size only some
-    // layers cut still totals correctly.
-    const t: Record<string, number> = {};
-    for (const r of matrix) t[r.size] = (t[r.size] ?? 0) + r.qty;
-    return t;
-  }, [matrix]);
-
-  // Change 26 A: Layer 1 pieces per colour — the "N pc" hint under each colour weight.
+  // Change 26 A: pieces per colour on the FIRST lay — the "N pc" hint under each colour weight.
   const colourTotalsL1 = useMemo(() => {
     const t: Record<string, number> = {};
-    for (const r of matrix) t[r.color] = (t[r.color] ?? 0) + r.qty;
+    for (const [k, q] of layerCells[0] ?? new Map()) t[splitCellKey(k)[1]] = (t[splitCellKey(k)[1]] ?? 0) + q;
     return t;
-  }, [matrix]);
-
-  // extra-layer totals
-  const extraTotal = useMemo(
-    () => extraLayers.reduce((a, L) => a + Object.values(L.cells).reduce((x, q) => x + (q > 0 ? q : 0), 0), 0),
-    [extraLayers]
-  );
+  }, [layerCells]);
 
   // combined cells across ALL layers — drives the live fabric preview + trim explosion + grand total
   const combinedCells = useMemo(() => {
     const m = new Map<string, { size: string; color: string; qty: number }>();
-    const add = (size: string, color: string, qty: number) => {
-      if (qty <= 0) return;
-      const k = cellKey(size, color);
-      const e = m.get(k) ?? { size, color, qty: 0 };
-      e.qty += qty;
-      m.set(k, e);
-    };
-    for (const r of matrix) add(r.size, r.color, r.qty);
-    for (const L of extraLayers) for (const [k, q] of Object.entries(L.cells)) { const [size, color] = splitCellKey(k); add(size, color, q); }
+    for (let i = 0; i < layers.length; i++) {
+      for (const [k, qty] of layerCells[i] ?? new Map()) {
+        if (qty <= 0) continue;
+        const [size, color] = splitCellKey(k);
+        // a size the user removed from this lay must never reach a roll-up
+        if (!layers[i].sizes.includes(size)) continue;
+        const e = m.get(k) ?? { size, color, qty: 0 };
+        e.qty += qty;
+        m.set(k, e);
+      }
+    }
     return [...m.values()];
-  }, [matrix, extraLayers]);
+  }, [layers, layerCells]);
 
   const cutQty = combinedCells.reduce((a, c) => a + c.qty, 0);
 
@@ -284,16 +235,14 @@ export function NewJobCardForm({
       return { label, rows };
     };
     const out: { label: string; rows: { display: string; qty: number; used: number | null; left: number | null }[] }[] = [];
-    const l1cells = matrix.filter((r) => r.qty > 0).map((r) => ({ color: r.color, qty: r.qty }));
-    if (l1cells.length) out.push(build(l1.label.trim() || "Layer 1", l1cells, grandAvg));
-    extraLayers.forEach((L, i) => {
-      const cells = Object.entries(L.cells)
-        .filter(([, q]) => q > 0)
-        .map(([k, q]) => { const [, color] = splitCellKey(k); return { color, qty: q }; });
-      if (cells.length) out.push(build(L.maths.label.trim() || `Layer ${i + 2}`, cells, numOrNull(L.maths.avg) ?? grandAvg));
+    layers.forEach((L, i) => {
+      const cells = [...(layerCells[i] ?? new Map())]
+        .filter(([k, q]) => q > 0 && L.sizes.includes(splitCellKey(k)[0]))
+        .map(([k, q]) => ({ color: splitCellKey(k)[1], qty: q }));
+      if (cells.length) out.push(build(L.label.trim() || `Layer ${i + 1}`, cells, numOrNull(L.avg) ?? grandAvg));
     });
     return out;
-  }, [picked, matrix, extraLayers, cardAvg, l1]);
+  }, [picked, layers, layerCells, cardAvg]);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -347,8 +296,6 @@ export function NewJobCardForm({
     setQuery(p.styleNo);
     setOpen(false);
     setSizeRatio(p.sizeRatio);
-    setManualSizeQty({});
-    setManualCell({});
     setColorWeight({}); // Change 26 A: drop hand-edits, fall back to the new product's ratio
     setColorAvg({});
     setCardAvg("");
@@ -358,8 +305,7 @@ export function NewJobCardForm({
     setColorReqMtr({});
     setColorRolls({});
     setColorImage({});
-    setL1(emptyMaths());
-    setExtraLayers([]);
+    setLayers([newLayer(p.sizeRatio)]);
     setMrpInput(p.mrp != null ? String(p.mrp) : "");
     setBomRows(presetRows(p));
     setActiveColors(p.colors.map((c) => c.name)); // default: all colors in play
@@ -379,146 +325,48 @@ export function NewJobCardForm({
     setQuery("");
     setOpen(false);
     setMto(true);
-    setSizeRatio((prev) => (prev.length ? prev : [...DEFAULT_SIZE_RATIO]));
+    setSizeRatio((prev) => {
+      const r = prev.length ? prev : [...DEFAULT_SIZE_RATIO];
+      setLayers((rows) => (rows.length ? rows : [newLayer(r)]));
+      return r;
+    });
   }
 
   function toggleColor(name: string) {
     setActiveColors((prev) => (prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]));
   }
 
-  // ── extra layers ──
-  let layerSeq = 0;
-  function addLayer() {
-    layerSeq = Date.now();
-    // Change 17 B: seed the new lay's own ratio from the card ratio (editable thereafter).
-    // Change 26 C: seed its size list the same way — also editable thereafter.
-    const seedRatio = sizeRatio.map(([s, w]) => [s, w] as [string, number]);
-    setExtraLayers((rows) => [
-      ...rows,
-      {
-        id: layerSeq + rows.length,
-        cells: {},
-        maths: { ...emptyMaths(), ratio: seedRatio },
-        fillColour: gridColours[0] ?? "",
-        fillQty: "",
-        sizes: seedRatio.map(([s]) => s),
-        newSize: "",
-      },
-    ]);
-  }
-
-  // ── Change 26 C: per-layer size list ──
-  function addLayerSize(id: number, raw: string) {
-    const s = sizeKey(raw);
-    if (!s) return;
-    setExtraLayers((rows) =>
-      rows.map((L) => {
-        if (L.id !== id || L.sizes.includes(s)) return L;
-        const prev = L.maths.ratio ?? sizeRatio;
-        // Weight the new size as an EQUAL share of the existing curve, not a literal 1 —
-        // the card's weights are fractions (0.08…0.25), so a 1 would hand one size the lay.
-        const w = prev.length ? prev.reduce((a, [, x]) => a + x, 0) / prev.length : 1;
-        return {
-          ...L,
-          sizes: [...L.sizes, s].sort(orderSizes),
-          maths: { ...L.maths, ratio: [...prev, [s, w] as [string, number]].sort((a, b) => orderSizes(a[0], b[0])) },
-          newSize: "",
-        };
-      })
-    );
-  }
-  function removeLayerSize(id: number, s: string) {
-    setExtraLayers((rows) =>
-      rows.map((L) => {
-        if (L.id !== id) return L;
-        // drop the column's cells too — a hidden size must never reach the payload
-        const cells = Object.fromEntries(Object.entries(L.cells).filter(([k]) => splitCellKey(k)[0] !== s));
-        return {
-          ...L,
-          sizes: L.sizes.filter((x) => x !== s),
-          cells,
-          maths: { ...L.maths, ratio: (L.maths.ratio ?? sizeRatio).filter(([x]) => x !== s) },
-        };
-      })
-    );
-  }
-  const patchLayer = (id: number, patch: Partial<ExtraLayer>) =>
-    setExtraLayers((rows) => rows.map((L) => (L.id === id ? { ...L, ...patch } : L)));
-  const patchLayerMaths = (id: number, patch: Partial<LayerMaths>) =>
-    setExtraLayers((rows) => rows.map((L) => (L.id === id ? { ...L, maths: { ...L.maths, ...patch } } : L)));
-  const setLayerCell = (id: number, size: string, colour: string, qty: number) =>
-    setExtraLayers((rows) => rows.map((L) => (L.id === id ? { ...L, cells: { ...L.cells, [cellKey(size, colour)]: Math.max(0, Math.round(qty)) } } : L)));
-  function fillLayerFromRatio(id: number) {
-    setExtraLayers((rows) =>
-      rows.map((L) => {
-        if (L.id !== id) return L;
-        const qty = numOrNull(L.fillQty);
-        if (qty == null || qty <= 0) return L;
-        // Change 17 B: split by this lay's own ratio, else the card ratio.
-        // Change 26 C: over this lay's own size list.
-        const ratioPairs = (L.maths.ratio ?? sizeRatio).filter(([s]) => L.sizes.includes(s));
-        const cells = { ...L.cells };
-        // Change 26 B: "All colours" spreads the total by the colour ratio first, then each
-        // colour's share across sizes — one entry fills the whole grid.
-        const targets: [string, number][] =
-          L.fillColour === ALL_COLOURS
-            ? gridColours.map((c) => [c, splitByRatio(qty, colourRatio).get(c) ?? 0])
-            : [[L.fillColour, qty]];
-        for (const [colour, colourQty] of targets) {
-          const split = splitByRatio(colourQty, ratioPairs);
-          for (const s of L.sizes) cells[cellKey(s, colour)] = split.get(s) ?? 0;
-        }
-        return { ...L, cells };
-      })
-    );
-  }
-  // Change 17 B: edit one weight of a lay's own size ratio (keyed by size, not index —
-  // Change 26 C lets the size list differ from the card's).
-  const setLayerRatioWeight = (id: number, size: string, w: number) =>
-    setExtraLayers((rows) =>
-      rows.map((L) =>
-        L.id === id
-          ? { ...L, maths: { ...L.maths, ratio: (L.maths.ratio ?? sizeRatio).map((row) => (row[0] === size ? [row[0], Math.max(0, w)] as [string, number] : row)) } }
-          : L
-      )
-    );
+  // ── layers ──
+  const addLayer = () => setLayers((rows) => [...rows, newLayer(sizeRatio)]);
+  const removeLayer = (id: number) => setLayers((rows) => rows.filter((L) => L.id !== id));
+  const patchLayer = (id: number, patch: Partial<LayerState>) =>
+    setLayers((rows) => rows.map((L) => (L.id === id ? { ...L, ...patch } : L)));
 
   // build the layers payload for save
   function buildLayers() {
-    const layerFromMaths = (m: LayerMaths, cells: { colour: string; size: string; qty: number }[], fallbackLabel: string, ratio: [string, number][]) => ({
-      label: m.label.trim() || fallbackLabel,
-      cutDate: m.date || null,
-      cuttingMaster: m.master || null,
-      vendorName: m.vendor || null,
-      avgConsumption: numOrNull(m.avg),
-      rolls: intOrNull(m.rolls),
-      fabricMtr: numOrNull(m.mtr), // Fabric USED
-      fabricBalance: numOrNull(m.balance),
-      fabricIssued: numOrNull(m.issued), // Change 17 A
-      // Change 37 — only colours that actually carry a figure; an empty row posts
-      // nothing, so a lay entered the old way still takes the proportional path.
-      fabricByColour: (() => {
-        const rows = Object.entries(m.byColour ?? {})
-          .map(([colour, v]) => ({ colour, issued: numOrNull(v.issued), used: numOrNull(v.used) }))
-          .filter((r) => r.issued != null || r.used != null);
-        return rows.length ? rows : null;
-      })(),
-      sizeRatio: ratio.length ? JSON.stringify(ratio) : null, // Change 17 B
-      cells,
-    });
     const out = [];
-    const l1Cells = matrix.filter((r) => r.qty > 0).map((r) => ({ colour: r.color, size: r.size, qty: r.qty }));
-    if (l1Cells.length) out.push(layerFromMaths(l1, l1Cells, "Layer 1", sizeRatio));
-    extraLayers.forEach((L, i) => {
-      // Change 26 C: only this lay's own sizes reach the payload — a size the user removed
-      // must not survive in a stale cell or in the stored ratio.
-      const cells = Object.entries(L.cells)
-        .filter(([, q]) => q > 0)
-        .map(([k, q]) => { const [size, colour] = splitCellKey(k); return { colour, size, qty: q }; })
-        .filter((c) => L.sizes.includes(c.size));
-      const ratio = (L.maths.ratio ?? sizeRatio).filter(([s]) => L.sizes.includes(s));
-      if (cells.length) out.push(layerFromMaths(L.maths, cells, `Layer ${i + 2}`, ratio));
-    });
+    for (let i = 0; i < layers.length; i++) {
+      const L = layers[i];
+      const cells = layerCellRows(L, layerCells[i] ?? new Map());
+      if (!cells.length) continue;
+      const ratio = L.ratio.filter(([s]) => L.sizes.includes(s));
+      out.push({
+        label: L.label.trim() || `Layer ${i + 1}`,
+        cutDate: L.date || null,
+        cuttingMaster: L.master || null,
+        vendorName: L.vendor || null,
+        avgConsumption: numOrNull(L.avg),
+        rolls: intOrNull(L.rolls),
+        // Change 38 Part B: with colour rows the server derives these from them; the layer
+        // figures below are only used by a lay entered without any per-colour fabric.
+        fabricMtr: null,
+        fabricBalance: null,
+        fabricIssued: null,
+        fabricByColour: layerFabricPayload(L),
+        sizeRatio: ratio.length ? JSON.stringify(ratio) : null, // Change 17 B
+        cells,
+      });
+    }
     return out;
   }
 
@@ -751,125 +599,35 @@ export function NewJobCardForm({
 
           {picked && (
             <>
-              {/* ── Layer 1 (primary grid) ── */}
-              <div className="mt-5 rounded-xl border border-border bg-surface-2 p-3.5">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1.5 t-xs font-bold uppercase tracking-wide text-primary-ink"><Layers size={13} /> Layer 1</span>
-                  <span className="t-xs text-muted">{num(layer1Total)} pcs</span>
-                </div>
-
-                {/* cut sizing */}
-                <div className="flex items-center justify-between">
-                  <label className="t-xs font-semibold text-t1">Cut sizing</label>
-                  <Toggle value={cutMode} onChange={setCutMode} options={[["ratio", "By ratio"], ["manual", "Manual"]]} />
-                </div>
-
-                {/* flexible size set — add/remove a size column for this card only */}
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {sizes.map((s) => (
-                    <span key={s} className="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-0.5 t-xs font-semibold">
-                      {s}
-                      <button type="button" onClick={() => setSizeRatio((r) => r.filter(([n]) => n !== s))} className="text-faint hover:text-danger"><X size={11} /></button>
-                    </span>
-                  ))}
-                  <input
-                    value={newSize}
-                    onChange={(e) => setNewSize(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && newSize.trim()) {
-                        const n = newSize.trim().toUpperCase();
-                        setSizeRatio((r) => (r.some(([x]) => x === n) ? r : [...r, [n, 0.1]]));
-                        setNewSize("");
-                      }
-                    }}
-                    placeholder="+ size"
-                    className="w-16 rounded-full border border-dashed border-border px-2 py-0.5 t-xs outline-none focus:border-primary"
-                  />
-                </div>
-
-                {cutMode === "ratio" && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className="t-xs font-semibold text-t1">Cut Qty</span>
-                    <input
-                      type="number"
-                      value={cutQtyInput || ""}
-                      placeholder="0"
-                      onChange={(e) => setCutQtyInput(Math.max(0, +e.target.value))}
-                      className="w-28 rounded-lg border border-border px-3 py-2 t-body font-semibold outline-none focus:border-primary"
-                    />
-                    {sizeRatio.length > 0 && (
-                      <span className="t-micro text-faint">edit per-size ratio below (e.g. 1 : 1.5 : 2 : 2 : 1)</span>
-                    )}
+              {/* ── colours: a property of the CARD, shared by every lay ── */}
+              {colors.length > 0 && (
+                <div className="mt-5 rounded-xl border border-border bg-surface-2 p-3.5">
+                  <label className="t-xs font-semibold text-t1">Colours</label>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {colors.map((c) => {
+                      const on = activeColors.includes(c.name);
+                      return (
+                        <button
+                          key={c.name}
+                          type="button"
+                          onClick={() => toggleColor(c.name)}
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 t-xs font-semibold transition ${
+                            on ? "border-primary bg-primary-soft text-primary-ink" : "border-border text-t2 hover:text-ink"
+                          }`}
+                        >
+                          {c.hex && <span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ background: c.hex }} />}
+                          {c.name}
+                        </button>
+                      );
+                    })}
                   </div>
-                )}
 
-                {/* per-size split / inputs */}
-                <div className="mt-3 grid gap-1.5 text-center" style={{ gridTemplateColumns: `repeat(${sizes.length + 1}, minmax(0, 1fr))` }}>
-                  {sizes.map((s, i) => (
-                    <div key={s}>
-                      <div className="t-micro font-bold text-faint">{s}</div>
-                      {cutMode === "manual" ? (
-                        <input
-                          type="number"
-                          value={manualSizeQty[s] || ""}
-                          placeholder="0"
-                          onChange={(e) => setManualSizeQty((p) => ({ ...p, [s]: Math.max(0, +e.target.value) }))}
-                          className="mt-1 w-full rounded-md border border-border bg-surface py-1.5 text-center t-sm font-bold tnum outline-none focus:border-primary"
-                        />
-                      ) : (
-                        // Change 14 Part D: ratio weight editable for ANY number of sizes; pcs shown below.
-                        <>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={sizeRatio[i]?.[1] ?? 0}
-                            onChange={(e) =>
-                              setSizeRatio((prev) => prev.map((row, idx) => (idx === i ? [row[0], Math.max(0, +e.target.value)] : row)))
-                            }
-                            className="mt-1 w-full rounded-md border border-border bg-surface py-1.5 text-center t-sm font-bold tnum outline-none focus:border-primary"
-                          />
-                          <div className="mt-0.5 t-micro text-faint tnum">{num(sizeQty[s] ?? 0)} pc</div>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                  <div>
-                    <div className="t-micro font-bold text-primary-ink">Total</div>
-                    <div className="mt-1 rounded-md bg-primary-soft py-1.5 t-sm font-bold text-primary-ink tnum">{num(layer1Total)}</div>
-                  </div>
-                </div>
-
-                {/* colors */}
-                {colors.length > 0 && (
-                  <>
-                    <div className="mt-4 flex items-center justify-between">
-                      <label className="t-xs font-semibold text-t1">Colours</label>
-                      <Toggle value={colorMode} onChange={setColorMode} options={[["ratio", "By ratio"], ["manual", "Manual grid"]]} />
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {colors.map((c) => {
-                        const on = activeColors.includes(c.name);
-                        return (
-                          <button
-                            key={c.name}
-                            type="button"
-                            onClick={() => toggleColor(c.name)}
-                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 t-xs font-semibold transition ${
-                              on ? "border-primary bg-primary-soft text-primary-ink" : "border-border text-t2 hover:text-ink"
-                            }`}
-                          >
-                            {c.hex && <span className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ background: c.hex }} />}
-                            {c.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Change 26 A: the colour ratio, visible and editable — mirrors the size
-                        ratio above. Seeded from the product master; a colour added on this card
-                        joins at weight 1 instead of silently splitting to zero. */}
-                    {hasColors && colorMode === "ratio" && (
-                      <div className="mt-3 grid gap-1.5 text-center" style={{ gridTemplateColumns: `repeat(${colourRatio.length}, minmax(0, 1fr))` }}>
+                  {/* Change 26 A: the colour ratio, visible and editable. Seeded from the product
+                      master; a colour added on this card joins as an equal share, never weight 1. */}
+                  {hasColors && (
+                    <div className="mt-3">
+                      <div className="mb-1 t-micro font-semibold uppercase tracking-wide text-faint">Colour ratio</div>
+                      <div className="grid gap-1.5 text-center" style={{ gridTemplateColumns: `repeat(${colourRatio.length}, minmax(0, 1fr))` }}>
                         {colourRatio.map(([c, w]) => (
                           <div key={c}>
                             <div className="t-micro font-bold text-faint">{c}</div>
@@ -880,159 +638,40 @@ export function NewJobCardForm({
                               onChange={(e) => setColorWeight((p) => ({ ...p, [c]: Math.max(0, +e.target.value) }))}
                               className="mt-1 w-full rounded-md border border-border bg-surface py-1.5 text-center t-sm font-bold tnum outline-none focus:border-primary"
                             />
-                            <div className="mt-0.5 t-micro text-faint tnum">{num(colourTotalsL1[c] ?? 0)} pc</div>
+                            <div className="mt-0.5 t-micro text-faint tnum">{num(colourTotalsL1[c] ?? 0)} pc on layer 1</div>
                           </div>
                         ))}
                       </div>
-                    )}
+                    </div>
+                  )}
+                </div>
+              )}
 
-                    {/* size×color matrix */}
-                    {hasColors && (
-                      <div className="mt-3 overflow-x-auto">
-                        <table className="w-full text-center t-sm">
-                          <thead>
-                            <tr className="t-micro font-bold text-faint">
-                              <th className="px-2 py-1 text-left">Colour \ Size</th>
-                              {sizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
-                              <th className="px-2 py-1 text-primary-ink">Total</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {activeColors.map((c) => {
-                              const rowTotal = sizes.reduce((a, s) => a + (matrixByCell.get(cellKey(s, c)) ?? 0), 0);
-                              return (
-                                <tr key={c}>
-                                  <td className="px-2 py-1 text-left font-semibold text-t1">{c}</td>
-                                  {sizes.map((s) => (
-                                    <td key={s} className="px-1 py-1">
-                                      {colorMode === "manual" ? (
-                                        <input
-                                          type="number"
-                                          value={manualCell[cellKey(s, c)] || ""}
-                                          placeholder="0"
-                                          onChange={(e) => setManualCell((p) => ({ ...p, [cellKey(s, c)]: Math.max(0, +e.target.value) }))}
-                                          className="w-full min-w-[44px] rounded-md border border-border bg-surface py-1 text-center t-xs font-bold tnum outline-none focus:border-primary"
-                                        />
-                                      ) : (
-                                        <div className="rounded-md bg-surface py-1 t-xs font-bold tnum">{num(matrixByCell.get(cellKey(s, c)) ?? 0)}</div>
-                                      )}
-                                    </td>
-                                  ))}
-                                  <td className="px-2 py-1 font-bold text-primary-ink tnum">{num(rowTotal)}</td>
-                                </tr>
-                              );
-                            })}
-                            <tr className="border-t border-border">
-                              <td className="px-2 py-1 text-left t-micro font-bold text-primary-ink">Total</td>
-                              {sizes.map((s) => <td key={s} className="px-2 py-1 font-bold tnum">{num(colTotals[s] ?? 0)}</td>)}
-                              <td className="px-2 py-1 font-extrabold text-primary-ink tnum">{num(layer1Total)}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* layer 1 fabric maths + date/master */}
-                <LayerMathsRow maths={l1} colours={gridColours} masters={masters} vendors={vendors} onChange={(patch) => setL1((m) => ({ ...m, ...patch }))} />
-              </div>
-
-              {/* ── extra layers ── */}
-              {extraLayers.map((L, idx) => (
+              {/* ── Change 38 Part D: every lay, including the first, renders the same grid ── */}
+              {layers.map((L, idx) => (
                 <div key={L.id} className="mt-3 rounded-xl border border-border bg-surface-2 p-3.5">
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 t-xs font-bold uppercase tracking-wide text-primary-ink"><Layers size={13} /> Layer {idx + 2}</span>
-                    <button type="button" onClick={() => setExtraLayers((rows) => rows.filter((x) => x.id !== L.id))} className="inline-flex items-center gap-1 t-xs font-semibold text-faint hover:text-danger"><X size={12} /> remove</button>
+                    <span className="inline-flex items-center gap-1.5 t-xs font-bold uppercase tracking-wide text-primary-ink">
+                      <Layers size={13} /> Layer {idx + 1}
+                    </span>
+                    <span className="flex items-center gap-3">
+                      <span className="t-xs text-muted">{num(layerTotal(layerCells[idx] ?? new Map()))} pcs</span>
+                      {layers.length > 1 && (
+                        <button type="button" onClick={() => removeLayer(L.id)} className="inline-flex items-center gap-1 t-xs font-semibold text-faint hover:text-danger">
+                          <X size={12} /> remove
+                        </button>
+                      )}
+                    </span>
                   </div>
 
-                  {/* ratio-per-ply quick fill */}
-                  <div className="mb-2 flex flex-wrap items-center gap-1.5 t-xs">
-                    <span className="text-t2">Fill</span>
-                    <select value={L.fillColour} onChange={(e) => patchLayer(L.id, { fillColour: e.target.value })} className="rounded-md border border-border bg-surface px-1.5 py-1 outline-none focus:border-primary">
-                      {/* Change 26 B */}
-                      {gridColours.length > 1 && <option value={ALL_COLOURS}>All colours</option>}
-                      {gridColours.map((c) => <option key={c || COLORLESS} value={c}>{c || COLORLESS}</option>)}
-                    </select>
-                    <span className="text-t2">with</span>
-                    <input type="number" value={L.fillQty} placeholder="pcs" onChange={(e) => patchLayer(L.id, { fillQty: e.target.value })} className="w-20 rounded-md border border-border px-1.5 py-1 text-right tnum outline-none focus:border-primary" />
-                    <button type="button" onClick={() => fillLayerFromRatio(L.id)} className="rounded-md border border-border bg-surface px-2 py-1 font-semibold text-t1 hover:bg-surface-2">apply size ratio</button>
-                  </div>
-
-                  {/* Change 26 C: this lay's own sizes — a lay may drop or add a size */}
-                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                    <span className="t-micro font-semibold uppercase tracking-wide text-faint">Sizes</span>
-                    {L.sizes.map((s) => (
-                      <span key={s} className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 t-xs font-semibold text-t1">
-                        {s}
-                        <button type="button" onClick={() => removeLayerSize(L.id, s)} className="text-faint hover:text-danger"><X size={11} /></button>
-                      </span>
-                    ))}
-                    <input
-                      value={L.newSize}
-                      onChange={(e) => patchLayer(L.id, { newSize: e.target.value })}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLayerSize(L.id, L.newSize); } }}
-                      onBlur={() => addLayerSize(L.id, L.newSize)}
-                      placeholder="+ size"
-                      className="w-20 rounded-md border border-dashed border-border bg-surface px-1.5 py-0.5 t-xs uppercase outline-none focus:border-primary"
-                    />
-                  </div>
-
-                  {/* Change 17 B: this lay's own size ratio (defaults from the card, editable) */}
-                  <div className="mb-2 rounded-md border border-dashed border-border bg-surface/60 p-2">
-                    <div className="mb-1 t-micro font-semibold uppercase tracking-wide text-faint">This lay&apos;s size ratio</div>
-                    <div className="grid gap-1 text-center" style={{ gridTemplateColumns: `repeat(${L.sizes.length}, minmax(0, 1fr))` }}>
-                      {L.sizes.map((s) => (
-                        <div key={s}>
-                          <div className="t-micro font-bold text-faint">{s}</div>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={(L.maths.ratio ?? sizeRatio).find(([x]) => x === s)?.[1] ?? 1}
-                            onChange={(e) => setLayerRatioWeight(L.id, s, +e.target.value)}
-                            className="mt-0.5 w-full rounded-md border border-border bg-surface py-1 text-center t-xs font-bold tnum outline-none focus:border-primary"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* colour×size grid */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-center t-sm">
-                      <thead>
-                        <tr className="t-micro font-bold text-faint">
-                          <th className="px-2 py-1 text-left">Colour \ Size</th>
-                          {L.sizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
-                          <th className="px-2 py-1 text-primary-ink">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {gridColours.map((c) => {
-                          const rowTotal = L.sizes.reduce((a, s) => a + (L.cells[cellKey(s, c)] ?? 0), 0);
-                          return (
-                            <tr key={c || COLORLESS}>
-                              <td className="px-2 py-1 text-left font-semibold text-t1">{c || COLORLESS}</td>
-                              {L.sizes.map((s) => (
-                                <td key={s} className="px-1 py-1">
-                                  <input
-                                    type="number"
-                                    value={L.cells[cellKey(s, c)] || ""}
-                                    placeholder="0"
-                                    onChange={(e) => setLayerCell(L.id, s, c, +e.target.value)}
-                                    className="w-full min-w-[44px] rounded-md border border-border bg-surface py-1 text-center t-xs font-bold tnum outline-none focus:border-primary"
-                                  />
-                                </td>
-                              ))}
-                              <td className="px-2 py-1 font-bold text-primary-ink tnum">{num(rowTotal)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <LayerMathsRow maths={L.maths} colours={gridColours} masters={masters} vendors={vendors} onChange={(patch) => patchLayerMaths(L.id, patch)} />
+                  <CuttingLayerGrid
+                    layer={L}
+                    colours={gridColours}
+                    colourRatio={colourRatio}
+                    masters={masters}
+                    vendors={vendors}
+                    onChange={(patch) => patchLayer(L.id, patch)}
+                  />
                 </div>
               ))}
 
@@ -1285,96 +924,7 @@ export function NewJobCardForm({
   );
 }
 
-function LayerMathsRow({ maths, colours, masters, vendors, onChange }: { maths: LayerMaths; colours: string[]; masters: string[]; vendors: string[]; onChange: (patch: Partial<LayerMaths>) => void }) {
-  // Change 17 A: Issued / Used / Extra are the reconciliation trio. Extra = Issued − Used,
-  // may be negative (short-issued) — shown in rose, never clamped. avg/rolls/balance stay as
-  // faint suggestion fields.
-  // Change 37: fabric is issued colour-wise, so it is entered colour-wise. Once any
-  // colour carries a figure the layer issued/used below become the read-only Σ of them.
-  const cf = (c: string) => maths.byColour?.[c] ?? { issued: "", used: "" };
-  const setCf = (c: string, k: "issued" | "used", v: string) =>
-    onChange({ byColour: { ...(maths.byColour ?? {}), [c]: { ...cf(c), [k]: v } } });
-  const sumCf = (k: "issued" | "used") => {
-    const v = colours.map((c) => numOrNull(cf(c)[k])).filter((x): x is number => x != null);
-    return v.length ? Math.round(v.reduce((a, b) => a + b, 0) * 100) / 100 : null;
-  };
-  const perColour = colours.some((c) => numOrNull(cf(c).issued) != null || numOrNull(cf(c).used) != null);
 
-  const issuedV = perColour ? sumCf("issued") : numOrNull(maths.issued);
-  const usedV = perColour ? sumCf("used") : numOrNull(maths.mtr);
-  const extra = issuedV != null ? Math.round((issuedV - (usedV ?? 0)) * 100) / 100 : null;
-  const inp = "w-full rounded-md border border-border bg-surface px-1.5 py-1 t-xs tnum outline-none focus:border-primary";
-  const faint = "w-full rounded-md border border-border bg-surface-2 px-1.5 py-1 t-xs tnum text-faint outline-none focus:border-primary focus:bg-surface";
-  return (
-    <div className="mt-3 border-t border-border/60 pt-2.5">
-      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6 lg:grid-cols-9">
-        <MathField label="avg m/pc (est)"><input type="number" step="0.001" value={maths.avg} placeholder="—" onChange={(e) => onChange({ avg: e.target.value })} className={faint} /></MathField>
-        <MathField label="rolls"><input type="number" value={maths.rolls} placeholder="—" onChange={(e) => onChange({ rolls: e.target.value })} className={faint} /></MathField>
-        <MathField label="balance"><input type="number" step="0.01" value={maths.balance} placeholder="—" onChange={(e) => onChange({ balance: e.target.value })} className={faint} /></MathField>
-        <MathField label="fabric issued">
-          {perColour
-            ? <div className="rounded-md border border-border bg-surface-2 px-1.5 py-1 t-xs font-semibold tnum text-t1" title="Σ issued across the colour rows">{issuedV != null ? num(issuedV, 2) : "—"}</div>
-            : <input type="number" step="0.01" value={maths.issued} placeholder="—" onChange={(e) => onChange({ issued: e.target.value })} className={inp} />}
-        </MathField>
-        <MathField label="fabric used">
-          {perColour
-            ? <div className="rounded-md border border-border bg-surface-2 px-1.5 py-1 t-xs font-semibold tnum text-t1" title="Σ used across the colour rows">{usedV != null ? num(usedV, 2) : "—"}</div>
-            : <input type="number" step="0.01" value={maths.mtr} placeholder="—" onChange={(e) => onChange({ mtr: e.target.value })} className={inp} />}
-        </MathField>
-        <MathField label="extra">
-          <div className={`rounded-md border border-border bg-surface-2 px-1.5 py-1 t-xs font-semibold tnum ${extra != null && extra < 0 ? "text-danger" : "text-t1"}`}>
-            {extra != null ? num(extra, 2) : "—"}
-          </div>
-        </MathField>
-        <MathField label="cut date"><input type="date" value={maths.date} onChange={(e) => onChange({ date: e.target.value })} className={inp} /></MathField>
-        <MathField label="master"><select value={maths.master} onChange={(e) => onChange({ master: e.target.value })} className={inp}><option value="">default</option>{masters.map((m) => <option key={m}>{m}</option>)}</select></MathField>
-        <MathField label="vendor"><select value={maths.vendor} onChange={(e) => onChange({ vendor: e.target.value })} className={inp}><option value="">card vendor</option>{vendors.map((v) => <option key={v}>{v}</option>)}</select></MathField>
-      </div>
-
-      {/* Change 37 — fabric per colour for this lay. A roll is a colour. */}
-      {colours.length > 0 && (
-        <div className="mt-2 overflow-x-auto rounded-lg border border-hairline">
-          <table className="w-full t-xs">
-            <thead>
-              <tr className="t-micro font-bold text-faint">
-                <th className="px-2 py-1 text-left">Colour</th>
-                <th className="px-2 py-1 text-right">Fabric issued</th>
-                <th className="px-2 py-1 text-right">Fabric used</th>
-                <th className="px-2 py-1 text-right">Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {colours.map((c) => {
-                const i = numOrNull(cf(c).issued);
-                const u = numOrNull(cf(c).used);
-                const bal = i != null || u != null ? Math.round(((i ?? 0) - (u ?? 0)) * 100) / 100 : null;
-                return (
-                  <tr key={c || "—"} className="border-t border-hairline">
-                    <td className="px-2 py-1 text-left font-semibold text-t1">{c || "—"}</td>
-                    <td className="px-1 py-1"><input type="number" step="0.01" value={cf(c).issued} placeholder="—" onChange={(e) => setCf(c, "issued", e.target.value)} className={`${inp} text-right`} /></td>
-                    <td className="px-1 py-1"><input type="number" step="0.01" value={cf(c).used} placeholder="—" onChange={(e) => setCf(c, "used", e.target.value)} className={`${inp} text-right`} /></td>
-                    <td className={`px-2 py-1 text-right font-semibold tnum ${bal != null && bal < 0 ? "text-danger" : "text-t1"}`} title="Balance = issued − used; negative means over-cut">
-                      {bal != null ? num(bal, 2) : "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MathField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-0.5 block truncate t-micro uppercase tracking-wide text-faint">{label}</span>
-      {children}
-    </label>
-  );
-}
 
 function FlagToggle({ label, on, onToggle }: { label: string; on: boolean; onToggle: () => void }) {
   return (
@@ -1390,32 +940,6 @@ function FlagToggle({ label, on, onToggle }: { label: string; on: boolean; onTog
   );
 }
 
-function Toggle<T extends string>({
-  value,
-  onChange,
-  options,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: [T, string][];
-}) {
-  return (
-    <div className="flex rounded-lg border border-border p-0.5">
-      {options.map(([v, label]) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => onChange(v)}
-          className={`rounded-md px-2.5 py-1 t-xs font-semibold transition ${
-            value === v ? "bg-primary text-accent-on shadow-sm" : "text-t2 hover:text-ink"
-          }`}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 function Field({ label, value, auto }: { label: string; value: string; auto: boolean }) {
   return (

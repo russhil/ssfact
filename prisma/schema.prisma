@@ -492,14 +492,24 @@ model CuttingLayer {
 // more metres per piece than BLACK the ledger was quietly wrong, and `Extra = issued -
 // used` was a layer lump that hid which colour actually over-ran.
 //
-// Balance is DERIVED (issued - used, may be negative = over-cut) and never stored.
+// Change 38 Part B — which of the three is TYPED changed. 37 shipped issued+used typed with
+// balance derived, but the floor never measures "metres consumed": they measure what is left
+// on the table. So ISSUED and BALANCE are the two a human reads off the lay, and USED is the
+// one we compute (issued − balance, may be negative = mistyped/over-cut).
+//
+// fabricUsed is still STORED even though it is now derived, because every downstream reader —
+// layerColourUsed, reconcileJobFabricColour, recordFabricActuals — drives the ledger from USED.
+// Keeping the column means the flip is a UI/write-time change only, with no ledger logic touched.
+//
+// ⚠️ Not to be confused with CuttingLayer.fabricBalance, a hand-typed layer-level legacy field.
 model CuttingLayerColour {
-  id           Int          @id @default(autoincrement())
-  layer        CuttingLayer @relation(fields: [layerId], references: [id], onDelete: Cascade)
-  layerId      Int
-  colour       String // canonical colorKey, matches CuttingLayerCell.colour
-  fabricIssued Float?
-  fabricUsed   Float?
+  id            Int          @id @default(autoincrement())
+  layer         CuttingLayer @relation(fields: [layerId], references: [id], onDelete: Cascade)
+  layerId       Int
+  colour        String // canonical colorKey, matches CuttingLayerCell.colour
+  fabricIssued  Float? // typed
+  fabricBalance Float? // typed  (Change 38)
+  fabricUsed    Float? // DERIVED on write = issued − balance
 
   @@unique([layerId, colour])
   @@index([layerId])

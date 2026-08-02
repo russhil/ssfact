@@ -6,6 +6,8 @@ import { updateCuttingLayer, removeCuttingLayer } from "@/lib/actions";
 import { Button, Field, Input, Sheet } from "@/components/ui";
 import { num } from "@/lib/format";
 import { Pencil, Trash2 } from "lucide-react";
+// Change 38 Part D — the per-colour fabric editor is one shared table now.
+import { LayerFabricTable, type LayerFabricRow } from "@/components/job-card/layer-grid";
 
 /**
  * Change 22 Part D — a cutting layer stops being immutable.
@@ -32,8 +34,8 @@ export type LayerEditable = {
   fabricIssued: number | null;
   fabricBalance: number | null;
   avgConsumption: number | null;
-  /** Change 37 — this lay's per-colour fabric, when it has any. */
-  colours: { colour: string; fabricIssued: number | null; fabricUsed: number | null }[];
+  /** Change 37 — this lay's per-colour fabric, when it has any. Change 38: balance is stored. */
+  colours: { colour: string; fabricIssued: number | null; fabricBalance: number | null; fabricUsed: number | null }[];
   total: number;
   /** live (non-voided) dispatches booked against this layer */
   dispatched: number;
@@ -66,27 +68,39 @@ export function LayerActions({
 
   // Change 37 — edit fabric per colour. Editing these RE-DRIVES the ledger (netting, so
   // it converges rather than stacking); a layer with no colour rows still posts nothing.
-  const [colF, setColF] = useState<Record<string, { issued: string; used: string }>>(() =>
+  // Change 38 Part B — issued + balance are typed, used is derived. Rows written before the
+  // backfill fall back to issued − used so an old lay still opens with the right balance.
+  const [colF, setColF] = useState<Record<string, LayerFabricRow>>(() =>
     Object.fromEntries(
       layer.colours.map((c) => [c.colour, {
         issued: c.fabricIssued != null ? String(c.fabricIssued) : "",
-        used: c.fabricUsed != null ? String(c.fabricUsed) : "",
+        balance:
+          c.fabricBalance != null
+            ? String(c.fabricBalance)
+            : c.fabricIssued != null && c.fabricUsed != null
+              ? String(Math.round((c.fabricIssued - c.fabricUsed) * 100) / 100)
+              : "",
       }])
     )
   );
-  const cf = (c: string) => colF[c] ?? { issued: "", used: "" };
-  const setCf = (c: string, k: "issued" | "used", v: string) =>
-    setColF((p) => ({ ...p, [c]: { ...(p[c] ?? { issued: "", used: "" }), [k]: v } }));
+  const cf = (c: string) => colF[c] ?? { issued: "", balance: "" };
+  const setCf = (c: string, k: keyof LayerFabricRow, v: string) =>
+    setColF((p) => ({ ...p, [c]: { ...(p[c] ?? { issued: "", balance: "" }), [k]: v } }));
 
   const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
   const colourNames = layer.colours.map((c) => c.colour);
   const hasColours = colourNames.length > 0;
-  const sumCf = (k: "issued" | "used") => {
+  const sumCf = (k: keyof LayerFabricRow) => {
     const v = colourNames.map((c) => numOrNull(cf(c)[k])).filter((x): x is number => x != null);
     return v.length ? Math.round(v.reduce((a, b) => a + b, 0) * 100) / 100 : null;
   };
   const effIssued = hasColours ? sumCf("issued") : numOrNull(issued);
-  const effUsed = hasColours ? sumCf("used") : numOrNull(used);
+  const effBalance = hasColours ? sumCf("balance") : numOrNull(balance);
+  const effUsed = hasColours
+    ? effIssued != null || effBalance != null
+      ? Math.round(((effIssued ?? 0) - (effBalance ?? 0)) * 100) / 100
+      : null
+    : numOrNull(used);
   const extra = effIssued != null ? Math.round((effIssued - (effUsed ?? 0)) * 100) / 100 : null;
 
   async function save() {
@@ -104,7 +118,7 @@ export function LayerActions({
         fabricBalance: numOrNull(balance),
         avgConsumption: numOrNull(avg),
         fabricByColour: hasColours
-          ? colourNames.map((c) => ({ colour: c, issued: numOrNull(cf(c).issued), used: numOrNull(cf(c).used) }))
+          ? colourNames.map((c) => ({ colour: c, issued: numOrNull(cf(c).issued), balance: numOrNull(cf(c).balance) }))
           : undefined,
       });
       setOpen(false);
@@ -189,46 +203,13 @@ export function LayerActions({
         {/* Change 37 — a lay that carries per-colour rows is edited colour by colour, and
             the layer figures become their Σ. Editing used here re-drives the ledger. */}
         {hasColours ? (
-          <div className="rounded-lg border border-hairline">
-            <div className="overflow-x-auto">
-              <table className="w-full t-sm">
-                <thead>
-                  <tr className="t-micro font-bold text-faint">
-                    <th className="px-2 py-1 text-left">Colour</th>
-                    <th className="px-2 py-1 text-right">Issued</th>
-                    <th className="px-2 py-1 text-right">Used</th>
-                    <th className="px-2 py-1 text-right">Balance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {colourNames.map((c) => {
-                    const i = numOrNull(cf(c).issued);
-                    const u = numOrNull(cf(c).used);
-                    const bal = i != null || u != null ? Math.round(((i ?? 0) - (u ?? 0)) * 100) / 100 : null;
-                    return (
-                      <tr key={c} className="border-t border-hairline">
-                        <td className="px-2 py-1 font-semibold text-t1">{c || "—"}</td>
-                        <td className="px-1 py-1">
-                          <Input type="number" step="any" value={cf(c).issued} onChange={(e) => setCf(c, "issued", e.target.value)} placeholder="—" className="text-right tnum" />
-                        </td>
-                        <td className="px-1 py-1">
-                          <Input type="number" step="any" value={cf(c).used} onChange={(e) => setCf(c, "used", e.target.value)} placeholder="—" className="text-right tnum" />
-                        </td>
-                        <td className={`px-2 py-1 text-right tnum font-semibold ${bal != null && bal < 0 ? "text-danger" : "text-t1"}`}>
-                          {bal != null ? num(bal, 2) : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  <tr className="border-t border-border">
-                    <td className="px-2 py-1 t-xs font-bold text-faint">Layer</td>
-                    <td className="px-2 py-1 text-right tnum font-bold">{effIssued != null ? num(effIssued, 2) : "—"}</td>
-                    <td className="px-2 py-1 text-right tnum font-bold">{effUsed != null ? num(effUsed, 2) : "—"}</td>
-                    <td className="px-2 py-1" />
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+          <div>
+            <LayerFabricTable colours={colourNames} rows={colF} onChange={setCf} />
+            <p className="mt-1 t-xs text-t3">
+              Layer <b className="tnum text-t1">{effIssued != null ? num(effIssued, 2) : "—"}</b> issued ·{" "}
+              <b className="tnum text-t1">{effBalance != null ? num(effBalance, 2) : "—"}</b> balance ·{" "}
+              <b className="tnum text-t1">{effUsed != null ? num(effUsed, 2) : "—"}</b> used
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">

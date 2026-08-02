@@ -17,6 +17,7 @@ import { AddCuttingLayer } from "@/components/add-cutting-layer";
 import { DispatchActions } from "@/components/dispatch-actions";
 import { JobCardActions } from "@/components/job-card-actions";
 import { LayerActions } from "@/components/layer-actions";
+import { LayerFabricTable } from "@/components/job-card/layer-grid";
 import { FinishingPanel } from "@/components/finishing-panel";
 import { JobTrimChallanButton } from "@/components/job-trim-challan-button";
 import { num, inr, fmtDate, pct } from "@/lib/format";
@@ -411,6 +412,14 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                 l.rolls != null ? `${num(l.rolls)} roll` : null,
                 l.fabricBalance != null ? `bal ${num(l.fabricBalance)}` : null,
               ].filter(Boolean).join(" · ");
+              // Change 38 Part C — this lay's per-colour fabric, as the shared table expects it.
+              const lColourRows = l.colours ?? [];
+              const lFabricRows = Object.fromEntries(
+                lColourRows.map((c) => [c.colour, {
+                  issued: c.fabricIssued != null ? String(c.fabricIssued) : "",
+                  balance: c.fabricBalance != null ? String(c.fabricBalance) : "",
+                }])
+              );
               return (
                 <div key={l.id} className="rounded-xl border border-border p-3">
                   <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 t-sm">
@@ -436,7 +445,8 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                             fabricBalance: l.fabricBalance, avgConsumption: l.avgConsumption,
                             // Change 37 — per-colour fabric, so the edit sheet can drive it
                             colours: (l.colours ?? []).map((c) => ({
-                              colour: c.colour, fabricIssued: c.fabricIssued, fabricUsed: c.fabricUsed,
+                              colour: c.colour, fabricIssued: c.fabricIssued,
+                              fabricBalance: c.fabricBalance, fabricUsed: c.fabricUsed,
                             })),
                             total: ltotal,
                             dispatched: liveDispatches
@@ -467,17 +477,35 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                       </tbody>
                     </table>
                   </div>
-                  {(lIssued != null || lUsed != null || estNote) && (
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline pt-1.5 t-xs">
-                      {(lIssued != null || lUsed != null) && (
+                  {/* Change 38 Part C — the per-colour fabric captured at entry, shown back.
+                      Change 37 recorded these figures and then never displayed them outside
+                      the edit sheet. A legacy lay has no colour rows and keeps the old strip. */}
+                  {lColourRows.length > 0 ? (
+                    <div className="mt-2 border-t border-hairline pt-1.5">
+                      <LayerFabricTable colours={lColourRows.map((c) => c.colour)} rows={lFabricRows} readOnly />
+                      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 t-xs">
                         <span className="flex items-center gap-3">
                           <span className="text-muted">Issued <b className="tnum text-primary-ink">{lIssued != null ? num(lIssued) : "—"}</b></span>
+                          <span className="text-muted">Balance <b className="tnum text-primary-ink">{l.fabricBalance != null ? num(l.fabricBalance) : "—"}</b></span>
                           <span className="text-muted">Used <b className="tnum text-primary-ink">{lUsed != null ? num(lUsed) : "—"}</b></span>
-                          <span className="text-muted">Extra <b className={`tnum ${lExtra != null && lExtra < 0 ? "text-danger" : "text-ok"}`}>{lExtra != null ? num(lExtra) : "—"}</b></span>
                         </span>
-                      )}
-                      {estNote && <span className="text-faint">{estNote}</span>}
+                        {l.avgConsumption != null && <span className="text-faint">avg {num(l.avgConsumption, 3)}</span>}
+                        {l.rolls != null && <span className="text-faint">{num(l.rolls)} roll</span>}
+                      </div>
                     </div>
+                  ) : (
+                    (lIssued != null || lUsed != null || estNote) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline pt-1.5 t-xs">
+                        {(lIssued != null || lUsed != null) && (
+                          <span className="flex items-center gap-3">
+                            <span className="text-muted">Issued <b className="tnum text-primary-ink">{lIssued != null ? num(lIssued) : "—"}</b></span>
+                            <span className="text-muted">Used <b className="tnum text-primary-ink">{lUsed != null ? num(lUsed) : "—"}</b></span>
+                            <span className="text-muted">Extra <b className={`tnum ${lExtra != null && lExtra < 0 ? "text-danger" : "text-ok"}`}>{lExtra != null ? num(lExtra) : "—"}</b></span>
+                          </span>
+                        )}
+                        {estNote && <span className="text-faint">{estNote}</span>}
+                      </div>
+                    )
                   )}
                 </div>
               );
@@ -489,6 +517,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               sizes={mx.sizes.length ? mx.sizes : SIZE_ORDER.slice(0, 6)}
               colours={mx.colours.filter((c) => c !== "" && c !== "—")}
               masters={masterList.map((m) => m.name)}
+              vendors={vendorNames}
             />
           )}
         </Card>

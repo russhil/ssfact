@@ -142,6 +142,52 @@ function layerColourUsed(layer: { colours?: { colour: string; fabricUsed: number
   return out.size > 0 ? out : null;
 }
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Change 38 Part B — what the floor actually types on a lay is ISSUED (metres given out) and
+ * BALANCE (metres left on the table). USED is the number we derive: issued − balance.
+ *
+ * Change 37 had it the other way round (issued + used typed, balance derived). Only which
+ * column is typed changed; `fabricUsed` is still STORED, because layerColourUsed →
+ * reconcileJobFabricColour and recordFabricActuals all drive the ledger from USED. That is
+ * what keeps this a write-time substitution with no ledger logic touched.
+ *
+ * Canonicalises the colour, sums duplicate rows, and drops any colour where neither figure
+ * was typed — a blank colour posts nothing, exactly as before. Never clamped: a balance above
+ * issued yields a negative USED, which the card shows in red rather than silently swallowing.
+ */
+export type ColourFabricInput = { colour: string; issued?: number | null; balance?: number | null };
+type ColourFabricRow = { fabricIssued: number | null; fabricBalance: number | null; fabricUsed: number | null };
+
+function colourFabricRows(input: ColourFabricInput[] | null | undefined): Map<string, ColourFabricRow> {
+  const acc = new Map<string, { issued: number | null; balance: number | null }>();
+  for (const r of input ?? []) {
+    const k = colorKey(r.colour);
+    if (k === "" || (r.issued == null && r.balance == null)) continue;
+    const prev = acc.get(k) ?? { issued: null, balance: null };
+    acc.set(k, {
+      issued: r.issued == null ? prev.issued : (prev.issued ?? 0) + r.issued,
+      balance: r.balance == null ? prev.balance : (prev.balance ?? 0) + r.balance,
+    });
+  }
+  const out = new Map<string, ColourFabricRow>();
+  for (const [k, v] of acc) {
+    out.set(k, {
+      fabricIssued: v.issued,
+      fabricBalance: v.balance,
+      fabricUsed: round2((v.issued ?? 0) - (v.balance ?? 0)),
+    });
+  }
+  return out;
+}
+
+/** Σ of one column across the colour rows; null when nothing was typed for it. */
+function sumColourFabric(rows: Map<string, ColourFabricRow>, k: keyof ColourFabricRow): number | null {
+  const vals = [...rows.values()].map((v) => v[k]).filter((v): v is number => v != null);
+  return vals.length ? round2(vals.reduce((a, b) => a + b, 0)) : null;
+}
+
 /** Find-or-create a cutting master by name inside a transaction. */
 async function resolveCuttingMaster(tx: Tx, name: string): Promise<number> {
   const cm =
@@ -172,8 +218,9 @@ export type NewJobLayerInput = {
   sizeRatio?: string | null; // Change 17 B: this lay's own size ratio JSON
   cells: { colour: string; size: string; qty: number }[];
   // Change 37: fabric per colour on this lay. When present it REPLACES the proportional
-  // split for those colours — the ledger is driven to the entered USED, not an estimate.
-  fabricByColour?: { colour: string; issued?: number | null; used?: number | null }[] | null;
+  // split for those colours — the ledger is driven to USED, not an estimate.
+  // Change 38 Part B: issued + balance are typed, USED is derived (see colourFabricRows).
+  fabricByColour?: ColourFabricInput[] | null;
 };
 
 export type NewJobInput = {
@@ -292,18 +339,15 @@ export async function createJobCard(input: NewJobInput) {
   }
 
   // Change 37 — per-colour fabric entered on the lay. Where a colour carries a real
-  // figure it REPLACES the proportional split below: the entered USED is the truth.
+  // figure it REPLACES the proportional split below: the derived USED is the truth.
+  // Change 38 Part B — issued + balance typed, USED = issued − balance (colourFabricRows).
   const usedByColour = new Map<string, number>();
   const issuedByColour = new Map<string, number>();
-  const layerColourRows = layers.map((l) =>
-    (l.fabricByColour ?? [])
-      .map((r) => ({ colour: colorKey(r.colour), issued: r.issued ?? null, used: r.used ?? null }))
-      .filter((r) => r.colour !== "" && (r.issued != null || r.used != null))
-  );
+  const layerColourRows = layers.map((l) => colourFabricRows(l.fabricByColour));
   for (const rows of layerColourRows) {
-    for (const r of rows) {
-      if (r.used != null) usedByColour.set(r.colour, (usedByColour.get(r.colour) ?? 0) + r.used);
-      if (r.issued != null) issuedByColour.set(r.colour, (issuedByColour.get(r.colour) ?? 0) + r.issued);
+    for (const [colour, v] of rows) {
+      if (v.fabricUsed != null) usedByColour.set(colour, (usedByColour.get(colour) ?? 0) + v.fabricUsed);
+      if (v.fabricIssued != null) issuedByColour.set(colour, (issuedByColour.get(colour) ?? 0) + v.fabricIssued);
     }
   }
 
@@ -467,12 +511,10 @@ export async function createJobCard(input: NewJobInput) {
         : cuttingMasterId;
       const layerVendorId = (await resolveVendorId(tx, l.vendorName)) ?? vendor.id;
       // Change 37: when this lay carries per-colour fabric, its totals are the Σ of
-      // those rows rather than a separately typed figure.
-      const rows = layerColourRows[li] ?? [];
-      const rowSum = (k: "issued" | "used") => {
-        const v = rows.map((r) => r[k]).filter((x): x is number => x != null);
-        return v.length ? Math.round(v.reduce((a, b) => a + b, 0) * 100) / 100 : null;
-      };
+      // those rows rather than a separately typed figure. Change 38 adds balance to the Σ,
+      // so the layer strip can never disagree with the colour rows beneath it.
+      const rows = layerColourRows[li] ?? new Map();
+      const perColour = rows.size > 0;
       await tx.cuttingLayer.create({
         data: {
           jobCardId: created.id,
@@ -483,13 +525,13 @@ export async function createJobCard(input: NewJobInput) {
           vendorId: layerVendorId,
           avgConsumption: l.avgConsumption ?? null,
           rolls: l.rolls ?? null,
-          fabricMtr: rows.length ? rowSum("used") : (l.fabricMtr ?? null),
-          fabricBalance: l.fabricBalance ?? null,
-          fabricIssued: rows.length ? rowSum("issued") : (l.fabricIssued ?? null),
+          fabricMtr: perColour ? sumColourFabric(rows, "fabricUsed") : (l.fabricMtr ?? null),
+          fabricBalance: perColour ? sumColourFabric(rows, "fabricBalance") : (l.fabricBalance ?? null),
+          fabricIssued: perColour ? sumColourFabric(rows, "fabricIssued") : (l.fabricIssued ?? null),
           sizeRatio: l.sizeRatio ?? null,
           cells: { create: l.cells.map((c) => ({ colour: c.colour, size: c.size, qty: c.qty })) },
-          ...(rows.length
-            ? { colours: { create: rows.map((r) => ({ colour: r.colour, fabricIssued: r.issued, fabricUsed: r.used })) } }
+          ...(perColour
+            ? { colours: { create: [...rows.entries()].map(([colour, v]) => ({ colour, ...v })) } }
             : {}),
         } as any,
       });
@@ -1038,25 +1080,14 @@ export async function addCuttingLayer(input: {
 
   // Change 37 — per-colour fabric, canonicalised and summed by colour. Empty rows post
   // nothing (back-compat: a colour with no figure typed behaves as if it were absent).
-  const byColFabric = new Map<string, { issued: number | null; used: number | null }>();
-  for (const r of input.fabricByColour ?? []) {
-    const k = colorKey(r.colour);
-    if (k === "" || (r.issued == null && r.used == null)) continue;
-    const prev = byColFabric.get(k) ?? { issued: null, used: null };
-    byColFabric.set(k, {
-      issued: r.issued == null ? prev.issued : (prev.issued ?? 0) + r.issued,
-      used: r.used == null ? prev.used : (prev.used ?? 0) + r.used,
-    });
-  }
+  // Change 38 Part B — issued + balance typed, USED derived.
+  const byColFabric = colourFabricRows(input.fabricByColour);
   const perColour = byColFabric.size > 0;
   // The layer totals stay populated for every existing read site; when colour rows are
   // given they are the SUM of those rows rather than a separately typed number.
-  const sumOf = (k: "issued" | "used") => {
-    const vals = [...byColFabric.values()].map((v) => v[k]).filter((v): v is number => v != null);
-    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) * 100) / 100 : null;
-  };
-  const layerIssued = perColour ? sumOf("issued") : (input.fabricIssued ?? null);
-  const layerUsed = perColour ? sumOf("used") : (input.fabricMtr ?? null);
+  const layerIssued = perColour ? sumColourFabric(byColFabric, "fabricIssued") : (input.fabricIssued ?? null);
+  const layerUsed = perColour ? sumColourFabric(byColFabric, "fabricUsed") : (input.fabricMtr ?? null);
+  const layerBalance = perColour ? sumColourFabric(byColFabric, "fabricBalance") : (input.fabricBalance ?? null);
 
   await db.$transaction(async (tx) =>
     withIdempotency(tx, actor, input.idemKey, "addCuttingLayer", async () => {
@@ -1075,21 +1106,13 @@ export async function addCuttingLayer(input: {
         avgConsumption: input.avgConsumption ?? null,
         rolls: input.rolls ?? null,
         fabricMtr: layerUsed,
-        fabricBalance: input.fabricBalance ?? null,
+        fabricBalance: layerBalance,
         fabricIssued: layerIssued,
         fabricLotNo: input.fabricLotNo?.trim() || null,
         sizeRatio: input.sizeRatio ?? null,
         cells: { create: cells },
         ...(perColour
-          ? {
-              colours: {
-                create: [...byColFabric.entries()].map(([colour, v]) => ({
-                  colour,
-                  fabricIssued: v.issued,
-                  fabricUsed: v.used,
-                })),
-              },
-            }
+          ? { colours: { create: [...byColFabric.entries()].map(([colour, v]) => ({ colour, ...v })) } }
           : {}),
       } as any,
     });
@@ -1100,14 +1123,14 @@ export async function addCuttingLayer(input: {
         // Change 37: with colour rows the entered USED is the truth; without them the
         // lay's single figure is still split across colours by cut proportion (legacy).
         const issued = perColour
-          ? (entered?.issued ?? entered?.used ?? 0)
+          ? (entered?.fabricIssued ?? entered?.fabricUsed ?? 0)
           : input.fabricMtr != null && layerTotal > 0
             ? Math.round(input.fabricMtr * (q / layerTotal) * 100) / 100
             : avg != null
               ? Math.round(q * avg * 100) / 100
               : 0;
         const existing = job.fabricLines.find((f) => colorKey(f.color) === col);
-        const usedDelta = perColour ? (entered?.used ?? 0) : 0;
+        const usedDelta = perColour ? (entered?.fabricUsed ?? 0) : 0;
         if (existing) {
           await tx.jobFabricLine.update({
             where: { id: existing.id },
@@ -3697,7 +3720,8 @@ export async function updateCuttingLayer(input: {
   sizeRatio?: string | null;
   cells?: { colour: string; size: string; qty: number }[];
   // Change 37 — per-colour fabric for this lay. Undefined leaves the rows alone.
-  fabricByColour?: { colour: string; issued?: number | null; used?: number | null }[] | null;
+  // Change 38 Part B — issued + balance typed, USED derived.
+  fabricByColour?: ColourFabricInput[] | null;
   // Change 36 Part 8 — the lot this lay was cut from.
   fabricLotNo?: string | null;
 }) {
@@ -3717,29 +3741,25 @@ export async function updateCuttingLayer(input: {
 
   // Change 37 — canonicalise the incoming colour rows and derive the layer totals from
   // them, so fabricMtr/fabricIssued stay the sum of the colour rows for every read site.
-  const colourRows =
-    input.fabricByColour === undefined
-      ? undefined
-      : (input.fabricByColour ?? [])
-          .map((r) => ({ colour: colorKey(r.colour), issued: r.issued ?? null, used: r.used ?? null }))
-          .filter((r) => r.colour !== "" && (r.issued != null || r.used != null));
-  const rowSum = (k: "issued" | "used") => {
-    const vals = (colourRows ?? []).map((r) => r[k]).filter((v): v is number => v != null);
-    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) * 100) / 100 : null;
-  };
-  const hasRows = colourRows != null && colourRows.length > 0;
+  // Change 38 Part B — issued + balance typed, USED derived (colourFabricRows).
+  const colourRows = input.fabricByColour === undefined ? undefined : colourFabricRows(input.fabricByColour);
+  const hasRows = colourRows != null && colourRows.size > 0;
 
   const patch = {
         ...(input.cutDate !== undefined ? { cutDate: input.cutDate ? new Date(input.cutDate) : null } : {}),
         ...(input.label !== undefined ? { label: input.label } : {}),
         ...(input.rolls !== undefined ? { rolls: input.rolls } : {}),
         ...(hasRows
-          ? { fabricMtr: rowSum("used"), fabricIssued: rowSum("issued") }
+          ? {
+              fabricMtr: sumColourFabric(colourRows!, "fabricUsed"),
+              fabricIssued: sumColourFabric(colourRows!, "fabricIssued"),
+              fabricBalance: sumColourFabric(colourRows!, "fabricBalance"),
+            }
           : {
         ...(input.fabricMtr !== undefined ? { fabricMtr: input.fabricMtr } : {}),
         ...(input.fabricIssued !== undefined ? { fabricIssued: input.fabricIssued } : {}),
-            }),
         ...(input.fabricBalance !== undefined ? { fabricBalance: input.fabricBalance } : {}),
+            }),
         ...(input.avgConsumption !== undefined ? { avgConsumption: input.avgConsumption } : {}),
         ...(input.sizeRatio !== undefined ? { sizeRatio: input.sizeRatio } : {}),
         ...(input.fabricLotNo !== undefined ? { fabricLotNo: input.fabricLotNo?.trim() || null } : {}),
@@ -3771,10 +3791,8 @@ export async function updateCuttingLayer(input: {
     // ── Change 37: per-colour fabric, and the ledger drive that follows from it ──
     if (colourRows !== undefined) {
       await tx.cuttingLayerColour.deleteMany({ where: { layerId: layer.id } });
-      for (const r of colourRows) {
-        await tx.cuttingLayerColour.create({
-          data: { layerId: layer.id, colour: r.colour, fabricIssued: r.issued, fabricUsed: r.used },
-        });
+      for (const [colour, v] of colourRows) {
+        await tx.cuttingLayerColour.create({ data: { layerId: layer.id, colour, ...v } });
       }
 
       const fabricId = layer.jobCard.product?.fabricId ?? null;
