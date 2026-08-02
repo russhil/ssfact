@@ -1,15 +1,16 @@
 import Link from "next/link";
-import { getJobs } from "@/lib/jobs";
+import { getJobs, getDraftJobs } from "@/lib/jobs";
 import { JobsTable } from "@/components/jobs-table";
 import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/lib/auth";
+import { DraftsStrip } from "@/components/drafts-strip";
 
 export const dynamic = "force-dynamic";
 
 export default async function JobCardsPage() {
   const u = await getCurrentUser();
   const scope = u?.role === "VENDOR" ? { vendorName: u.vendor ?? "" } : undefined;
-  const rows = await getJobs(scope);
+  const [rows, drafts] = await Promise.all([getJobs(scope), getDraftJobs(scope)]);
   const isVendor = u?.role === "VENDOR";
   return (
     <div className="p-6">
@@ -31,6 +32,7 @@ export default async function JobCardsPage() {
           )
         }
       />
+      <DraftsStrip drafts={drafts} />
       <JobsTable rows={rows} />
     </div>
   );

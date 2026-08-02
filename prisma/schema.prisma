@@ -28,6 +28,12 @@ enum FabricForm {
 }
 
 enum JobStatus {
+  // Change 38 Part A — a card that exists but has posted NOTHING: no stock movement, no
+  // ledger row, no trim plan, no challan, and no SI number. It holds typed details so a
+  // half-finished card survives someone walking away from the desk, and it is excluded
+  // from every production count (see POSTED in lib/job-scope.ts). Saving it runs the
+  // normal posting exactly once and flips it to ACTIVE.
+  DRAFT
   ACTIVE
   CLOSED
 }
@@ -129,6 +135,9 @@ enum TrimStatus {
 }
 
 enum FabricOrderStatus {
+  // Change 38 Part A — same contract as JobStatus.DRAFT: typed but not yet an order.
+  // Shared by FabricOrder and TrimOrder.
+  DRAFT
   PLANNING
   SAMPLE_PENDING
   ORDER_PLACED
@@ -492,14 +501,24 @@ model CuttingLayer {
 // more metres per piece than BLACK the ledger was quietly wrong, and `Extra = issued -
 // used` was a layer lump that hid which colour actually over-ran.
 //
-// Balance is DERIVED (issued - used, may be negative = over-cut) and never stored.
+// Change 38 Part B — which of the three is TYPED changed. 37 shipped issued+used typed with
+// balance derived, but the floor never measures "metres consumed": they measure what is left
+// on the table. So ISSUED and BALANCE are the two a human reads off the lay, and USED is the
+// one we compute (issued − balance, may be negative = mistyped/over-cut).
+//
+// fabricUsed is still STORED even though it is now derived, because every downstream reader —
+// layerColourUsed, reconcileJobFabricColour, recordFabricActuals — drives the ledger from USED.
+// Keeping the column means the flip is a UI/write-time change only, with no ledger logic touched.
+//
+// ⚠️ Not to be confused with CuttingLayer.fabricBalance, a hand-typed layer-level legacy field.
 model CuttingLayerColour {
-  id           Int          @id @default(autoincrement())
-  layer        CuttingLayer @relation(fields: [layerId], references: [id], onDelete: Cascade)
-  layerId      Int
-  colour       String // canonical colorKey, matches CuttingLayerCell.colour
-  fabricIssued Float?
-  fabricUsed   Float?
+  id            Int          @id @default(autoincrement())
+  layer         CuttingLayer @relation(fields: [layerId], references: [id], onDelete: Cascade)
+  layerId       Int
+  colour        String // canonical colorKey, matches CuttingLayerCell.colour
+  fabricIssued  Float? // typed
+  fabricBalance Float? // typed  (Change 38)
+  fabricUsed    Float? // DERIVED on write = issued − balance
 
   @@unique([layerId, colour])
   @@index([layerId])
@@ -1298,6 +1317,12 @@ model FabricOrder {
   // other than whoever drafted the order.
   placedBy          User?                 @relation("FabricOrderPlacedBy", fields: [placedById], references: [id], onDelete: SetNull)
   placedById        Int?
+  // Change 38 Part F — the PO's authorised signatory is a contact of the issuing firm
+  // (Buyer.contacts), not a login user. Stored as a NAME SNAPSHOT rather than a contact FK
+  // on purpose: updateBuyer replaces a buyer's contacts wholesale on every save, so their
+  // ids churn and an FK would silently SetNull the signatory off an already-issued PO.
+  // placedById stays for the audit of who generated it.
+  signatoryName     String?
   // Change 25 Part K.2 — GST %, stored so a reprint is identical.
   gstRate           Float?
 
@@ -1356,6 +1381,8 @@ model TrimOrder {
   deliveryAddressId Int?
   placedBy          User?                 @relation("TrimOrderPlacedBy", fields: [placedById], references: [id], onDelete: SetNull)
   placedById        Int?
+  // Change 38 Part F — see FabricOrder.signatoryName.
+  signatoryName     String?
   gstRate           Float?
   // Change 25 Part H.2 — sample photos against a trim order.
   images            ImageAsset[]

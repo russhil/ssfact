@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { LAYER_VENDOR_INCLUDE, splitByLayerVendor } from "@/lib/vendor-split";
 import { orderFlag, OPEN_ORDER_STATUSES } from "@/lib/order-flags";
+import { POSTED } from "@/lib/job-scope";
 
 // ── Pending Trims: cards whose trim needs exceed store stock, grouped by trim ──
 export type PendingTrim = {
@@ -14,7 +15,7 @@ export type PendingTrim = {
 
 export async function getPendingTrims(): Promise<PendingTrim[]> {
   const jobs = await db.jobCard.findMany({
-    where: { trimsPending: true },
+    where: { ...POSTED, trimsPending: true },
     include: { jobLines: { include: { trimItem: true } } },
   });
   const byTrim = new Map<number, PendingTrim>();
@@ -49,6 +50,7 @@ export type VendorVariance = {
 
 export async function getVendorFabricVariance(): Promise<VendorVariance[]> {
   const jobs = await db.jobCard.findMany({
+    where: POSTED,
     include: { vendor: true, product: { include: { fabric: true } }, fabricLines: true, ...LAYER_VENDOR_INCLUDE },
   });
   const byVendor = new Map<string, VendorVariance>();
@@ -289,6 +291,7 @@ export type QualityByVendor = {
 export async function getQualityByVendor(range?: { from?: Date; to?: Date }): Promise<QualityByVendor[]> {
   const jobs = await db.jobCard.findMany({
     where: {
+      ...POSTED,
       ...(range?.from || range?.to
         ? { orderDate: { ...(range.from ? { gte: range.from } : {}), ...(range.to ? { lte: range.to } : {}) } }
         : {}),
@@ -363,6 +366,7 @@ export type OnTimeSummary = { measured: number; onTime: number; rate: number; by
 export async function getOnTimeDelivery(range?: { from?: Date; to?: Date }): Promise<OnTimeSummary> {
   const jobs = await db.jobCard.findMany({
     where: {
+      ...POSTED,
       plannedEtd: { not: null },
       ...(range?.from || range?.to
         ? { plannedEtd: { not: null, ...(range.from ? { gte: range.from } : {}), ...(range.to ? { lte: range.to } : {}) } }
@@ -440,6 +444,7 @@ export type JobMargin = {
 export async function getJobMargins(range?: { from?: Date; to?: Date; jobCardId?: number }): Promise<JobMargin[]> {
   const jobs = await db.jobCard.findMany({
     where: {
+      ...POSTED,
       ...(range?.jobCardId ? { id: range.jobCardId } : {}),
       ...(range?.from || range?.to
         ? { orderDate: { ...(range.from ? { gte: range.from } : {}), ...(range.to ? { lte: range.to } : {}) } }

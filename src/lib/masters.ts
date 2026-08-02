@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
+import { POSTED_ORDER, DRAFTS_ONLY } from "@/lib/job-scope";
 
 /** Change 25 Part G.0 — a named person, rendered as `name (role)`. */
 export type ContactRow = {
@@ -79,19 +80,13 @@ export async function getBuyerOptions() {
     select: {
       id: true, name: true, gstNo: true,
       deliveryAddrs: { where: { active: true }, select: { id: true, label: true, address: true }, orderBy: { id: "asc" } },
+      // Change 38 Part F — the PO's authorised signatory is one of the issuing firm's own
+      // people, so the contacts travel with the buyer into the generate dialog.
+      contacts: { select: { id: true, name: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] },
     },
     orderBy: { name: "asc" },
   });
   return rows;
-}
-
-/** Change 25 Part I — who can be named as the PO's authorised signatory. */
-export async function getSignatoryOptions() {
-  return db.user.findMany({
-    where: { active: true, role: { in: ["ADMIN", "STAFF"] } },
-    select: { id: true, displayName: true, signatureUrl: true },
-    orderBy: { displayName: "asc" },
-  });
 }
 
 export async function getColours() {
@@ -168,7 +163,9 @@ const receivedQtyOf = (cs: OrderChallanLink[]) =>
 
 export async function getFabricOrders() {
   const orders = await db.fabricOrder.findMany({
-    include: { fabric: true, supplier: true, lines: true, challans: CHALLAN_LINK },
+    // Change 38 Part A: a DRAFT order has not been placed — it is fetched by getDraftOrders.
+    where: POSTED_ORDER,
+    include: { fabric: true, supplier: true, lines: true, challans: CHALLAN_LINK , images: { select: { id: true, url: true, thumbUrl: true, caption: true }, orderBy: { sortOrder: "asc" as const } } },
     orderBy: [{ status: "asc" }, { expectedDate: "asc" }],
   });
   return orders.map((o) => {
@@ -187,6 +184,8 @@ export async function getFabricOrders() {
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
       poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
       challans, receivedOn: receivedOnOf(challans), receivedQty: receivedQtyOf(challans),
+      // Change 38 Part H — the shade card / sample photos attached to this order.
+      images: o.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, caption: i.caption })),
     };
   });
 }
@@ -214,6 +213,7 @@ type PoDocBuyer = {
 export const contactLabel = (c: { name: string; role?: string | null }) => (c.role ? `${c.name} (${c.role})` : c.name);
 
 function poParties(o: {
+  signatoryName?: string | null;
   supplier: PoDocSupplier;
   buyer: PoDocBuyer;
   deliveryAddress: { label: string | null; address: string } | null;
@@ -242,7 +242,14 @@ function poParties(o: {
         }
       : null,
     shipTo: o.deliveryAddress ? { label: o.deliveryAddress.label, address: o.deliveryAddress.address } : null,
-    signatory: o.placedBy ? { name: o.placedBy.displayName, signatureUrl: o.placedBy.signatureUrl } : null,
+    // Change 38 Part F — the signatory is a contact of the issuing firm, printed as a name
+    // and nothing else. POs issued before this still print their login-user signatory (and
+    // its signature graphic) so an already-filed document never changes shape.
+    signatory: o.signatoryName
+      ? { name: o.signatoryName, signatureUrl: null }
+      : o.placedBy
+        ? { name: o.placedBy.displayName, signatureUrl: o.placedBy.signatureUrl }
+        : null,
     gstRate: o.gstRate,
     images: o.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, caption: i.caption })),
   };
@@ -269,7 +276,9 @@ export async function getFabricOrder(id: number) {
 
 export async function getTrimOrders() {
   const orders = await db.trimOrder.findMany({
-    include: { trimItem: true, supplier: true, lines: true, challans: CHALLAN_LINK },
+    // Change 38 Part A: see getFabricOrders.
+    where: POSTED_ORDER,
+    include: { trimItem: true, supplier: true, lines: true, challans: CHALLAN_LINK , images: { select: { id: true, url: true, thumbUrl: true, caption: true }, orderBy: { sortOrder: "asc" as const } } },
     orderBy: [{ status: "asc" }, { expectedDate: "asc" }],
   });
   return orders.map((o) => {
@@ -282,6 +291,8 @@ export async function getTrimOrders() {
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
       poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
       challans, receivedOn: receivedOnOf(challans), receivedQty: receivedQtyOf(challans),
+      // Change 38 Part H — the shade card / sample photos attached to this order.
+      images: o.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, caption: i.caption })),
     };
   });
 }
@@ -691,5 +702,32 @@ export async function getDispatchDoc(id: number) {
     sku: e.jobCard?.product?.skuCode ?? null,
     vendors, // stitching vendors of the layers this dispatch was booked against
     lines: e.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty })),
+  };
+}
+
+
+/**
+ * Change 38 Part A — purchase orders someone started and has not placed.
+ *
+ * A DRAFT order has pushed nothing outward: no unit onto the fabric master, no sourcing rate
+ * against a supplier it may never be sent to, and obviously no goods. Resuming one loads it
+ * back into the same form via the existing edit path.
+ */
+export async function getDraftOrders() {
+  const [fabric, trim] = await Promise.all([
+    db.fabricOrder.findMany({
+      where: DRAFTS_ONLY,
+      select: { id: true, fabric: { select: { name: true } }, supplier: { select: { name: true } }, qty: true },
+      orderBy: { id: "desc" },
+    }),
+    db.trimOrder.findMany({
+      where: DRAFTS_ONLY,
+      select: { id: true, trimItem: { select: { name: true } }, supplier: { select: { name: true } }, qty: true },
+      orderBy: { id: "desc" },
+    }),
+  ]);
+  return {
+    fabric: fabric.map((o) => ({ id: o.id, name: o.fabric?.name ?? "—", supplier: o.supplier?.name ?? null, qty: o.qty })),
+    trim: trim.map((o) => ({ id: o.id, name: o.trimItem?.name ?? "—", supplier: o.supplier?.name ?? null, qty: o.qty })),
   };
 }

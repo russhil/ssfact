@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { traceGarment, traceLot, getTraceStartingPoints } from "@/lib/trace";
 import { Card, PageHeader, Badge, SearchInput } from "@/components/ui";
 import { num, fmtDate } from "@/lib/format";
+import { POSTED } from "@/lib/job-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,8 @@ export default async function TracePage({ searchParams }: { searchParams: Promis
       if (ev) garment = await traceGarment({ dispatchEventId: ev.id });
       if (!garment) {
         const job = await db.jobCard.findFirst({
-          where: { OR: [{ siNo: query }, ...(Number.isFinite(Number(query)) ? [{ id: Number(query) }] : [])] },
+          // Change 38 Part A: a draft has no SI, and nothing to trace.
+          where: { ...POSTED, OR: [{ siNo: query }, ...(Number.isFinite(Number(query)) ? [{ id: Number(query) }] : [])] },
           select: { id: true },
         });
         if (job) garment = await traceGarment({ jobCardId: job.id });

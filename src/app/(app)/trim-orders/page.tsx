@@ -1,22 +1,24 @@
-import { getTrimOrders, getTrimPickList, getSuppliers, getColours, listLookups, getBuyerOptions, getSignatoryOptions } from "@/lib/masters";
+import { getTrimOrders, getTrimPickList, getSuppliers, getColours, listLookups, getBuyerOptions , getDraftOrders } from "@/lib/masters";
 import { getCurrentUser, canSeeCost } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import { num } from "@/lib/format";
 import { TrimOrderManager } from "@/components/trim-order-manager";
+
+import { OrderDraftsStrip } from "@/components/order-drafts-strip";
 
 export const dynamic = "force-dynamic";
 
 // Change 18 Part B: trims are bought the same way fabric is — order, PO, inward challan.
 export default async function TrimOrdersPage() {
   const me = await getCurrentUser();
-  const [orders, trims, suppliers, colours, units, buyers, signatories] = await Promise.all([
+  const [orders, trims, suppliers, colours, units, buyers, draftOrders] = await Promise.all([
     getTrimOrders(),
     getTrimPickList(),
     getSuppliers(),
     getColours(),
     listLookups("UNIT"),
     getBuyerOptions(),
-    getSignatoryOptions(),
+    getDraftOrders(),
   ]);
   const pending = orders.filter((o) => o.status === "ORDER_PLACED").length;
   const planning = orders.filter((o) => o.status === "PLANNING" || o.status === "SAMPLE_PENDING").length;
@@ -33,6 +35,7 @@ export default async function TrimOrdersPage() {
         <Card className="p-4"><div className="t-xs font-semibold uppercase tracking-wide text-muted">Pending Delivery</div><div className="mt-1.5 t-display font-extrabold text-warn tnum">{num(pending)}</div></Card>
         <Card className="p-4"><div className="t-xs font-semibold uppercase tracking-wide text-muted">Received</div><div className="mt-1.5 t-display font-extrabold text-ok tnum">{num(received)}</div></Card>
       </div>
+      <OrderDraftsStrip kind="TRIM" drafts={draftOrders.trim} />
       <TrimOrderManager
         orders={orders}
         trims={trims}
@@ -40,9 +43,6 @@ export default async function TrimOrdersPage() {
         colours={colours.map((c) => c.name)}
         units={units.map((u) => u.label)}
         buyers={buyers}
-        signatories={signatories}
-        meId={me?.userId ?? 0}
-        canOverrideSignatory={canSeeCost(me)}
       />
     </div>
   );

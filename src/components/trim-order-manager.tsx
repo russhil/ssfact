@@ -2,15 +2,17 @@
 
 import { inputClass } from "@/components/ui";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createTrimOrder, updateTrimOrder, deleteTrimOrder, draftChallanFromTrimOrder, generateTrimPO, voidChallan } from "@/lib/actions";
+import { createTrimOrder, createTrimQuick, updateTrimOrder, deleteTrimOrder, draftChallanFromTrimOrder, generateTrimPO, voidChallan } from "@/lib/actions";
 import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr } from "@/lib/format";
 import { orderFlag } from "@/lib/order-flags";
-import { GeneratePoButton, type BuyerOption, type SignatoryOption } from "@/components/generate-po";
-import { Plus, X, FileText, Truck, Pencil, Trash2, Undo2 } from "lucide-react";
+import { GeneratePoButton, type BuyerOption } from "@/components/generate-po";
+// Change 38 Part H — attach the sample photo right here, not only on the PO document.
+import { ImageUploader } from "@/components/image-uploader";
+import { Plus, X, Check, FileText, Truck, Pencil, Trash2, Undo2 } from "lucide-react";
 
 /**
  * Change 18 Part B — the trim mirror of FabricOrderManager.
@@ -31,9 +33,14 @@ type Order = {
   poNumber: string | null; poStage: string; challans: ChallanLink[];
   // Change 22 Part A: Σ locked challan line qty — what has actually arrived.
   receivedQty: number;
+  // Change 38 Part H — photos attached to this order.
+  images: { id: number; url: string; thumbUrl: string | null; caption: string | null }[];
 };
 type Pick = { id: number; name: string };
 type TrimPick = { id: number; name: string; unit: string | null; stock: number; rate: number | null };
+
+// Change 38 Part G — sentinel for "Add new trim…", mirroring the fabric-order form.
+const ADD = "__add__";
 
 const STATUS_TONE: Record<string, "primary" | "warn" | "ok" | "default" | "danger"> = {
   PLANNING: "default", SAMPLE_PENDING: "warn", ORDER_PLACED: "primary", RECEIVED: "ok", DISCARDED: "danger",
@@ -41,11 +48,12 @@ const STATUS_TONE: Record<string, "primary" | "warn" | "ok" | "default" | "dange
 const STAGE_TONE: Record<string, "default" | "primary" | "ok"> = { Draft: "default", "PO Generated": "primary", Sent: "ok" };
 
 export function TrimOrderManager({
-  orders, trims, suppliers, colours, units, buyers, signatories, meId, canOverrideSignatory,
+  orders, trims, suppliers, colours, units, buyers,
 }: {
   orders: Order[]; trims: TrimPick[]; suppliers: Pick[]; colours: string[]; units: string[];
-  // Change 25 G.3 / I.2 / K.2 — issued from which firm, GST %, and who signs it.
-  buyers: BuyerOption[]; signatories: SignatoryOption[]; meId: number; canOverrideSignatory: boolean;
+  // Change 25 G.3 / K.2 — issued from which firm and at what GST %.
+  // Change 38 Part F — the signatory now comes from that firm's own contacts.
+  buyers: BuyerOption[];
 }) {
   const router = useRouter();
   const [trimId, setTrimId] = useState<string>("");
@@ -60,14 +68,44 @@ export function TrimOrderManager({
   const [busy, setBusy] = useState(false);
   // Change 20: the same form doubles as the edit form for an unlocked order.
   const [editingId, setEditingId] = useState<number | null>(null);
+  // Change 38 Part H — the order the photo uploader is pointed at: the one being edited,
+  // or the one just created. ImageUploader attaches on file-drop and needs a persisted row.
+  const [attachId, setAttachId] = useState<number | null>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
-  const trim = useMemo(() => trims.find((t) => t.id === +trimId), [trims, trimId]);
+  // Change 38 Part G — invent a trim mid-order, the same way the fabric form does.
+  const [trimList, setTrimList] = useState<TrimPick[]>(trims);
+  const [addTrim, setAddTrim] = useState(false);
+  const [trimDraft, setTrimDraft] = useState("");
+
+  const trim = useMemo(() => trimList.find((t) => t.id === +trimId), [trimList, trimId]);
 
   function pickTrim(v: string) {
     setTrimId(v);
-    const t = trims.find((x) => x.id === +v);
+    const t = trimList.find((x) => x.id === +v);
     if (t?.unit) setUnit(t.unit);
+  }
+
+  async function confirmTrim() {
+    if (!trimDraft.trim()) { setAddTrim(false); return; }
+    setBusy(true);
+    try {
+      // Carries supplier + unit + rate up to the new master, as createFabricQuick does.
+      const t = await createTrimQuick({
+        name: trimDraft,
+        unit: unit || null,
+        supplierId: supplierId ? +supplierId : null,
+        rate: rate ? +rate : null,
+      });
+      const pick: TrimPick = { id: t.id, name: t.name, unit: t.unit ?? unit ?? null, stock: 0, rate: rate ? +rate : null };
+      setTrimList((p) => (p.some((x) => x.id === t.id) ? p : [...p, pick].sort((a, b) => a.name.localeCompare(b.name))));
+      setTrimId(String(t.id));
+      if (t.unit) setUnit(t.unit);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setAddTrim(false); setTrimDraft(""); setBusy(false);
+    }
   }
 
   // A split row is "filled" once it has a qty; colour/size are both optional labels.
@@ -91,6 +129,7 @@ export function TrimOrderManager({
     setEditingId(null);
     setTrimId(""); setSupplierId(""); setExpected(""); setQty(""); setUnit(""); setRate(""); setRemarks("");
     setSplitOpen(false); setSplit([{ colour: "", size: "", qty: 0 }]);
+    setAttachId(null);
   }
 
   /**
@@ -101,21 +140,49 @@ export function TrimOrderManager({
   const splitPayload = () =>
     splitOpen ? filledSplit.map((l) => ({ colour: l.colour || null, size: l.size || null, qty: l.qty })) : [];
 
+  /** Change 38 Part A — one payload for both the silent draft and the placed order. */
+  function orderPayload() {
+    return {
+      trimItemId: +trimId,
+      supplierId: supplierId ? +supplierId : null,
+      qty: effectiveQty,
+      unit: unit || null,
+      rate: rate ? +rate : null,
+      expectedDate: expected || null,
+      remarks: remarks.trim() || null,
+      lines: splitPayload(),
+    };
+  }
+
+  /**
+   * Change 38 Part A — silent draft, debounced 800 ms. A DRAFT trim order is inert, so a
+   * half-typed one costs nothing and survives. Only for a NEW order: editing a placed one
+   * must not quietly revert it to a draft.
+   */
+  const draftSig = trimId ? JSON.stringify(orderPayload()) : "";
+  useEffect(() => {
+    if (!trimId || editingId || busy) return;
+    const t = setTimeout(async () => {
+      try {
+        const res = await createTrimOrder({ ...orderPayload(), draft: true, draftId: attachId });
+        setAttachId(res.id);
+      } catch {
+        // never interrupt typing; the next change retries
+      }
+    }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftSig, editingId]);
+
   async function create() {
     if (!trimId || effectiveQty <= 0) return;
     setBusy(true);
     try {
-      await createTrimOrder({
-        trimItemId: +trimId,
-        supplierId: supplierId ? +supplierId : null,
-        qty: effectiveQty,
-        unit: unit || null,
-        rate: rate ? +rate : null,
-        expectedDate: expected || null,
-        remarks: remarks.trim() || null,
-        lines: splitPayload(),
-      });
+      const created = await createTrimOrder({ ...orderPayload(), draftId: attachId });
       resetForm();
+      // Change 38 Part H — createTrimOrder already returned its id; the form used to throw
+      // it away. Keep it so the photo uploader can appear on what was just saved.
+      setAttachId(created.id);
       router.refresh();
     } catch (e) {
       alert((e as Error).message);
@@ -124,6 +191,7 @@ export function TrimOrderManager({
 
   function startEdit(o: Order) {
     setEditingId(o.id);
+    setAttachId(o.id);
     // setTrimId directly, not pickTrim() — that would overwrite the order's own unit
     // with the trim master's default.
     setTrimId(String(o.trimItemId));
@@ -308,11 +376,21 @@ export function TrimOrderManager({
           </div>
           <div className="grid grid-cols-2 gap-2.5">
             <Labelled label="Trim">
-              {/* frozen while editing — updateTrimOrder takes no trimItemId */}
-              <select value={trimId} disabled={!!editingId} onChange={(e) => pickTrim(e.target.value)} className={`${inp} disabled:bg-surface-2 disabled:text-t2`}>
-                <option value="">— pick trim —</option>
-                {trims.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
+              {addTrim ? (
+                <div className="flex gap-1.5">
+                  <input autoFocus value={trimDraft} onChange={(e) => setTrimDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmTrim()} placeholder="New trim name" className={inp} />
+                  <button onClick={confirmTrim} disabled={busy} className="rounded-md border border-border px-2 text-primary-ink hover:bg-surface-2 disabled:opacity-40"><Check size={14} /></button>
+                  <button onClick={() => { setAddTrim(false); setTrimDraft(""); }} className="rounded-md border border-border px-2 text-faint hover:bg-surface-2"><X size={14} /></button>
+                </div>
+              ) : (
+                /* frozen while editing — updateTrimOrder takes no trimItemId */
+                <select value={trimId} disabled={!!editingId} onChange={(e) => (e.target.value === ADD ? setAddTrim(true) : pickTrim(e.target.value))} className={`${inp} disabled:bg-surface-2 disabled:text-t2`}>
+                  <option value="">— pick trim —</option>
+                  {trimList.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {/* Change 38 Part G */}
+                  {!editingId && <option value={ADD}>Add new trim…</option>}
+                </select>
+              )}
             </Labelled>
             <Labelled label="Supplier">
               <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className={inp}>
@@ -391,6 +469,20 @@ export function TrimOrderManager({
             className="mt-4 w-full rounded-lg bg-t1 px-3 py-2.5 t-body font-bold text-surface transition hover:opacity-90 disabled:opacity-40">
             {busy ? "Saving…" : editingId ? "Save changes" : "Create order"}
           </button>
+
+          {/* Change 38 Part H — sample photos on the order itself. */}
+          {attachId != null && (
+            <div className="mt-4 border-t border-hairline pt-3">
+              <ImageUploader
+                entity="trimOrder"
+                entityId={attachId}
+                kind="trim"
+                multiple
+                label="Sample photos"
+                images={orders.find((o) => o.id === attachId)?.images ?? []}
+              />
+            </div>
+          )}
         </Card>
       </div>
 
@@ -484,9 +576,6 @@ export function TrimOrderManager({
                         orderId={o.id}
                         kind="TRIM"
                         buyers={buyers}
-                        signatories={signatories}
-                        meId={meId}
-                        canOverrideSignatory={canOverrideSignatory}
                         disabled={busy}
                       />
                     )}

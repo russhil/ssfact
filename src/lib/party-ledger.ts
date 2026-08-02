@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { splitByLayerVendor, LAYER_VENDOR_INCLUDE } from "@/lib/vendor-split";
+import { POSTED } from "@/lib/job-scope";
 
 /**
  * Change 36 Part 1 — what a vendor or supplier is owed, and what is still outstanding.
@@ -82,6 +83,7 @@ async function vendorStatement(vendorId: number, now: number): Promise<PartyStat
   // — a header-only roll-up attributes a split card 100% to one vendor and is wrong).
   const jobs = await db.jobCard.findMany({
     where: {
+      ...POSTED,
       OR: [{ vendorId }, { layers: { some: { vendorId } } }],
     },
     select: {
