@@ -1,4 +1,6 @@
 import { getDashboard } from "@/lib/queries";
+import { getDraftJobs } from "@/lib/jobs";
+import { DraftsStrip } from "@/components/drafts-strip";
 import { getLowStockAlerts, getDelayedOrders } from "@/lib/insights";
 import { getPayables } from "@/lib/party-ledger";
 import { getCurrentUser, canSeeCost } from "@/lib/auth";
@@ -29,8 +31,9 @@ export default async function DashboardPage() {
   // more than elsewhere: `/` is in no proxy.ts rule, so every role reaches this page.
   const me = who;
   const owner = canSeeCost(me);
-  const [{ kpis, vendors, overdue, trend }, lowStock, delayed, payables, capacity] = await Promise.all([
+  const [{ kpis, vendors, overdue, trend }, drafts, lowStock, delayed, payables, capacity] = await Promise.all([
     getDashboard(),
+    getDraftJobs(),
     getLowStockAlerts(),
     getDelayedOrders(),
     owner ? getPayables() : Promise.resolve([]),
@@ -56,6 +59,8 @@ export default async function DashboardPage() {
           </ButtonLink>
         }
       />
+
+      <DraftsStrip drafts={drafts} />
 
       <section className="grid grid-cols-2 gap-3.5 rise lg:grid-cols-4">
         {cards.map((c) => (

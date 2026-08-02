@@ -280,7 +280,22 @@ async function nextSiNo(): Promise<string> {
   return `SI-${String(max + 1).padStart(2, "0")}`;
 }
 
-export async function createJobCard(input: NewJobInput) {
+/**
+ * Change 38 Part A — the one writer behind creating, drafting and finalising a job card.
+ *
+ * createJobCard was never inert: it snapshots the BOM, drives the fabric maths and posts the
+ * cutting issue to the shared ledger. That is exactly why a speculative card used to be
+ * refused (see the note above createSample). A DRAFT is the missing primitive — the same
+ * document, written with every side effect switched off.
+ *
+ * `post: false` skips the JobFabricLine snapshot + postMaterialMovement loop, the JobBomLine
+ * plan and the drafted trim challan, and refuses to invent a cutting master. `existingId`
+ * finalises a draft in place: because that draft posted nothing, replacing its layers, cells,
+ * colour rows and plan lines wholesale is safe, and the posting below then runs exactly once.
+ *
+ * The posting code is not duplicated anywhere — draft, create and finalise are all this.
+ */
+async function writeJobCard(input: NewJobInput, opts: { post: boolean; existingId?: number }) {
   const user = await requireRole("ADMIN", "STAFF");
 
   // A job card must reference a catalogue product OR carry a free-text custom item
@@ -302,10 +317,12 @@ export async function createJobCard(input: NewJobInput) {
 
   let cuttingMasterId: number | null = null;
   if (input.cuttingMaster) {
-    const cm =
-      (await db.cuttingMaster.findUnique({ where: { name: input.cuttingMaster } })) ??
-      (await db.cuttingMaster.create({ data: { name: input.cuttingMaster } }));
-    cuttingMasterId = cm.id;
+    // Change 38 Part A: a draft only LINKS an existing master. Creating one here (which this
+    // did unconditionally, and outside the transaction) meant every abandoned draft left a
+    // master behind in the list. Create-if-missing belongs to the finalise path.
+    const found = await db.cuttingMaster.findUnique({ where: { name: input.cuttingMaster } });
+    const cm = found ?? (opts.post ? await db.cuttingMaster.create({ data: { name: input.cuttingMaster } }) : null);
+    cuttingMasterId = cm?.id ?? null;
   }
 
   // Normalise cutting layers (Change 10): keep only cells with qty > 0.
@@ -463,12 +480,23 @@ export async function createJobCard(input: NewJobInput) {
   // custom MRP (made-to-order) is likewise owner-only.
   const customMrp = user.role === "ADMIN" ? input.customMrp ?? null : null;
 
-  const siNo = input.siNo?.trim() || (await nextSiNo());
+  // Change 38 Part A: a draft carries no SI. nextSiNo scans every card for the max number
+  // in the siNo string, so an empty one contributes nothing and the series stays gapless —
+  // abandoning a draft costs no number.
+  const siNo = opts.post ? input.siNo?.trim() || (await nextSiNo()) : "";
   const now = new Date();
 
   const job = await db.$transaction(async (tx) => {
-    const created = await tx.jobCard.create({
-      data: {
+    // Finalising a draft replaces its contents. Safe precisely because a draft posted
+    // nothing: there is no ledger row keyed to these layers to orphan, and nothing to
+    // reverse. Cells and colour rows go with their layer (onDelete: Cascade).
+    if (opts.existingId != null) {
+      await tx.cuttingLayer.deleteMany({ where: { jobCardId: opts.existingId } });
+      await tx.jobBomLine.deleteMany({ where: { jobCardId: opts.existingId } });
+      await tx.jobFabricLine.deleteMany({ where: { jobCardId: opts.existingId } });
+      await tx.sizeBreakup.deleteMany({ where: { jobCardId: opts.existingId } });
+    }
+    const cardData = {
         siNo,
         orderDate: now,
         cutQty,
@@ -480,7 +508,7 @@ export async function createJobCard(input: NewJobInput) {
         fabricIssueDate: now,
         cuttingIssuedOn: now,
         plannedEtd: input.plannedEtd ? new Date(input.plannedEtd) : null,
-        status: "ACTIVE",
+        status: opts.post ? "ACTIVE" : "DRAFT",
         stage: input.stage ?? "CUTTING",
         remark: input.remark ?? null,
         trimsPending,
@@ -500,8 +528,11 @@ export async function createJobCard(input: NewJobInput) {
         ...(hasLayers
           ? {}
           : { sizeBreakup: { create: flatMatrix.map((m) => ({ size: m.size, color: m.color, qty: m.qty })) } }),
-      } as any,
-    });
+    };
+    const created =
+      opts.existingId != null
+        ? await tx.jobCard.update({ where: { id: opts.existingId }, data: cardData as any })
+        : await tx.jobCard.create({ data: cardData as any });
 
     // Cutting layers + their colour×size cells (each layer may carry its own date/master/vendor).
     for (let li = 0; li < layers.length; li++) {
@@ -537,75 +568,80 @@ export async function createJobCard(input: NewJobInput) {
       });
     }
 
-    // Per-colour fabric: snapshot a JobFabricLine, then issue through the shared ledger.
-    for (const line of fabricPlan) {
-      await tx.jobFabricLine.create({
-        data: {
-          color: line.key,
+    // ── Everything below POSTS. A draft reaches none of it (Change 38 Part A): no
+    // JobFabricLine snapshot, no cutting issue on the ledger, no frozen BOM plan and no
+    // drafted trim challan. Saving the draft runs this block exactly once.
+    if (opts.post) {
+      // Per-colour fabric: snapshot a JobFabricLine, then issue through the shared ledger.
+      for (const line of fabricPlan) {
+        await tx.jobFabricLine.create({
+          data: {
+            color: line.key,
+            fabricId: fabricId!,
+            jobCardId: created.id,
+            cutQty: line.cutQty,
+            estAvg: line.estAvg,
+            gsm: line.gsm,
+            rollWidth: line.rollWidth,
+            qtyIssued: line.qtyIssued,
+            qtyUsed: line.qtyUsed,
+            reqPcs: line.reqPcs,
+            reqMtr: line.reqMtr,
+            rolls: line.rolls,
+            imageUrl: line.imageUrl,
+          } as any,
+        });
+        // Change 37: a colour with an entered USED is driven to exactly that figure;
+        // everything else keeps issuing the estimate as before.
+        await postMaterialMovement(tx, {
+          direction: "OUT",
+          qty: line.qtyUsed ?? line.qtyIssued ?? 0,
+          date: now,
           fabricId: fabricId!,
+          colour: line.key,
           jobCardId: created.id,
-          cutQty: line.cutQty,
-          estAvg: line.estAvg,
-          gsm: line.gsm,
-          rollWidth: line.rollWidth,
-          qtyIssued: line.qtyIssued,
-          qtyUsed: line.qtyUsed,
-          reqPcs: line.reqPcs,
-          reqMtr: line.reqMtr,
-          rolls: line.rolls,
-          imageUrl: line.imageUrl,
-        } as any,
-      });
-      // Change 37: a colour with an entered USED is driven to exactly that figure;
-      // everything else keeps issuing the estimate as before.
-      await postMaterialMovement(tx, {
-        direction: "OUT",
-        qty: line.qtyUsed ?? line.qtyIssued ?? 0,
-        date: now,
-        fabricId: fabricId!,
-        colour: line.key,
-        jobCardId: created.id,
-        note: line.qtyUsed != null ? "Cutting issue · entered" : "Cutting issue",
-      });
-    }
+          note: line.qtyUsed != null ? "Cutting issue · entered" : "Cutting issue",
+        });
+      }
 
-    // Change 19 A.1: the frozen BOM snapshot is a PLAN, not a movement. Creating a card no
-    // longer deducts trims — it used to post an OUT here, and staff ALSO raised a real
-    // outward challan for the same trims, so every card double-counted. Trims now leave
-    // stock in exactly one place: locking an OUTWARD challan (see the draft below).
-    for (const line of bomPlan) {
-      await tx.jobBomLine.create({
-        data: {
-          material: line.material,
-          color: line.color,
-          dimension: line.dimension as any,
-          perPieceQty: line.perPieceQty,
-          totalQty: line.requiredQty,
-          requiredQty: line.requiredQty,
-          issuedQty: 0,
-          trimItemId: line.trimItemId,
-          jobCardId: created.id,
-        } as any,
-      });
-    }
+      // Change 19 A.1: the frozen BOM snapshot is a PLAN, not a movement. Creating a card no
+      // longer deducts trims — it used to post an OUT here, and staff ALSO raised a real
+      // outward challan for the same trims, so every card double-counted. Trims now leave
+      // stock in exactly one place: locking an OUTWARD challan (see the draft below).
+      for (const line of bomPlan) {
+        await tx.jobBomLine.create({
+          data: {
+            material: line.material,
+            color: line.color,
+            dimension: line.dimension as any,
+            perPieceQty: line.perPieceQty,
+            totalQty: line.requiredQty,
+            requiredQty: line.requiredQty,
+            issuedQty: 0,
+            trimItemId: line.trimItemId,
+            jobCardId: created.id,
+          } as any,
+        });
+      }
 
-    // Change 19 A.2: give the physical trim issue a home. The exploded BOM is drafted as an
-    // OUTWARD challan against this card so staff don't re-type it — they adjust it to what
-    // actually went out and lock it. THE LOCK IS THE DEDUCTION; this draft moves nothing.
-    await draftTrimChallanLines(
-      tx,
-      created.id,
-      vendor.id,
-      siNo,
-      bomPlan
-        .filter((l) => l.trimItemId != null && l.requiredQty > 0)
-        .map((l) => ({
-          trimItemId: l.trimItemId!,
-          qty: l.requiredQty,
-          unit: trimById.get(l.trimItemId!)?.unit ?? null,
-          note: [l.material, l.color].filter(Boolean).join(" · ") || null,
-        }))
-    );
+      // Change 19 A.2: give the physical trim issue a home. The exploded BOM is drafted as an
+      // OUTWARD challan against this card so staff don't re-type it — they adjust it to what
+      // actually went out and lock it. THE LOCK IS THE DEDUCTION; this draft moves nothing.
+      await draftTrimChallanLines(
+        tx,
+        created.id,
+        vendor.id,
+        siNo,
+        bomPlan
+          .filter((l) => l.trimItemId != null && l.requiredQty > 0)
+          .map((l) => ({
+            trimItemId: l.trimItemId!,
+            qty: l.requiredQty,
+            unit: trimById.get(l.trimItemId!)?.unit ?? null,
+            note: [l.material, l.color].filter(Boolean).join(" · ") || null,
+          }))
+      );
+    }
 
     // Change 16 Part F: card-level stitch assignments retired — vendor lives on the
     // cutting layer (Change 14 A) and the "received" record is the dispatch (Change 14 B).
@@ -618,7 +654,69 @@ export async function createJobCard(input: NewJobInput) {
   revalidatePath("/inventory");
   revalidatePath("/trims");
   revalidatePath("/challans");
-  return { slug: String(job.id), siNo: job.siNo };
+  revalidatePath("/board");
+  return { slug: String(job.id), siNo: job.siNo, status: job.status as string };
+}
+
+/** Raise a job card, posting everything. The behaviour this action has always had. */
+export async function createJobCard(input: NewJobInput) {
+  return writeJobCard(input, { post: true });
+}
+
+/**
+ * Change 38 Part A — persist an in-progress job card without posting anything.
+ *
+ * Called on a debounce as soon as any field is filled, so a half-entered card survives
+ * someone being called away. Pass the id it returned to keep updating the same draft rather
+ * than littering one per keystroke.
+ */
+export async function upsertDraftJobCard(input: NewJobInput & { draftId?: number | null }) {
+  if (input.draftId != null) {
+    const existing = await db.jobCard.findUnique({ where: { id: input.draftId }, select: { status: true } });
+    if (!existing) throw new Error("That draft no longer exists");
+    // Refuse to rewrite a card that has already posted — an autosave arriving late must
+    // never be able to blank a live card's layers.
+    if (existing.status !== "DRAFT") throw new Error("That card has already been saved");
+  }
+  return writeJobCard(input, { post: false, existingId: input.draftId ?? undefined });
+}
+
+/**
+ * Change 38 Part A — save a draft: run the normal posting once and make it ACTIVE.
+ *
+ * The card takes its SI number here, so the series only ever advances for work that is real.
+ */
+export async function finaliseDraftJobCard(input: NewJobInput & { draftId: number }) {
+  const existing = await db.jobCard.findUnique({ where: { id: input.draftId }, select: { status: true } });
+  if (!existing) throw new Error("That draft no longer exists");
+  if (existing.status !== "DRAFT") throw new Error("That card has already been saved");
+  return writeJobCard(input, { post: true, existingId: input.draftId });
+}
+
+/**
+ * Change 38 Part A — discard a draft. A hard delete: it posted nothing, so there is nothing
+ * to reverse. Guarded to drafts so this can never become a back door around deleteJobCard,
+ * which has real reversal work to do.
+ */
+export async function discardDraftJobCard(input: { id: number }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const card = await db.jobCard.findUnique({ where: { id: input.id }, select: { status: true } });
+  if (!card) return { ok: true };
+  if (card.status !== "DRAFT") throw new Error("Only a draft can be discarded — use delete for a saved card");
+  await db.$transaction(async (tx) => {
+    await logAudit(tx, user, {
+      action: "discardDraftJobCard",
+      entity: "JobCard",
+      entityId: input.id,
+      entityLabel: `draft #${input.id}`,
+      summary: "Discarded a draft job card",
+    });
+    await tx.jobCard.delete({ where: { id: input.id } });
+  });
+  revalidatePath("/job-cards");
+  revalidatePath("/board");
+  revalidatePath("/");
+  return { ok: true };
 }
 
 /**
@@ -1950,38 +2048,61 @@ export async function createFabricOrder(input: {
   fabricId: number; supplierId?: number | null; expectedDate?: string | null; rate?: number | null;
   gsm?: number | null; status?: string; remarks?: string | null; unit?: "KG" | "MTR";
   lines: { colour: string; qty: number }[];
+  /** Change 38 Part A — hold this as a DRAFT: no master update, no sourcing rate. */
+  draft?: boolean;
+  /** The draft to write into (autosave) or finalise (save). */
+  draftId?: number | null;
 }) {
   await requireRole("ADMIN", "STAFF");
+  const post = input.draft !== true;
   const lines = (input.lines ?? [])
     .map((l) => ({ colour: colorKey(l.colour), qty: l.qty }))
     .filter((l) => l.colour && l.qty > 0);
-  if (lines.length === 0) throw new Error("Add at least one colour with a quantity");
+  // A draft is allowed to be incomplete — that is the point of it. A real order is not.
+  if (post && lines.length === 0) throw new Error("Add at least one colour with a quantity");
   const total = lines.reduce((a, l) => a + l.qty, 0);
   // Change 17 Part E/G: the unit comes from the master by default (override per order).
   const fabric = await db.fabric.findUnique({ where: { id: input.fabricId }, select: { unit: true } });
   const unit = (input.unit ?? fabric?.unit ?? "MTR") as any;
+  const data = {
+      fabricId: input.fabricId, supplierId: input.supplierId ?? null,
+      qty: total, rate: input.rate ?? null, gsm: input.gsm ?? null, unit,
+      status: (post ? input.status ?? "ORDER_PLACED" : "DRAFT") as any, orderDate: new Date(),
+      expectedDate: input.expectedDate ? new Date(input.expectedDate) : null, remarks: input.remarks ?? null,
+  };
   // Change 38 Part H: capture the created row. This used to discard it and return
   // { ok: true }, so the form had no way to know which order it had just made — and
   // therefore no entity id to attach a shade card to.
-  const order = await db.fabricOrder.create({
-    data: {
-      fabricId: input.fabricId, supplierId: input.supplierId ?? null,
-      qty: total, rate: input.rate ?? null, gsm: input.gsm ?? null, unit,
-      status: (input.status ?? "ORDER_PLACED") as any, orderDate: new Date(),
-      expectedDate: input.expectedDate ? new Date(input.expectedDate) : null, remarks: input.remarks ?? null,
-      lines: { create: lines },
-    } as any,
-  });
-  // Change 18 Part E: the order's unit still lands on the master, but its RATE no longer
-  // does — `Fabric.ratePerUnit` is the estimate and only a master edit may change it.
-  // The order's price is recorded as a sourcing rate against the real supplier instead.
-  await db.fabric.update({ where: { id: input.fabricId }, data: { unit } as any });
-  await upsertFabricSourcingRate(
-    input.fabricId,
-    { id: input.supplierId },
-    input.rate ?? null,
-    { sourcedAt: new Date() }
-  );
+  // Change 38 Part A: `draftId` finalises an existing draft in place rather than creating a
+  // second row. A draft touched neither the master nor the sourcing rate, so replacing its
+  // lines wholesale is safe.
+  let order;
+  if (input.draftId != null) {
+    const existing = await db.fabricOrder.findUnique({ where: { id: input.draftId }, select: { status: true } });
+    if (!existing) throw new Error("That draft no longer exists");
+    if (existing.status !== "DRAFT") throw new Error("That order has already been placed");
+    await db.fabricOrderLine.deleteMany({ where: { fabricOrderId: input.draftId } });
+    order = await db.fabricOrder.update({
+      where: { id: input.draftId },
+      data: { ...data, lines: { create: lines } } as any,
+    });
+  } else {
+    order = await db.fabricOrder.create({ data: { ...data, lines: { create: lines } } as any });
+  }
+  // Change 38 Part A: a DRAFT posts nothing outward — it must not push its unit onto the
+  // fabric master or record a sourcing rate against a supplier it may never be sent to.
+  if (post) {
+    // Change 18 Part E: the order's unit still lands on the master, but its RATE no longer
+    // does — `Fabric.ratePerUnit` is the estimate and only a master edit may change it.
+    // The order's price is recorded as a sourcing rate against the real supplier instead.
+    await db.fabric.update({ where: { id: input.fabricId }, data: { unit } as any });
+    await upsertFabricSourcingRate(
+      input.fabricId,
+      { id: input.supplierId },
+      input.rate ?? null,
+      { sourcedAt: new Date() }
+    );
+  }
   revalidatePath("/fabric-orders");
   revalidatePath("/inventory");
   return { id: order.id };
@@ -2228,28 +2349,47 @@ export async function createTrimOrder(input: {
   remarks?: string | null;
   status?: string;
   lines?: TrimOrderLineInput[];
+  /** Change 38 Part A — hold this as a DRAFT rather than placing it. */
+  draft?: boolean;
+  /** The draft to write into (autosave) or finalise (save). */
+  draftId?: number | null;
 }) {
   await requireRole("ADMIN", "STAFF");
+  const post = input.draft !== true;
   const lines = cleanTrimLines(input.lines);
   // A split order's total is the sum of its lines; otherwise the flat qty stands.
   const total = lines.length > 0 ? lines.reduce((a, l) => a + l.qty, 0) : input.qty ?? 0;
-  if (total <= 0) throw new Error("Enter a quantity (or at least one split line)");
+  // A draft may be incomplete; a placed order may not.
+  if (post && total <= 0) throw new Error("Enter a quantity (or at least one split line)");
   const trim = await db.trimItem.findUnique({ where: { id: input.trimItemId }, select: { unit: true } });
   if (!trim) throw new Error("Trim not found");
-  const o = await db.trimOrder.create({
-    data: {
+  const data = {
       trimItemId: input.trimItemId,
       supplierId: input.supplierId ?? null,
       qty: total,
       unit: input.unit ?? trim.unit ?? null,
       rate: input.rate ?? null,
-      status: (input.status ?? "ORDER_PLACED") as any,
+      status: (post ? input.status ?? "ORDER_PLACED" : "DRAFT") as any,
       orderDate: new Date(),
       expectedDate: input.expectedDate ? new Date(input.expectedDate) : null,
       remarks: input.remarks ?? null,
-      ...(lines.length > 0 ? { lines: { create: lines } } : {}),
-    } as any,
-  });
+  };
+  // Change 38 Part A: finalise an existing draft in place rather than creating a second row.
+  let o;
+  if (input.draftId != null) {
+    const existing = await db.trimOrder.findUnique({ where: { id: input.draftId }, select: { status: true } });
+    if (!existing) throw new Error("That draft no longer exists");
+    if (existing.status !== "DRAFT") throw new Error("That order has already been placed");
+    await db.trimOrderLine.deleteMany({ where: { trimOrderId: input.draftId } });
+    o = await db.trimOrder.update({
+      where: { id: input.draftId },
+      data: { ...data, ...(lines.length > 0 ? { lines: { create: lines } } : {}) } as any,
+    });
+  } else {
+    o = await db.trimOrder.create({
+      data: { ...data, ...(lines.length > 0 ? { lines: { create: lines } } : {}) } as any,
+    });
+  }
   // Change 18 Part E: no write-back to TrimItem.ratePerUnit — the master rate is an estimate.
   revalidatePath("/trim-orders");
   return { id: o.id };

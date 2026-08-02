@@ -1,8 +1,10 @@
-import { getFabricOrders, getFabricPickList, getSuppliers, getColours, getBuyerOptions } from "@/lib/masters";
+import { getFabricOrders, getFabricPickList, getSuppliers, getColours, getBuyerOptions , getDraftOrders } from "@/lib/masters";
 import { getCurrentUser, canSeeCost } from "@/lib/auth";
 import { Card, PageHeader } from "@/components/ui";
 import { num } from "@/lib/format";
 import { FabricOrderManager } from "@/components/fabric-order-manager";
+
+import { OrderDraftsStrip } from "@/components/order-drafts-strip";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +12,9 @@ export default async function FabricOrdersPage() {
   // Change 25 G.3/K.2 — the PO dialog needs the firms and their delivery addresses.
   // Change 38 Part F — and their contacts, one of whom signs the PO.
   const me = await getCurrentUser();
-  const [orders, fabrics, suppliers, colours, buyers] = await Promise.all([
+  const [orders, fabrics, suppliers, colours, buyers, draftOrders] = await Promise.all([
     getFabricOrders(), getFabricPickList(), getSuppliers(), getColours(), getBuyerOptions(),
+    getDraftOrders(),
   ]);
   const pending = orders.filter((o) => o.status === "ORDER_PLACED").length;
   const planning = orders.filter((o) => o.status === "PLANNING" || o.status === "SAMPLE_PENDING").length;
@@ -25,6 +28,7 @@ export default async function FabricOrdersPage() {
         <Card className="p-4"><div className="t-xs font-semibold uppercase tracking-wide text-muted">Pending Delivery</div><div className="mt-1.5 t-display font-extrabold text-warn tnum">{num(pending)}</div></Card>
         <Card className="p-4"><div className="t-xs font-semibold uppercase tracking-wide text-muted">Received</div><div className="mt-1.5 t-display font-extrabold text-ok tnum">{num(received)}</div></Card>
       </div>
+      <OrderDraftsStrip kind="FABRIC" drafts={draftOrders.fabric} />
       <FabricOrderManager
         orders={orders}
         fabrics={fabrics.map((f) => ({ id: f.id, name: f.name, unit: f.unit }))}

@@ -4,6 +4,7 @@ import { jobItem, jobSku, jobStyle, jobMrp } from "@/lib/job-display";
 import { normStage, type Stage } from "@/lib/job-labels";
 import { vendorScopeWhere, type JobScope } from "@/lib/jobs";
 import { LAYER_VENDOR_INCLUDE, layerVendorNames, vendorLabel } from "@/lib/vendor-split";
+import { POSTED } from "@/lib/job-scope";
 
 const DAY = 86_400_000;
 
@@ -59,7 +60,8 @@ export async function getProductionBoard(
   scope?: JobScope
 ): Promise<{ rows: BoardRow[]; filterOptions: BoardFilterOptions }> {
   const jobs = await db.jobCard.findMany({
-    where: vendorScopeWhere(scope),
+    // Change 38 Part A: a draft is not on the board's stages — it has cut nothing.
+    where: { ...POSTED, ...vendorScopeWhere(scope) },
     include: {
       product: { include: { fabric: true } },
       vendor: true,

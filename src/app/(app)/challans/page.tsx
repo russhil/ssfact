@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { getSuppliers, getVendorList, getColours, listChallans } from "@/lib/masters";
 import { PageHeader } from "@/components/ui";
 import { ChallanManager } from "@/components/challan-manager";
+import { POSTED } from "@/lib/job-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,8 @@ export default async function ChallansPage({ searchParams }: { searchParams: Pro
     listChallans(),
     // Job cards for the "raise against a job card" picker (Change 17 Part C).
     db.jobCard.findMany({
+      // Change 38 Part A: you cannot raise a challan against a card that has not been saved.
+      where: POSTED,
       orderBy: { id: "desc" },
       select: { id: true, siNo: true, customItem: true, product: { select: { name: true } } },
     }),

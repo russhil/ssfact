@@ -4,6 +4,7 @@ import { jobItem, jobStyle } from "@/lib/job-display";
 import { LAYER_VENDOR_INCLUDE, layerVendorNames, vendorLabel, splitByLayerVendor, type VendorShare } from "@/lib/vendor-split";
 import { sizeRank } from "@/lib/job-labels";
 import { colorKey } from "@/lib/colour";
+import { POSTED, DRAFTS_ONLY, draftLabel } from "@/lib/job-scope";
 
 export const siSlug = (si: string) => si.replace(/\s/g, "");
 
@@ -49,7 +50,10 @@ export type JobRow = {
 
 export async function getJobs(scope?: JobScope): Promise<JobRow[]> {
   const jobs = await db.jobCard.findMany({
-    where: vendorScopeWhere(scope),
+    // Change 38 Part A: the master list is production. Drafts are fetched separately by
+    // getDraftJobs so they can be shown as their own strip rather than mixed in here —
+    // every other consumer of getJobs (dispatch, vendors, search) must not see them.
+    where: { ...POSTED, ...vendorScopeWhere(scope) },
     include: { product: true, vendor: true, ...LAYER_VENDOR_INCLUDE },
     orderBy: { id: "desc" },
   });
@@ -78,6 +82,106 @@ export async function getJobs(scope?: JobScope): Promise<JobRow[]> {
     };
   });
 }
+
+/**
+ * Change 38 Part A — the drafts, for the strip on the board / job list / dashboard.
+ *
+ * Deliberately its own query rather than a flag on getJobs: every existing caller of getJobs
+ * is a production view and none of them should have to remember to filter drafts out.
+ *
+ * A draft has no SI yet, so it names itself by what has been typed — see draftLabel.
+ */
+export type DraftRow = {
+  id: number;
+  label: string;
+  cutQty: number;
+  layers: number;
+  updatedAt: Date | null;
+};
+
+export async function getDraftJobs(scope?: JobScope): Promise<DraftRow[]> {
+  const rows = await db.jobCard.findMany({
+    where: { ...DRAFTS_ONLY, ...vendorScopeWhere(scope) },
+    include: { product: true, vendor: true, _count: { select: { layers: true } } },
+    orderBy: { id: "desc" },
+  });
+  return rows.map((j) => ({
+    id: j.id,
+    label: draftLabel({ item: jobItem(j), vendor: j.vendor?.name ?? null }),
+    cutQty: j.cutQty,
+    layers: j._count.layers,
+    updatedAt: (j as { updatedAt?: Date | null }).updatedAt ?? null,
+  }));
+}
+
+/**
+ * Change 38 Part A — reload a draft into the entry form so it can be resumed.
+ *
+ * The layers come back in MANUAL mode on both axes, seeded with the exact cell quantities
+ * that were stored. Whether they were originally typed or filled from a ratio is not
+ * persisted, and re-deriving them from the ratio could silently change a number the operator
+ * had adjusted by hand — so the stored figures are shown as-is and stay editable.
+ */
+export async function getDraftForEdit(id: number) {
+  const d = await db.jobCard.findUnique({
+    where: { id },
+    include: {
+      layers: {
+        orderBy: { layerNo: "asc" },
+        include: { cells: true, colours: true, cuttingMaster: true, vendor: true },
+      },
+      vendor: true,
+      cuttingMaster: true,
+    },
+  });
+  if (!d || d.status !== "DRAFT") return null;
+  return {
+    id: d.id,
+    productId: d.productId,
+    customItem: d.customItem,
+    customSku: d.customSku,
+    customStyle: d.customStyle,
+    vendor: d.vendor?.name ?? "",
+    master: d.cuttingMaster?.name ?? "",
+    stage: d.stage as string,
+    plannedEtd: d.plannedEtd ? d.plannedEtd.toISOString().slice(0, 10) : "",
+    remark: d.remark ?? "",
+    merchandiser: d.merchandiser ?? "",
+    needsPrint: d.needsPrint,
+    needsLaser: d.needsLaser,
+    needsEmb: d.needsEmb,
+    mrp: d.mrp,
+    layers: d.layers.map((l) => {
+      let ratio: [string, number][] = [];
+      try {
+        ratio = l.sizeRatio ? (JSON.parse(l.sizeRatio) as [string, number][]) : [];
+      } catch {
+        ratio = [];
+      }
+      const sizes = [...new Set([...l.cells.map((c) => c.size), ...ratio.map(([s]) => s)])].sort(
+        (a, b) => sizeRank(a) - sizeRank(b)
+      );
+      return {
+        label: l.label ?? "",
+        date: l.cutDate ? l.cutDate.toISOString().slice(0, 10) : "",
+        master: l.cuttingMaster?.name ?? "",
+        vendor: l.vendor?.name ?? "",
+        avg: l.avgConsumption != null ? String(l.avgConsumption) : "",
+        rolls: l.rolls != null ? String(l.rolls) : "",
+        sizes,
+        ratio: ratio.length ? ratio : sizes.map((s) => [s, 1] as [string, number]),
+        cells: Object.fromEntries(l.cells.map((c) => [`${c.size}|||${c.colour}`, c.qty])),
+        colours: l.colours.map((c) => ({
+          colour: c.colour,
+          issued: c.fabricIssued != null ? String(c.fabricIssued) : "",
+          balance: c.fabricBalance != null ? String(c.fabricBalance) : "",
+        })),
+      };
+    }),
+  };
+}
+
+export type DraftForEdit = NonNullable<Awaited<ReturnType<typeof getDraftForEdit>>>;
 
 /**
  * Resolve a job card by its slug. New cards use the numeric id (so the same SI can

@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { jobItem } from "@/lib/job-display";
 import { LAYER_VENDOR_INCLUDE, splitByLayerVendor } from "@/lib/vendor-split";
+import { POSTED } from "@/lib/job-scope";
 
 export type JobLike = {
   status: string;
@@ -14,6 +15,8 @@ export const isOverdue = (j: JobLike, now = new Date()) =>
 
 export async function getDashboard() {
   const jobs = await db.jobCard.findMany({
+    // Change 38 Part A: drafts must not reach a KPI.
+    where: POSTED,
     include: { vendor: true, product: true, ...LAYER_VENDOR_INCLUDE },
     orderBy: { orderDate: "asc" },
   });

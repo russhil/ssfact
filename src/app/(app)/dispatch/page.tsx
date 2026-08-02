@@ -6,6 +6,7 @@ import { DispatchLog } from "@/components/dispatch-log";
 import { FinishedGoodsExport } from "@/components/finished-goods-export";
 import { PageHeader } from "@/components/ui";
 import { jobItem } from "@/lib/job-display";
+import { POSTED } from "@/lib/job-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,8 @@ export default async function DispatchPage() {
     .map((j) => ({ id: 0, siNo: j.siNo, item: j.item, vendor: j.vendor, balance: j.balance, slug: j.slug }));
 
   // attach real ids
-  const all = await db.jobCard.findMany({ select: { id: true, siNo: true } });
+  // Change 38 Part A: a draft has no SI and nothing to dispatch.
+  const all = await db.jobCard.findMany({ where: POSTED, select: { id: true, siNo: true } });
   const idBySi = new Map<string, number[]>();
   for (const r of all) {
     const arr = idBySi.get(r.siNo) ?? [];

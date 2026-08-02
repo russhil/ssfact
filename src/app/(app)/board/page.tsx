@@ -1,4 +1,6 @@
 import { getProductionBoard } from "@/lib/board";
+import { getDraftJobs } from "@/lib/jobs";
+import { DraftsStrip } from "@/components/drafts-strip";
 import { getCurrentUser, canSeeCost as canSee } from "@/lib/auth";
 import { ProductionBoard } from "@/components/production-board";
 import { PageHeader } from "@/components/ui";
@@ -9,7 +11,7 @@ export default async function BoardPage() {
   const u = await getCurrentUser();
   const scope = u?.role === "VENDOR" ? { vendorName: u.vendor ?? "" } : undefined;
   const canSeeCost = canSee(u);
-  const { rows, filterOptions } = await getProductionBoard(scope);
+  const [{ rows, filterOptions }, drafts] = await Promise.all([getProductionBoard(scope), getDraftJobs(scope)]);
 
   return (
     <div className="p-6">
@@ -17,6 +19,7 @@ export default async function BoardPage() {
         title="Production Board"
         subtitle="Most overdue first"
       />
+      <DraftsStrip drafts={drafts} />
       <ProductionBoard rows={rows} filterOptions={filterOptions} canSeeCost={canSeeCost} />
     </div>
   );

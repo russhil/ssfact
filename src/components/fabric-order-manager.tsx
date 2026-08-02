@@ -2,7 +2,7 @@
 
 import { inputClass } from "@/components/ui";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick, voidChallan } from "@/lib/actions";
@@ -136,17 +136,44 @@ export function FabricOrderManager({
     setAttachId(null);
   }
 
+  /** Change 38 Part A — one payload for both the silent draft and the placed order. */
+  function orderPayload() {
+    return {
+      fabricId: +fabricId, supplierId: supplierId ? +supplierId : null,
+      expectedDate: expected || null, rate: rate ? +rate : null, gsm: gsm ? +gsm : null,
+      unit: unit as "KG" | "MTR",
+      remarks: remarks.trim() || null,
+      lines: filled,
+    };
+  }
+
+  /**
+   * Change 38 Part A — silent draft, debounced 800 ms. A DRAFT order pushes nothing onto the
+   * fabric master and records no sourcing rate, so a half-typed order costs nothing and is
+   * still there when you come back. Only runs for a NEW order — editing a placed one is
+   * already a saved row and must not be quietly reverted to a draft.
+   */
+  const draftSig = fabricId ? JSON.stringify(orderPayload()) : "";
+  useEffect(() => {
+    if (!fabricId || editingId || busy) return;
+    const t = setTimeout(async () => {
+      try {
+        const res = await createFabricOrder({ ...orderPayload(), draft: true, draftId: attachId });
+        setAttachId(res.id);
+      } catch {
+        // never interrupt typing; the next change retries
+      }
+    }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftSig, editingId]);
+
   async function create() {
     if (!fabricId || filled.length === 0) return;
     setBusy(true);
     try {
-      const created = await createFabricOrder({
-        fabricId: +fabricId, supplierId: supplierId ? +supplierId : null,
-        expectedDate: expected || null, rate: rate ? +rate : null, gsm: gsm ? +gsm : null,
-        unit: unit as "KG" | "MTR",
-        remarks: remarks.trim() || null,
-        lines: filled,
-      });
+      // Finalise the draft this form has been holding, if there is one.
+      const created = await createFabricOrder({ ...orderPayload(), draftId: attachId });
       resetForm();
       // Change 38 Part H — hold on to what we just created so its photo uploader can
       // appear immediately. ImageUploader attaches on file-drop and so needs a persisted

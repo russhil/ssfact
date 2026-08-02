@@ -2,7 +2,7 @@
 
 import { inputClass } from "@/components/ui";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createTrimOrder, createTrimQuick, updateTrimOrder, deleteTrimOrder, draftChallanFromTrimOrder, generateTrimPO, voidChallan } from "@/lib/actions";
@@ -140,20 +140,45 @@ export function TrimOrderManager({
   const splitPayload = () =>
     splitOpen ? filledSplit.map((l) => ({ colour: l.colour || null, size: l.size || null, qty: l.qty })) : [];
 
+  /** Change 38 Part A — one payload for both the silent draft and the placed order. */
+  function orderPayload() {
+    return {
+      trimItemId: +trimId,
+      supplierId: supplierId ? +supplierId : null,
+      qty: effectiveQty,
+      unit: unit || null,
+      rate: rate ? +rate : null,
+      expectedDate: expected || null,
+      remarks: remarks.trim() || null,
+      lines: splitPayload(),
+    };
+  }
+
+  /**
+   * Change 38 Part A — silent draft, debounced 800 ms. A DRAFT trim order is inert, so a
+   * half-typed one costs nothing and survives. Only for a NEW order: editing a placed one
+   * must not quietly revert it to a draft.
+   */
+  const draftSig = trimId ? JSON.stringify(orderPayload()) : "";
+  useEffect(() => {
+    if (!trimId || editingId || busy) return;
+    const t = setTimeout(async () => {
+      try {
+        const res = await createTrimOrder({ ...orderPayload(), draft: true, draftId: attachId });
+        setAttachId(res.id);
+      } catch {
+        // never interrupt typing; the next change retries
+      }
+    }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftSig, editingId]);
+
   async function create() {
     if (!trimId || effectiveQty <= 0) return;
     setBusy(true);
     try {
-      const created = await createTrimOrder({
-        trimItemId: +trimId,
-        supplierId: supplierId ? +supplierId : null,
-        qty: effectiveQty,
-        unit: unit || null,
-        rate: rate ? +rate : null,
-        expectedDate: expected || null,
-        remarks: remarks.trim() || null,
-        lines: splitPayload(),
-      });
+      const created = await createTrimOrder({ ...orderPayload(), draftId: attachId });
       resetForm();
       // Change 38 Part H — createTrimOrder already returned its id; the form used to throw
       // it away. Keep it so the photo uploader can appear on what was just saved.

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { splitByLayerVendor, LAYER_VENDOR_INCLUDE } from "@/lib/vendor-split";
+import { POSTED } from "@/lib/job-scope";
 
 /**
  * Change 36 Part 5 — every extra metre, visible.
@@ -106,6 +107,7 @@ function finish(acc: Grouped): YieldGroup[] {
 async function yieldRows(range?: { from?: Date; to?: Date }) {
   return db.jobCard.findMany({
     where: {
+      ...POSTED,
       ...(range?.from || range?.to
         ? { orderDate: { ...(range.from ? { gte: range.from } : {}), ...(range.to ? { lte: range.to } : {}) } }
         : {}),

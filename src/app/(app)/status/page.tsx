@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { PageHeader, Card, StatCard, DefList } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
+import { POSTED } from "@/lib/job-scope";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -40,7 +41,7 @@ export default async function StatusPage() {
 
   const [movements, cards, queued] = await Promise.all([
     db.stockMovement.count(),
-    db.jobCard.count(),
+    db.jobCard.count({ where: POSTED }),
     db.idempotencyRecord.count(),
   ]);
 

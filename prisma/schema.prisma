@@ -28,6 +28,12 @@ enum FabricForm {
 }
 
 enum JobStatus {
+  // Change 38 Part A — a card that exists but has posted NOTHING: no stock movement, no
+  // ledger row, no trim plan, no challan, and no SI number. It holds typed details so a
+  // half-finished card survives someone walking away from the desk, and it is excluded
+  // from every production count (see POSTED in lib/job-scope.ts). Saving it runs the
+  // normal posting exactly once and flips it to ACTIVE.
+  DRAFT
   ACTIVE
   CLOSED
 }
@@ -129,6 +135,9 @@ enum TrimStatus {
 }
 
 enum FabricOrderStatus {
+  // Change 38 Part A — same contract as JobStatus.DRAFT: typed but not yet an order.
+  // Shared by FabricOrder and TrimOrder.
+  DRAFT
   PLANNING
   SAMPLE_PENDING
   ORDER_PLACED

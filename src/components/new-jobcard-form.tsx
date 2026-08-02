@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { createJobCard } from "@/lib/actions";
+import { createJobCard, upsertDraftJobCard, finaliseDraftJobCard } from "@/lib/actions";
 import { uploadImage } from "@/lib/uploads";
 import type { JobProductOption } from "@/lib/inventory";
+import type { DraftForEdit } from "@/lib/jobs";
 import { colorKey } from "@/lib/colour";
 import { STAGES, STAGE_LABEL, DEFAULT_SIZE_RATIO, orderSizes, type Stage } from "@/lib/job-labels";
 import { Badge } from "@/components/ui";
@@ -48,6 +49,35 @@ function newLayer(seed: [string, number][]): Layer {
   };
 }
 
+/**
+ * Change 38 Part A — turn a resumed draft into the form's INITIAL state.
+ *
+ * Deliberately a pure function feeding useState initialisers rather than an effect that
+ * fires a dozen setStates on mount: a draft is server-provided and constant for the life of
+ * the page, so there is nothing to synchronise, and doing it in an effect only buys a
+ * cascade of renders (and a lint error saying so).
+ */
+function seedLayers(draft: DraftForEdit | null): Layer[] {
+  if (!draft) return [];
+  return draft.layers.map((l, i) => ({
+    ...emptyLayer(l.sizes, l.ratio),
+    id: ++layerSeq,
+    label: l.label, date: l.date, master: l.master, vendor: l.vendor,
+    avg: l.avg, rolls: l.rolls,
+    // Whether these cells were typed or filled from a ratio is not persisted, and
+    // re-deriving them could silently change a number adjusted by hand. Show what was
+    // stored, editable.
+    cutMode: "manual" as const,
+    colourMode: "manual" as const,
+    cells: l.cells,
+    sizeQty: Object.fromEntries(
+      l.sizes.map((sz) => [sz, Object.entries(l.cells).filter(([k]) => splitCellKey(k)[0] === sz).reduce((a, [, q]) => a + q, 0)])
+    ),
+    byColour: Object.fromEntries(l.colours.map((c) => [c.colour, { issued: c.issued, balance: c.balance }])),
+    newSize: "",
+  }));
+}
+
 export function NewJobCardForm({
   products,
   vendors,
@@ -55,6 +85,7 @@ export function NewJobCardForm({
   canSeeCost = false,
   defaultProductId = null,
   defaultSi = null,
+  draft = null,
 }: {
   products: JobProductOption[];
   vendors: string[];
@@ -62,45 +93,49 @@ export function NewJobCardForm({
   canSeeCost?: boolean;
   defaultProductId?: number | null;
   defaultSi?: string | null;
+  /** Change 38 Part A — a draft being resumed. */
+  draft?: DraftForEdit | null;
 }) {
   const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [picked, setPicked] = useState<JobProductOption | null>(null);
+  // Change 38 Part A — the product a resumed draft was raised against.
+  const draftProduct = draft?.productId ? products.find((x) => x.id === draft.productId) ?? null : null;
+  const [query, setQuery] = useState(draftProduct?.styleNo ?? "");
+  const [picked, setPicked] = useState<JobProductOption | null>(draftProduct);
 
   // made-to-order (Change 12, Part D): a one-off order with no catalogue product
-  const [mto, setMto] = useState(false);
-  const [customItem, setCustomItem] = useState("");
-  const [customSku, setCustomSku] = useState("");
-  const [customStyle, setCustomStyle] = useState("");
+  const [mto, setMto] = useState(!!draft?.customItem && !draftProduct);
+  const [customItem, setCustomItem] = useState(draft?.customItem ?? "");
+  const [customSku, setCustomSku] = useState(draft?.customSku ?? "");
+  const [customStyle, setCustomStyle] = useState(draft?.customStyle ?? "");
   const [open, setOpen] = useState(false);
   const [vendor, setVendor] = useState(
-    vendors.find((v) => v === "Pebble") ?? vendors.find((v) => v !== "Unassigned") ?? vendors[0] ?? ""
+    draft?.vendor || (vendors.find((v) => v === "Pebble") ?? vendors.find((v) => v !== "Unassigned") ?? vendors[0] ?? "")
   );
-  const [master, setMaster] = useState(masters.find((m) => m.includes("Attri")) ?? masters[0] ?? "");
-  const [etd, setEtd] = useState("");
-  const [stage, setStage] = useState<Stage>("CUTTING");
-  const [remark, setRemark] = useState("");
+  const [master, setMaster] = useState(draft?.master || (masters.find((m) => m.includes("Attri")) ?? masters[0] ?? ""));
+  const [etd, setEtd] = useState(draft?.plannedEtd ?? "");
+  const [stage, setStage] = useState<Stage>((draft?.stage as Stage) ?? "CUTTING");
+  const [remark, setRemark] = useState(draft?.remark ?? "");
   const [saving, setSaving] = useState(false);
 
   // header additions (Change 10, Part E)
-  const [needsPrint, setNeedsPrint] = useState(false);
-  const [needsLaser, setNeedsLaser] = useState(false);
-  const [needsEmb, setNeedsEmb] = useState(false);
-  const [merchandiser, setMerchandiser] = useState("");
-  const [mrpInput, setMrpInput] = useState("");
+  const [needsPrint, setNeedsPrint] = useState(draft?.needsPrint ?? false);
+  const [needsLaser, setNeedsLaser] = useState(draft?.needsLaser ?? false);
+  const [needsEmb, setNeedsEmb] = useState(draft?.needsEmb ?? false);
+  const [merchandiser, setMerchandiser] = useState(draft?.merchandiser ?? "");
+  const [mrpInput, setMrpInput] = useState(draft?.mrp != null ? String(draft.mrp) : "");
 
   // The card's default size ratio, from the product master. It seeds each new lay and is
   // editable per lay thereafter — the card itself no longer cuts anything directly.
-  const [sizeRatio, setSizeRatio] = useState<[string, number][]>([]);
+  const [sizeRatio, setSizeRatio] = useState<[string, number][]>(draftProduct?.sizeRatio ?? []);
 
   // colours are a property of the CARD, shared across every lay
-  const [activeColors, setActiveColors] = useState<string[]>([]);
+  const [activeColors, setActiveColors] = useState<string[]>(draftProduct?.colors.map((c) => c.name) ?? []);
   // Change 26 A: hand-edited colour weights, keyed by colour name. Only holds colours the
   // user actually touched — everything else resolves through the product master.
   const [colorWeight, setColorWeight] = useState<Record<string, number>>({});
 
   // Change 38 Part D: every lay, including the first, is one of these.
-  const [layers, setLayers] = useState<Layer[]>([]);
+  const [layers, setLayers] = useState<Layer[]>(() => seedLayers(draft));
 
   // Change 14 Part C: average is ONE value per job card (not per colour).
   const [cardAvg, setCardAvg] = useState("");
@@ -116,7 +151,15 @@ export function NewJobCardForm({
   const [colorImage, setColorImage] = useState<Record<string, string>>({});
 
   // editable trim sheet (Change 02)
-  const [bomRows, setBomRows] = useState<BomRow[]>([]);
+  const [bomRows, setBomRows] = useState<BomRow[]>(() =>
+    (draftProduct?.bom ?? []).map((b) => ({
+      trimItemId: b.trimItemId,
+      material: b.material,
+      color: b.color ?? "",
+      dimension: ((b.dimension as BomDim) ?? "FLAT"),
+      perPieceQty: b.perPieceQty ?? 0,
+    }))
+  );
 
   const colors = picked?.colors ?? [];
   const hasColors = colors.length > 0 && activeColors.length > 0;
@@ -313,11 +356,13 @@ export function NewJobCardForm({
 
   // prefill from product master (Part A — "New Job Card" from a product)
   useEffect(() => {
-    if (defaultProductId == null || picked) return;
+    if (defaultProductId == null || picked || draft) return;
     const p = products.find((x) => x.id === defaultProductId);
     if (p) pick(p);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultProductId]);
+
+
 
   // made-to-order has no product to seed sizes from — start from the default size ratio.
   function enableMto() {
@@ -381,12 +426,14 @@ export function NewJobCardForm({
 
   const canSave = (!!picked || (mto && customItem.trim().length > 0)) && cutQty > 0;
 
-  async function save() {
-    if (!canSave) return;
-    setSaving(true);
-    try {
-      const { slug } = await createJobCard({
-        productId: picked?.id,
+  /**
+   * Change 38 Part A — the payload, built once and used by both the silent draft and the
+   * real save. Two builders would be two things to keep in step, and the whole guarantee
+   * here is that saving a draft posts exactly what the draft was holding.
+   */
+  function buildPayload() {
+    return {
+      productId: picked?.id,
         customItem: mto ? customItem.trim() : undefined,
         customSku: mto ? customSku.trim() || undefined : undefined,
         customStyle: mto ? customStyle.trim() || undefined : undefined,
@@ -427,12 +474,62 @@ export function NewJobCardForm({
         merchandiser: merchandiser.trim() || null,
         mrp: canSeeCost ? numOrNull(mrpInput) : null,
         remark: remark.trim() || undefined,
-        stage,
-        plannedEtd: etd || undefined,
-      });
+      stage,
+      plannedEtd: etd || undefined,
+    };
+  }
+
+  /**
+   * A card can be drafted as soon as it knows WHAT is being made. Before that there is no
+   * card to speak of — writeJobCard itself requires a product or a custom item.
+   */
+  const canDraft = !!picked || (mto && customItem.trim().length > 0);
+  const [draftId, setDraftId] = useState<number | null>(draft?.id ?? null);
+  const [draftState, setDraftState] = useState<"idle" | "saving" | "saved">("idle");
+  // Once the card is finalised the component is navigating away; a late autosave firing
+  // after that would try to rewrite a card that has already posted.
+  const finalised = useRef(false);
+
+  /**
+   * Change 38 Part A — silent draft. Debounced 800 ms after any change, no button. A draft
+   * moves no stock, writes no ledger row and takes no SI number, so this is free to run on
+   * every keystroke's worth of state.
+   */
+  const draftSignature = JSON.stringify(buildPayload());
+  useEffect(() => {
+    if (!canDraft || finalised.current || saving) return;
+    const t = setTimeout(async () => {
+      if (finalised.current) return;
+      setDraftState("saving");
+      try {
+        const res = await upsertDraftJobCard({ ...buildPayload(), draftId });
+        if (finalised.current) return;
+        setDraftId(Number(res.slug));
+        setDraftState("saved");
+      } catch {
+        // A failed autosave must never interrupt typing — the next change retries.
+        setDraftState("idle");
+      }
+    }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftSignature, canDraft, saving]);
+
+  async function save() {
+    if (!canSave) return;
+    setSaving(true);
+    finalised.current = true;
+    try {
+      const payload = buildPayload();
+      // Finalising the draft runs the posting path once and flips it ACTIVE, taking its SI
+      // number here. Creating fresh is the same writer with nothing to reuse.
+      const { slug } = draftId != null
+        ? await finaliseDraftJobCard({ ...payload, draftId })
+        : await createJobCard(payload);
       router.push(`/job-cards/${slug}`);
     } catch (e) {
       setSaving(false);
+      finalised.current = false;
       alert("Could not save: " + (e as Error).message);
     }
   }
@@ -450,13 +547,23 @@ export function NewJobCardForm({
             {defaultSi ? `Adding split / re-cut under ${defaultSi}` : "Auto-assigned SI"} · {new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
           </p>
         </div>
-        <button
-          onClick={save}
-          disabled={!canSave || saving}
-          className="rounded-lg bg-primary px-4 py-2 t-body font-semibold text-accent-on shadow-sm transition hover:opacity-90 disabled:opacity-40"
-        >
-          {saving ? "Saving…" : "Save Job Card"}
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Change 38 Part A — the card is already held as a draft; say so, so it is clear
+              nothing is lost by walking away, and clear that nothing has posted either. */}
+          {draftId != null && (
+            <span className="flex items-center gap-1.5 t-xs text-muted">
+              <Badge tone="warn">Draft</Badge>
+              {draftState === "saving" ? "saving…" : "held · nothing posted yet"}
+            </span>
+          )}
+          <button
+            onClick={save}
+            disabled={!canSave || saving}
+            className="rounded-lg bg-primary px-4 py-2 t-body font-semibold text-accent-on shadow-sm transition hover:opacity-90 disabled:opacity-40"
+          >
+            {saving ? "Saving…" : "Save Job Card"}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
+import { POSTED_ORDER, DRAFTS_ONLY } from "@/lib/job-scope";
 
 /** Change 25 Part G.0 — a named person, rendered as `name (role)`. */
 export type ContactRow = {
@@ -162,6 +163,8 @@ const receivedQtyOf = (cs: OrderChallanLink[]) =>
 
 export async function getFabricOrders() {
   const orders = await db.fabricOrder.findMany({
+    // Change 38 Part A: a DRAFT order has not been placed — it is fetched by getDraftOrders.
+    where: POSTED_ORDER,
     include: { fabric: true, supplier: true, lines: true, challans: CHALLAN_LINK , images: { select: { id: true, url: true, thumbUrl: true, caption: true }, orderBy: { sortOrder: "asc" as const } } },
     orderBy: [{ status: "asc" }, { expectedDate: "asc" }],
   });
@@ -273,6 +276,8 @@ export async function getFabricOrder(id: number) {
 
 export async function getTrimOrders() {
   const orders = await db.trimOrder.findMany({
+    // Change 38 Part A: see getFabricOrders.
+    where: POSTED_ORDER,
     include: { trimItem: true, supplier: true, lines: true, challans: CHALLAN_LINK , images: { select: { id: true, url: true, thumbUrl: true, caption: true }, orderBy: { sortOrder: "asc" as const } } },
     orderBy: [{ status: "asc" }, { expectedDate: "asc" }],
   });
@@ -697,5 +702,32 @@ export async function getDispatchDoc(id: number) {
     sku: e.jobCard?.product?.skuCode ?? null,
     vendors, // stitching vendors of the layers this dispatch was booked against
     lines: e.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty })),
+  };
+}
+
+
+/**
+ * Change 38 Part A — purchase orders someone started and has not placed.
+ *
+ * A DRAFT order has pushed nothing outward: no unit onto the fabric master, no sourcing rate
+ * against a supplier it may never be sent to, and obviously no goods. Resuming one loads it
+ * back into the same form via the existing edit path.
+ */
+export async function getDraftOrders() {
+  const [fabric, trim] = await Promise.all([
+    db.fabricOrder.findMany({
+      where: DRAFTS_ONLY,
+      select: { id: true, fabric: { select: { name: true } }, supplier: { select: { name: true } }, qty: true },
+      orderBy: { id: "desc" },
+    }),
+    db.trimOrder.findMany({
+      where: DRAFTS_ONLY,
+      select: { id: true, trimItem: { select: { name: true } }, supplier: { select: { name: true } }, qty: true },
+      orderBy: { id: "desc" },
+    }),
+  ]);
+  return {
+    fabric: fabric.map((o) => ({ id: o.id, name: o.fabric?.name ?? "—", supplier: o.supplier?.name ?? null, qty: o.qty })),
+    trim: trim.map((o) => ({ id: o.id, name: o.trimItem?.name ?? "—", supplier: o.supplier?.name ?? null, qty: o.qty })),
   };
 }

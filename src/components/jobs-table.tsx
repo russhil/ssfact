@@ -140,7 +140,11 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
       header: <SortHeader view={view} sortKey="status">Status</SortHeader>,
       cell: (r) => (
         <span className="flex flex-wrap items-center gap-1">
-          {r.overdue ? (
+          {/* Change 38 Part A — a draft has posted nothing, so it is neither overdue nor
+              closed. It reaches this table only via the Drafts strip. */}
+          {r.status === "DRAFT" ? (
+            <Badge tone="warn">Draft</Badge>
+          ) : r.overdue ? (
             <Badge tone="danger">Overdue</Badge>
           ) : r.status === "CLOSED" ? (
             <Badge tone="ok">Closed</Badge>
