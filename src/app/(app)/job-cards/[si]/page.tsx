@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getJob, getJobMatrix, getJobTrimIssues, getJobFabricPosted } from "@/lib/jobs";
+import { getJob, getJobMatrix, getJobTrimIssues, getJobFabricPosted, getJobFabricStock } from "@/lib/jobs";
 import { getJobCardChallans } from "@/lib/masters";
 import { getJobQuality, getJobInspections, getJobReworks, getDefectTypes } from "@/lib/quality";
 import { getJobYield } from "@/lib/yield";
@@ -36,6 +36,9 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   const u = await getCurrentUser();
   const scope = u?.role === "VENDOR" ? { vendorName: u.vendor ?? "" } : undefined;
   const j = await getJob(si, scope);
+  // Change 38 Part E — read the shared per-colour stock fresh on every load, so a card
+  // saved elsewhere shows up here.
+  const fabricStock = j ? await getJobFabricStock(j.id) : new Map<string, number>();
   if (!j) notFound();
 
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
@@ -180,6 +183,23 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   // Change 25 Part F — cost / value / margin for this card. Owner-only: not queried
   // at all otherwise, so no cost figure reaches a staff session.
   const margin = canSeeCost ? (await getJobMargins({ jobCardId: j.id }))[0] ?? null : null;
+
+  /**
+   * Change 38 Part E — this card's fabric usage by colour AND by layer, against the real
+   * shared stock left for that colour.
+   *
+   * The usage cells are the DERIVED used (issued − balance, Part B) taken straight off each
+   * lay's colour rows. The stock column is the shared FabricColor.currentStock, which every
+   * other card draws from too — so saving a card that eats NAVY moves the figure shown here.
+   */
+  const summaryFabricId = j.product?.fabricId ?? j.fabricLines[0]?.fabricId ?? null;
+  const summaryColours = [
+    ...new Set(j.layers.flatMap((l) => (l.colours ?? []).map((c) => c.colour))),
+  ].sort();
+  const layerUsedFor = (layer: (typeof j.layers)[number], colour: string) => {
+    const row = (layer.colours ?? []).find((c) => c.colour === colour);
+    return row?.fabricUsed ?? null;
+  };
 
   return (
     <div className="p-6">
@@ -397,6 +417,46 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
             {layerVendors.length > 1 && <> · this card is split across {layerVendors.length} stitching vendors</>}
             {totalLayerExtra != null && <> · extra <b className={totalLayerExtra < 0 ? "text-danger" : "text-ok"}>{num(totalLayerExtra)}</b></>}
           </p>
+
+          {/* Change 38 Part E — colour × layer usage, against the live shared stock. */}
+          {summaryColours.length > 0 && (
+            <div className="mb-3 overflow-x-auto rounded-lg border border-hairline">
+              <table className="w-full t-sm">
+                <thead>
+                  <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
+                    <th className="px-2 py-2 font-semibold">Colour</th>
+                    {j.layers.map((l) => (
+                      <th key={l.id} className="px-2 py-2 text-right font-semibold">Layer {l.layerNo}</th>
+                    ))}
+                    <th className="border-l border-hairline px-2 py-2 text-right font-semibold">Used on this card</th>
+                    <th className="px-2 py-2 text-right font-semibold">Stock left</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summaryColours.map((c) => {
+                    const per = j.layers.map((l) => layerUsedFor(l, c));
+                    const cardTotal = per.reduce((a: number, v) => a + (v ?? 0), 0);
+                    const left = summaryFabricId != null ? fabricStock.get(`${summaryFabricId}|${colorKey(c)}`) : undefined;
+                    return (
+                      <tr key={c || "—"} className="border-b border-hairline last:border-0">
+                        <td className="px-2 py-1.5 font-semibold text-t1">{c || "—"}</td>
+                        {per.map((v, i) => (
+                          <td key={j.layers[i].id} className="px-2 py-1.5 text-right tnum text-t2">{v != null ? num(v, 2) : "—"}</td>
+                        ))}
+                        <td className="border-l border-hairline px-2 py-1.5 text-right font-bold tnum">{num(cardTotal, 2)}</td>
+                        <td className={`px-2 py-1.5 text-right font-semibold tnum ${left != null && left < 0 ? "text-danger" : "text-t1"}`}>
+                          {left != null ? num(left, 2) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <p className="border-t border-hairline px-2 py-1.5 t-micro text-faint">
+                Stock left is the live figure shared with every other card using this fabric, and moves when any of them is saved.
+              </p>
+            </div>
+          )}
           <div className="space-y-3">
             {j.layers.map((l) => {
               const lsizes = [...new Set(l.cells.map((c) => c.size))].sort(orderSizes);
