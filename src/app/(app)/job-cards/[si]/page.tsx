@@ -438,8 +438,38 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           </p>
 
           {/* Change 38 Part E — colour × layer usage, against the live shared stock. */}
+          {/* phones: a card per colour (columns grow with layer count) */}
           {summaryColours.length > 0 && (
-            <div className="mb-3 overflow-x-auto rounded-lg border border-hairline">
+            <div className="mb-3 flex flex-col gap-2 md:hidden">
+              {summaryColours.map((c) => {
+                const per = j.layers.map((l) => layerUsedFor(l, c));
+                const cardTotal = per.reduce((a: number, v) => a + (v ?? 0), 0);
+                const left = summaryFabricId != null ? fabricStock.get(`${summaryFabricId}|${colorKey(c)}`) : undefined;
+                return (
+                  <div key={c || "—"} className="rounded-lg border border-hairline bg-surface p-3">
+                    <div className="mb-2 t-sm font-bold text-t1">{c || "—"}</div>
+                    {j.layers.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {j.layers.map((l, i) => (
+                          <span key={l.id} className="rounded bg-surface-2 px-1.5 py-0.5 t-micro font-semibold tnum text-t2">
+                            Layer {l.layerNo}: {per[i] != null ? num(per[i]!, 2) : "—"}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 t-sm">
+                      <span className="tnum text-t2">Used on card <b className="text-t1">{num(cardTotal, 2)}</b></span>
+                      <span className={`tnum ${left != null && left < 0 ? "font-semibold text-danger" : "text-t2"}`}>
+                        Stock left <b className={left != null && left < 0 ? "text-danger" : "text-t1"}>{left != null ? num(left, 2) : "—"}</b>
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {summaryColours.length > 0 && (
+            <div className="mb-3 hidden overflow-x-auto rounded-lg border border-hairline md:block">
               <table className="w-full t-sm">
                 <thead>
                   <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
@@ -692,7 +722,34 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           {hasFabricLines && <span className="font-medium text-faint">· per colour ({unit.toLowerCase()})</span>}
         </h3>
         {hasFabricLines ? (
-          <div className="overflow-x-auto">
+          <>
+          {/* phones: a card per colour */}
+          <div className="flex flex-col gap-2 md:hidden">
+            {j.fabricLines.map((l) => {
+              const ret = returnedByColour.get(colorKey(l.color)) ?? 0;
+              return (
+                <div key={l.id} className="rounded-lg border border-hairline bg-surface p-3">
+                  <div className="mb-1.5 flex items-center gap-1.5 t-sm font-bold text-t1">
+                    {l.imageUrl && <img src={l.imageUrl} alt="" className="h-6 w-6 rounded object-cover" />}
+                    {l.color || "—"}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 t-sm text-t2">
+                    {hasFabricDetail && <span className="tnum">Req pcs <b className="text-t1">{l.reqPcs != null ? num(l.reqPcs) : "—"}</b></span>}
+                    {hasFabricDetail && <span className="tnum">Req mtr <b className="text-t1">{l.reqMtr != null ? num(l.reqMtr) : "—"}</b></span>}
+                    {hasFabricDetail && <span className="tnum">Rolls <b className="text-t1">{l.rolls != null ? num(l.rolls) : "—"}</b></span>}
+                    <span className="tnum">Assumed avg <b className="text-t1">{l.estAvg != null ? num(l.estAvg, 3) : "—"}</b></span>
+                    <span className="tnum">Actual avg <b className="text-t1">{l.actualAvg != null ? num(l.actualAvg, 3) : "—"}</b></span>
+                    <span className="tnum">GSM <b className="text-t1">{l.gsm ?? fabricGsm ?? "—"}</b></span>
+                    <span className="tnum">Width <b className="text-t1">{l.rollWidth ?? fabricWidth ?? "—"}</b></span>
+                    <span className="tnum">Issued <b className="text-t1">{l.qtyIssued != null ? num(l.qtyIssued) : "—"}</b></span>
+                    <span className="tnum">Used <b className="text-t1">{l.qtyUsed != null ? num(l.qtyUsed) : "—"}</b></span>
+                    <span className="tnum">Returned <b className="text-ok">{ret > 0 ? num(ret) : "—"}</b></span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full t-sm">
               <thead>
                 <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
@@ -737,6 +794,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               </tbody>
             </table>
           </div>
+          </>
         ) : (
           <div className="grid grid-cols-4 gap-3.5 t-sm">
             {[
@@ -853,7 +911,38 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
         <Card className="mt-3.5 p-5">
           <h3 className="mb-3 t-body font-bold">Size {hasColor ? "× Colour" : ""} Breakup <span className="font-medium text-faint">· grand total</span></h3>
           {hasColor ? (
-            <div className="overflow-x-auto">
+            <>
+            {/* phones: a card per colour + a totals summary card */}
+            <div className="flex flex-col gap-2 md:hidden">
+              {mx.colours.map((c) => (
+                <div key={c || "—"} className="rounded-lg border border-hairline bg-surface p-3">
+                  <div className="mb-2 flex items-baseline justify-between gap-2">
+                    <span className="t-sm font-bold text-t1">{c === "" ? "—" : c}</span>
+                    <span className="t-sm font-bold tnum text-primary-ink">{num(mx.byColour.find((b) => b.colour === c)?.qty ?? 0)}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {mx.sizes.map((s) => {
+                      const q = mx.cell(c, s);
+                      return q ? (
+                        <span key={s} className="rounded bg-surface-2 px-1.5 py-0.5 t-micro font-semibold tnum text-t2">{s} {num(q)}</span>
+                      ) : null;
+                    })}
+                  </div>
+                </div>
+              ))}
+              <div className="rounded-lg border border-border bg-surface-2 p-3">
+                <div className="mb-2 flex items-baseline justify-between gap-2">
+                  <span className="t-sm font-bold text-primary-ink">Total</span>
+                  <span className="t-sm font-extrabold tnum text-primary-ink">{num(mx.total)}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {mx.sizes.map((s) => (
+                    <span key={s} className="rounded bg-surface px-1.5 py-0.5 t-micro font-semibold tnum text-t2">{s} {num(mx.bySize.find((b) => b.size === s)?.qty ?? 0)}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-center t-sm">
                 <thead>
                   <tr className="t-micro font-bold uppercase tracking-wide text-faint">
@@ -878,6 +967,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                 </tbody>
               </table>
             </div>
+            </>
           ) : (
             <div className="grid gap-2 text-center" style={{ gridTemplateColumns: `repeat(${mx.sizes.length + 1}, minmax(0, 1fr))` }}>
               {mx.sizes.map((s) => (
