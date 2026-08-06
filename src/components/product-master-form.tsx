@@ -102,7 +102,7 @@ export function ProductMasterForm({
   return (
     <Card className="p-5">
       <h3 className="mb-3 t-body font-bold">{isCreate ? "New Product" : "Edit Product"} <span className="font-medium text-faint">· admin / staff</span></h3>
-      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:grid-cols-3">
         <Field label="Name"><input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder={isCreate ? "e.g. TRUMP LOWER" : ""} className={inp} /></Field>
         <Field label="SKU / article code"><input value={f.skuCode} onChange={(e) => set("skuCode", e.target.value)} placeholder="e.g. TP-TRUMP-824 (or blank)" className={inp} /></Field>
         <Field label="Style no"><input value={f.styleNo} onChange={(e) => set("styleNo", e.target.value)} placeholder="e.g. #824" className={inp} /></Field>

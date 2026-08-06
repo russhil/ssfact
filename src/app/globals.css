@@ -218,6 +218,15 @@ body {
   height: 100%;
 }
 
+/* No document-level horizontal scroll: off-canvas overlays (closed right-side
+   Sheets translate past the right edge) must never let the whole page rubber-band
+   sideways on a phone. `hidden` on the root clips it; vertical `position: sticky`
+   (the mobile top bar, the desktop sidebar) is unaffected — verified. Wide tables
+   scroll inside their own overflow-x-auto containers, untouched. */
+html {
+  overflow-x: hidden;
+}
+
 body {
   background: var(--bg);
   color: var(--t1);

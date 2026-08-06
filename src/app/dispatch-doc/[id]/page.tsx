@@ -60,7 +60,7 @@ export default async function DispatchDocPage({ params }: { params: Promise<{ id
 
       <div className="mb-4 flex items-center justify-between">
         <Link href={`/job-cards/${ev.jobCardId}`} className="no-print text-[12px] font-medium text-muted hover:text-ink">← Back to card</Link>
-        <div className="no-print flex items-center gap-2">
+        <div className="no-print flex flex-wrap items-center gap-2">
           <a
             href={waLink(null, summary)}
             target="_blank"
