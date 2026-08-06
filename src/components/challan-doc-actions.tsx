@@ -4,7 +4,8 @@ import { inputClass } from "@/components/ui";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { addChallanLine, removeChallanLine, updateChallanLine, lockChallan, voidChallan, editLockedChallan } from "@/lib/actions";
+import { addChallanLine, removeChallanLine, updateChallanLine, lockChallan, voidChallan, editLockedChallan, setChallanSignatory } from "@/lib/actions";
+import { SignatoryPicker } from "@/components/signatory-picker";
 import { waLink, mailtoLink } from "@/lib/share";
 import { num } from "@/lib/format";
 import { Printer, MessageCircle, Mail, Plus, X, Pencil, Check } from "lucide-react";
@@ -22,13 +23,22 @@ const emptyELine = (): ELine => ({ kind: "fabric", refId: 0, colour: "", qty: ""
 
 export function ChallanDocActions({
   challanId, status, direction, challanNo, lines, editLines = [], phone, email, summary, subject, fabrics, trims, colours,
+  signatories = [], signatoryName = null,
 }: {
   challanId: number; status: string; direction: "INWARD" | "OUTWARD"; challanNo: string | null;
   lines: LineView[]; editLines?: EditLine[]; phone: string | null; email: string | null; summary: string; subject: string;
   fabrics: Opt[]; trims: Opt[]; colours: { name: string }[];
+  /** Change 39 G1 — firm contact names + the chosen authorised signatory. */
+  signatories?: string[]; signatoryName?: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [sig, setSig] = useState(signatoryName ?? "");
+  async function saveSig(name: string) {
+    setSig(name);
+    try { await setChallanSignatory({ id: challanId, signatoryName: name || null }); router.refresh(); }
+    catch (e) { alert((e as Error).message); }
+  }
   const [kind, setKind] = useState<"fabric" | "trim">("fabric");
   const [refId, setRefId] = useState<number | 0>(0);
   const [colour, setColour] = useState("");
@@ -176,6 +186,11 @@ export function ChallanDocActions({
           <button onClick={addLine} disabled={busy || !refId || !qty} className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1.5 t-sm font-semibold text-t1 hover:bg-surface-2 disabled:opacity-40"><Plus size={13} /> Add line</button>
           <datalist id="doc-colours">{colours.map((c) => <option key={c.name} value={c.name} />)}</datalist>
           <button onClick={lock} disabled={busy || lines.length === 0} className="ml-auto rounded-lg bg-primary px-3.5 py-2 t-body font-semibold text-accent-on hover:opacity-90 disabled:opacity-40">Lock &amp; Post</button>
+        </div>
+        {/* Change 39 G1 — authorised signatory (firm contact, name only; firm name if unset). */}
+        <div className="mt-2 flex items-center gap-2">
+          <span className="t-xs font-semibold text-muted">Authorised signatory</span>
+          <SignatoryPicker value={sig} options={signatories} onChange={saveSig} className="max-w-sm" />
         </div>
       </div>
     );

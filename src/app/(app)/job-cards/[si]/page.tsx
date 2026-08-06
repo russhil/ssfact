@@ -14,6 +14,8 @@ import { TrimSheet } from "@/components/trim-sheet";
 import { StatusTimeline } from "@/components/status-timeline";
 import { LayerDispatch, type DispatchLayer } from "@/components/layer-dispatch";
 import { AddCuttingLayer } from "@/components/add-cutting-layer";
+import { CuttingChallanButton } from "@/components/cutting-challan-button";
+import { UnlockJobButton } from "@/components/unlock-job-button";
 import { DispatchActions } from "@/components/dispatch-actions";
 import { JobCardActions } from "@/components/job-card-actions";
 import { LayerActions } from "@/components/layer-actions";
@@ -74,6 +76,10 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
 
   const balance = j.cutQty - j.dispatchedQty;
   const fill = j.cutQty ? j.dispatchedQty / j.cutQty : 0;
+  // Change 39 Part F — a finalised card with issued material is frozen. Editing existing
+  // layers is blocked; issuing more material / images / progress stay open. Admins can unlock.
+  const locked = !!j.editLockedAt;
+  const isAdmin = u?.role === "ADMIN";
   const overdue = j.status === "ACTIVE" && j.plannedEtd && j.plannedEtd < new Date() && balance > 0;
   const stage = normStage(j.stage);
   const unit = j.product?.unit ?? "MTR";
@@ -218,6 +224,8 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               <Badge tone={stageTone(stage)}>{STAGE_LABEL[stage]}</Badge>
             )}
             {!j.product && <Badge tone="warn">Made-to-order</Badge>}
+            {/* Change 39 Part F — frozen once material has issued against the card. */}
+            {locked && <Badge tone="warn">Locked — material issued</Badge>}
           </div>
           <p className="mt-0.5 t-body text-muted">
             {itemDesc} · {styleNo}
@@ -248,10 +256,21 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               <Plus size={14} /> Add split / re-cut
             </Link>
           )}
+          {/* Change 39 Part F — ADMIN unlock for correction (audited). */}
+          {locked && isAdmin && <UnlockJobButton jobCardId={j.id} />}
           <Link href={`/challan/${j.id}`} className="rounded-lg border border-border px-3.5 py-2 t-body font-semibold text-primary-ink hover:bg-surface-2">
             Share challan
           </Link>
         </div>
+      </div>
+
+      {/* Change 39 Part G — authorised signatory (firm contact name; firm-name fallback, never
+          the login user) + who prepared the card. */}
+      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-0.5 t-xs text-muted">
+        <span>Authorised signatory: <b className="text-t1">{j.signatoryName ?? "Sport Sun"}</b></span>
+        {j.createdBy?.displayName && (
+          <span>Prepared by <b className="text-t1">{j.createdBy.displayName}</b>{j.createdAt ? ` · ${fmtDate(j.createdAt)}` : ""}</span>
+        )}
       </div>
 
       {/* process flags */}
@@ -463,6 +482,12 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               const lcolours = [...new Set(l.cells.map((c) => c.colour))].sort();
               const lcell = (s: string, c: string) => l.cells.find((x) => x.size === s && x.colour === c)?.qty ?? 0;
               const ltotal = l.cells.reduce((a, c) => a + c.qty, 0);
+              // Change 39 B — measured avg = lay length ÷ pieces (the honest cousin of the
+              // pre-cut estimate). Bundles are shown beside each colour's cut qty.
+              const lLen = l.layerLength ?? null;
+              const lAvgMeasured = lLen != null && ltotal > 0 ? lLen / ltotal : null;
+              const lBundles = (c: string) => (l.colours ?? []).find((x) => x.colour === c)?.bundles ?? null;
+              const anyBundles = (l.colours ?? []).some((c) => c.bundles != null);
               // Change 17 A: Issued · Used · Extra reconciliation (Extra = issued − used, may be negative).
               const lIssued = l.fabricIssued;
               const lUsed = l.fabricMtr;
@@ -491,8 +516,10 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                     </span>
                     <span className="flex items-center gap-2 text-faint">
                       {l.cutDate ? fmtDate(l.cutDate) : ""}{l.cuttingMaster ? ` · ${l.cuttingMaster.name}` : ""}
-                      {/* Change 22 Part D: edit or remove this lay. */}
-                      {canEdit && (
+                      {/* Change 39 Part D2 — issue this lay's cut goods as a cutting challan. */}
+                      {canEdit && ltotal > 0 && <CuttingChallanButton jobCardId={j.id} layerId={l.id} />}
+                      {/* Change 22 Part D: edit or remove this lay — frozen once the card locks (Change 39 F). */}
+                      {canEdit && !locked && (
                         <LayerActions
                           unit={unit}
                           vendors={vendorNames}
@@ -524,6 +551,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                           <th className="px-2 py-1 text-left">Colour \ Size</th>
                           {lsizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
                           <th className="px-2 py-1 text-primary-ink">Total</th>
+                          {anyBundles && <th className="px-2 py-1">Bundles</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -532,6 +560,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                             <td className="px-2 py-1 text-left font-semibold text-t1">{c || "—"}</td>
                             {lsizes.map((s) => <td key={s} className="px-2 py-1 tnum">{lcell(s, c) || ""}</td>)}
                             <td className="px-2 py-1 font-bold text-primary-ink tnum">{num(lsizes.reduce((a, s) => a + lcell(s, c), 0))}</td>
+                            {anyBundles && <td className="px-2 py-1 tnum text-t2">{lBundles(c) != null ? num(lBundles(c)!) : "—"}</td>}
                           </tr>
                         ))}
                       </tbody>
@@ -549,12 +578,18 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                           <span className="text-muted">Balance <b className="tnum text-primary-ink">{l.fabricBalance != null ? num(l.fabricBalance) : "—"}</b></span>
                           <span className="text-muted">Used <b className="tnum text-primary-ink">{lUsed != null ? num(lUsed) : "—"}</b></span>
                         </span>
-                        {l.avgConsumption != null && <span className="text-faint">avg {num(l.avgConsumption, 3)}</span>}
+                        {lLen != null && <span className="text-faint">length {num(lLen, 1)} m</span>}
+                        {/* Change 39 B — estimate vs measured avg side by side */}
+                        {(l.avgConsumption != null || lAvgMeasured != null) && (
+                          <span className="text-faint">
+                            avg{l.avgConsumption != null ? ` est ${num(l.avgConsumption, 3)}` : ""}{lAvgMeasured != null ? ` · actual ${num(lAvgMeasured, 3)}` : ""}
+                          </span>
+                        )}
                         {l.rolls != null && <span className="text-faint">{num(l.rolls)} roll</span>}
                       </div>
                     </div>
                   ) : (
-                    (lIssued != null || lUsed != null || estNote) && (
+                    (lIssued != null || lUsed != null || estNote || lLen != null) && (
                       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline pt-1.5 t-xs">
                         {(lIssued != null || lUsed != null) && (
                           <span className="flex items-center gap-3">
@@ -563,6 +598,8 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                             <span className="text-muted">Extra <b className={`tnum ${lExtra != null && lExtra < 0 ? "text-danger" : "text-ok"}`}>{lExtra != null ? num(lExtra) : "—"}</b></span>
                           </span>
                         )}
+                        {lLen != null && <span className="text-faint">length {num(lLen, 1)} m</span>}
+                        {lAvgMeasured != null && <span className="text-faint">avg actual {num(lAvgMeasured, 3)}</span>}
                         {estNote && <span className="text-faint">{estNote}</span>}
                       </div>
                     )

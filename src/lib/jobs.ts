@@ -138,6 +138,8 @@ export async function getDraftForEdit(id: number) {
   return {
     id: d.id,
     productId: d.productId,
+    productionOrderId: d.productionOrderId, // Change 39 Part C
+    signatoryName: d.signatoryName, // Change 39 Part G1
     customItem: d.customItem,
     customSku: d.customSku,
     customStyle: d.customStyle,
@@ -168,6 +170,8 @@ export async function getDraftForEdit(id: number) {
         vendor: l.vendor?.name ?? "",
         avg: l.avgConsumption != null ? String(l.avgConsumption) : "",
         rolls: l.rolls != null ? String(l.rolls) : "",
+        // Change 39 B — carry the measured lay length back into a resumed draft.
+        layerLength: l.layerLength != null ? String(l.layerLength) : "",
         sizes,
         ratio: ratio.length ? ratio : sizes.map((s) => [s, 1] as [string, number]),
         cells: Object.fromEntries(l.cells.map((c) => [`${c.size}|||${c.colour}`, c.qty])),
@@ -175,6 +179,7 @@ export async function getDraftForEdit(id: number) {
           colour: c.colour,
           issued: c.fabricIssued != null ? String(c.fabricIssued) : "",
           balance: c.fabricBalance != null ? String(c.fabricBalance) : "",
+          bundles: c.bundles ?? null, // Change 39 B
         })),
       };
     }),
@@ -192,6 +197,8 @@ export async function getJob(slug: string, scope?: JobScope) {
     product: { include: { fabric: true } },
     vendor: true,
     cuttingMaster: true,
+    // Change 39 G2 — who first raised the card, shown as "Prepared by".
+    createdBy: { select: { displayName: true } },
     dispatches: {
       orderBy: { date: "asc" as const },
       include: { lines: true, layers: { select: { id: true, layerNo: true, label: true } } },

@@ -157,18 +157,21 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * was typed — a blank colour posts nothing, exactly as before. Never clamped: a balance above
  * issued yields a negative USED, which the card shows in red rather than silently swallowing.
  */
-export type ColourFabricInput = { colour: string; issued?: number | null; balance?: number | null };
-type ColourFabricRow = { fabricIssued: number | null; fabricBalance: number | null; fabricUsed: number | null };
+// Change 39 Part B — bundles ride on the same per-colour row (CuttingLayerColour holds it).
+export type ColourFabricInput = { colour: string; issued?: number | null; balance?: number | null; bundles?: number | null };
+type ColourFabricRow = { fabricIssued: number | null; fabricBalance: number | null; fabricUsed: number | null; bundles: number | null };
 
 function colourFabricRows(input: ColourFabricInput[] | null | undefined): Map<string, ColourFabricRow> {
-  const acc = new Map<string, { issued: number | null; balance: number | null }>();
+  const acc = new Map<string, { issued: number | null; balance: number | null; bundles: number | null }>();
   for (const r of input ?? []) {
     const k = colorKey(r.colour);
-    if (k === "" || (r.issued == null && r.balance == null)) continue;
-    const prev = acc.get(k) ?? { issued: null, balance: null };
+    // Change 39 B: keep a row if it carries ANY of issued / balance / bundles.
+    if (k === "" || (r.issued == null && r.balance == null && r.bundles == null)) continue;
+    const prev = acc.get(k) ?? { issued: null, balance: null, bundles: null };
     acc.set(k, {
       issued: r.issued == null ? prev.issued : (prev.issued ?? 0) + r.issued,
       balance: r.balance == null ? prev.balance : (prev.balance ?? 0) + r.balance,
+      bundles: r.bundles == null ? prev.bundles : (prev.bundles ?? 0) + Math.round(r.bundles),
     });
   }
   const out = new Map<string, ColourFabricRow>();
@@ -176,7 +179,9 @@ function colourFabricRows(input: ColourFabricInput[] | null | undefined): Map<st
     out.set(k, {
       fabricIssued: v.issued,
       fabricBalance: v.balance,
-      fabricUsed: round2((v.issued ?? 0) - (v.balance ?? 0)),
+      // USED stays derived from issued/balance only; a bundles-only row has no fabric figure.
+      fabricUsed: v.issued == null && v.balance == null ? null : round2((v.issued ?? 0) - (v.balance ?? 0)),
+      bundles: v.bundles,
     });
   }
   return out;
@@ -216,6 +221,7 @@ export type NewJobLayerInput = {
   fabricBalance?: number | null;
   fabricIssued?: number | null; // Change 17 A: Fabric ISSUED (Extra = issued − used, derived)
   sizeRatio?: string | null; // Change 17 B: this lay's own size ratio JSON
+  layerLength?: number | null; // Change 39 B: measured lay length (metres); avg/pc derived on read
   cells: { colour: string; size: string; qty: number }[];
   // Change 37: fabric per colour on this lay. When present it REPLACES the proportional
   // split for those colours — the ledger is driven to USED, not an estimate.
@@ -232,6 +238,10 @@ export type NewJobInput = {
   customMrp?: number | null;
   // reuse an existing SI when adding a vendor split / re-cut (Change 12, Part F); else auto-assigned
   siNo?: string | null;
+  // Change 39 Part C — the production order this card cuts against (optional link).
+  productionOrderId?: number | null;
+  // Change 39 Part G1 — authorised signatory (firm contact name; never the login user).
+  signatoryName?: string | null;
   vendorName: string;
   cuttingMaster?: string;
   // legacy single-grid entry (kept for back-compat); new cards send `layers` instead
@@ -522,6 +532,8 @@ async function writeJobCard(input: NewJobInput, opts: { post: boolean; existingI
         customSku: product ? null : input.customSku?.trim() || null,
         customStyle: product ? null : input.customStyle?.trim() || null,
         customMrp: product ? null : customMrp,
+        productionOrderId: input.productionOrderId ?? null, // Change 39 Part C
+        signatoryName: input.signatoryName?.trim() || null, // Change 39 Part G1
         vendorId: vendor.id,
         cuttingMasterId,
         // Layers are the source of truth for new cards; legacy grids still write SizeBreakup.
@@ -532,7 +544,9 @@ async function writeJobCard(input: NewJobInput, opts: { post: boolean; existingI
     const created =
       opts.existingId != null
         ? await tx.jobCard.update({ where: { id: opts.existingId }, data: cardData as any })
-        : await tx.jobCard.create({ data: cardData as any });
+        // Change 39 G2 — stamp the creator on INSERT only, so finalising a draft never
+        // overwrites who first raised it.
+        : await tx.jobCard.create({ data: { ...cardData, createdById: user.userId } as any });
 
     // Cutting layers + their colour×size cells (each layer may carry its own date/master/vendor).
     for (let li = 0; li < layers.length; li++) {
@@ -560,6 +574,7 @@ async function writeJobCard(input: NewJobInput, opts: { post: boolean; existingI
           fabricBalance: perColour ? sumColourFabric(rows, "fabricBalance") : (l.fabricBalance ?? null),
           fabricIssued: perColour ? sumColourFabric(rows, "fabricIssued") : (l.fabricIssued ?? null),
           sizeRatio: l.sizeRatio ?? null,
+          layerLength: l.layerLength ?? null, // Change 39 B
           cells: { create: l.cells.map((c) => ({ colour: c.colour, size: c.size, qty: c.qty })) },
           ...(perColour
             ? { colours: { create: [...rows.entries()].map(([colour, v]) => ({ colour, ...v })) } }
@@ -649,6 +664,8 @@ async function writeJobCard(input: NewJobInput, opts: { post: boolean; existingI
     return created;
   });
 
+  // Change 39 Part F — a posted card that issued fabric freezes immediately.
+  if (opts.post) await syncJobLock(job.id);
   revalidatePath("/");
   revalidatePath("/job-cards");
   revalidatePath("/inventory");
@@ -1143,10 +1160,12 @@ export async function addCuttingLayer(input: {
   fabricBalance?: number | null;
   fabricIssued?: number | null; // Change 17 A: Fabric ISSUED
   sizeRatio?: string | null; // Change 17 B: this lay's own size ratio JSON
+  layerLength?: number | null; // Change 39 B: measured lay length (metres)
   cells: { colour: string; size: string; qty: number }[];
   // Change 37: fabric per colour on this lay. When present it REPLACES the proportional
   // split — the ledger is driven to the entered USED per colour instead of an estimate.
-  fabricByColour?: { colour: string; issued?: number | null; used?: number | null }[] | null;
+  // Change 38 B: issued + balance typed, USED derived. Change 39 B: also carries bundles.
+  fabricByColour?: ColourFabricInput[] | null;
   // Change 36 Part 8: which fabric lot this lay was cut from.
   fabricLotNo?: string | null;
   // Change 36 Part 10: replay key for a lay recorded offline.
@@ -1208,6 +1227,7 @@ export async function addCuttingLayer(input: {
         fabricIssued: layerIssued,
         fabricLotNo: input.fabricLotNo?.trim() || null,
         sizeRatio: input.sizeRatio ?? null,
+        layerLength: input.layerLength ?? null, // Change 39 B
         cells: { create: cells },
         ...(perColour
           ? { colours: { create: [...byColFabric.entries()].map(([colour, v]) => ({ colour, ...v })) } }
@@ -1275,6 +1295,8 @@ export async function addCuttingLayer(input: {
     })
   );
 
+  // Change 39 Part F — a newly added lay may carry issued fabric; keep the lock synced.
+  await syncJobLock(job.id);
   revalidatePath(`/job-cards/${job.id}`);
   revalidatePath("/inventory");
   return { ok: true, layerNo };
@@ -1411,6 +1433,97 @@ export async function removeFabricSupplier(input: { id: number }) {
 
 // ── Change 02 — trim sheet: incremental issue log + preset BOM CRUD ──
 
+/**
+ * Recompute a card's `trimsPending` flag LIVE against current trim stock (Change 39 E3).
+ * A card is pending if any BOM line still needs more than the trim's current stock. Shared by
+ * recordTrimIssue and lockChallan, so a locked inward challan that tops up stock clears the
+ * flag on the card it was raised against — not just an explicit issue.
+ */
+async function recomputeTrimsPending(jobCardId: number): Promise<void> {
+  const jobLines = await db.jobBomLine.findMany({
+    where: { jobCardId },
+    select: { trimItemId: true, requiredQty: true, totalQty: true, issuedQty: true },
+  });
+  const trimIds = [...new Set(jobLines.map((l) => l.trimItemId).filter((x): x is number => x != null))];
+  const trims = trimIds.length
+    ? await db.trimItem.findMany({ where: { id: { in: trimIds } }, select: { id: true, currentStock: true } })
+    : [];
+  const stock = new Map(trims.map((t) => [t.id, t.currentStock]));
+  const pending = jobLines.some((l) => {
+    const bal = (l.requiredQty ?? l.totalQty ?? 0) - (l.issuedQty ?? 0);
+    return l.trimItemId != null && bal > 0 && (l.requiredQty ?? 0) > (stock.get(l.trimItemId) ?? 0);
+  });
+  await db.jobCard.update({ where: { id: jobCardId }, data: { trimsPending: pending } as any });
+}
+
+// ── Change 39 Part F — edit lock ──
+// A finalised card with issued material freezes its core fields. Lock is DERIVED (status ≠
+// DRAFT AND (a locked challan exists OR fabric was issued on any lay/colour)); `editLockedAt`
+// is the enforced gate, kept in sync with that derived state on every material-affecting
+// write, preserving the first-frozen timestamp. An ADMIN "unlock for correction" nulls it;
+// the next save re-stamps. Reversing all posted material (voids/removals) lifts the lock via
+// the same derived check on the next sync.
+
+const JOB_LOCK_SELECT = {
+  status: true,
+  editLockedAt: true,
+  layers: { select: { fabricIssued: true, colours: { select: { fabricIssued: true } } } },
+  materialChallans: { where: { status: "LOCKED" as const, voidedAt: null }, select: { id: true } },
+} as const;
+
+function deriveJobLocked(job: {
+  status: string;
+  layers: { fabricIssued: number | null; colours: { fabricIssued: number | null }[] }[];
+  materialChallans: { id: number }[];
+}): boolean {
+  if (job.status === "DRAFT") return false;
+  const hasLockedChallan = job.materialChallans.length > 0;
+  const hasIssuedFabric = job.layers.some(
+    (l) => l.fabricIssued != null || l.colours.some((c) => c.fabricIssued != null)
+  );
+  return hasLockedChallan || hasIssuedFabric;
+}
+
+/** Keep editLockedAt in sync with the derived lock, preserving the first-frozen timestamp. */
+async function syncJobLock(jobCardId: number): Promise<void> {
+  const job = await db.jobCard.findUnique({ where: { id: jobCardId }, select: JOB_LOCK_SELECT });
+  if (!job) return;
+  const locked = deriveJobLocked(job);
+  const next = locked ? (job.editLockedAt ?? new Date()) : null;
+  const changed = (next?.getTime() ?? null) !== (job.editLockedAt?.getTime() ?? null);
+  if (changed) await db.jobCard.update({ where: { id: jobCardId }, data: { editLockedAt: next } as any });
+}
+
+/** Throw if the card is currently frozen. An ADMIN unlock clears it for one correction save. */
+async function assertJobEditable(jobCardId: number): Promise<void> {
+  const job = await db.jobCard.findUnique({ where: { id: jobCardId }, select: { editLockedAt: true } });
+  if (job?.editLockedAt) {
+    throw new Error("This job card is locked — material has been issued against it. An admin must unlock it for correction.");
+  }
+}
+
+/** Change 39 Part F — ADMIN-only, audited "unlock for correction". Clears the freeze until re-save. */
+export async function unlockJobCardForCorrection(input: { jobCardId: number; reason?: string | null }) {
+  const user = await requireRole("ADMIN");
+  const job = await db.jobCard.findUnique({ where: { id: input.jobCardId }, select: { siNo: true, editLockedAt: true } });
+  if (!job) throw new Error("Job card not found");
+  if (!job.editLockedAt) return { ok: true }; // already editable
+  await db.$transaction(async (tx) => {
+    await tx.jobCard.update({ where: { id: input.jobCardId }, data: { editLockedAt: null } as any });
+    await logAudit(tx, user, {
+      action: "unlockJobCard",
+      entity: "JobCard",
+      entityId: input.jobCardId,
+      entityLabel: job.siNo,
+      summary: `Unlocked job card ${job.siNo} for correction${input.reason ? ` — ${input.reason}` : ""}`,
+      changes: { editLockedAt: { old: job.editLockedAt, new: null } },
+      meta: { reason: input.reason ?? null },
+    });
+  });
+  revalidatePath(`/job-cards/${input.jobCardId}`);
+  return { ok: true };
+}
+
 /** Log trims physically handed over against a job's BOM line (workbook Issue-Qty/Balance). */
 export async function recordTrimIssue(input: {
   jobBomLineId: number;
@@ -1428,19 +1541,9 @@ export async function recordTrimIssue(input: {
       issueDate: input.issueDate ? new Date(input.issueDate) : new Date(),
       challan: input.challan ?? null,
     } as any,
-    include: { jobCard: { include: { jobLines: true } } },
+    select: { jobCardId: true },
   });
-  // Recompute trims-pending live: any line still needing more than the trim's current stock.
-  const trimIds = [...new Set(line.jobCard.jobLines.map((l) => l.trimItemId).filter((x): x is number => x != null))];
-  const trims = trimIds.length
-    ? await db.trimItem.findMany({ where: { id: { in: trimIds } }, select: { id: true, currentStock: true } })
-    : [];
-  const stock = new Map(trims.map((t) => [t.id, t.currentStock]));
-  const pending = line.jobCard.jobLines.some((l) => {
-    const bal = (l.requiredQty ?? l.totalQty ?? 0) - (l.issuedQty ?? 0);
-    return l.trimItemId != null && bal > 0 && (l.requiredQty ?? 0) > (stock.get(l.trimItemId) ?? 0);
-  });
-  await db.jobCard.update({ where: { id: line.jobCardId }, data: { trimsPending: pending } as any });
+  await recomputeTrimsPending(line.jobCardId);
   revalidatePath(`/job-cards/${line.jobCardId}`);
   revalidatePath("/pending-trims");
   return { ok: true };
@@ -2845,7 +2948,7 @@ export async function createChallan(input: {
   date?: string;
   note?: string | null;
 }) {
-  await requireRole("ADMIN", "STAFF");
+  const user = await requireRole("ADMIN", "STAFF");
   if (input.direction === "INWARD" && !input.supplierId) throw new Error("Inward challan needs a supplier");
   if (input.direction === "OUTWARD" && !input.vendorId) throw new Error("Outward challan needs a vendor");
   // Job-card requirement by kind is a UI warning only (spec Part C) — never blocked here.
@@ -2857,10 +2960,80 @@ export async function createChallan(input: {
       jobCardId: input.jobCardId ?? null,
       date: input.date ? new Date(input.date) : new Date(),
       note: input.note ?? null,
+      createdById: user.userId, // Change 39 G2 — prepared-by
     } as any,
   });
   revalidatePath("/challans");
   return { id: c.id };
+}
+
+/**
+ * Change 39 Part D2 — raise a "cutting challan" from one lay: an OUTWARD draft challan whose
+ * lines are the lay's colour × size cut goods (pieces), derived — never re-typed. Cut-goods
+ * lines carry a cuttingLayerId + size and NO fabricId/trimItemId, so locking them through the
+ * shared lockChallan path posts NO store-stock movement (postMaterialMovement no-ops on a
+ * line with neither id). The challan still gets a number, prints, and locks like any other.
+ */
+export async function createCuttingChallan(input: { jobCardId: number; layerId: number; vendorId?: number | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const layer = await db.cuttingLayer.findUnique({
+    where: { id: input.layerId },
+    include: { cells: true, jobCard: { select: { id: true, vendorId: true } } },
+  });
+  if (!layer) throw new Error("Layer not found");
+  if (layer.jobCardId !== input.jobCardId) throw new Error("Layer does not belong to this job card");
+  const cells = layer.cells.filter((c) => c.qty > 0);
+  if (!cells.length) throw new Error("This layer has no cut goods to issue");
+  const vendorId = input.vendorId ?? layer.vendorId ?? layer.jobCard.vendorId;
+  const c = await db.materialChallan.create({
+    data: {
+      direction: "OUTWARD",
+      vendorId,
+      jobCardId: input.jobCardId,
+      note: `Cut goods · Layer ${layer.layerNo}${layer.label ? ` · ${layer.label}` : ""}`,
+      createdById: user.userId, // Change 39 G2 — prepared-by
+      lines: {
+        create: cells.map((cell) => ({
+          cuttingLayerId: layer.id,
+          colour: cell.colour || null,
+          size: cell.size,
+          qty: cell.qty,
+          unit: "PCS",
+        })),
+      },
+    } as any,
+  });
+  revalidatePath("/challans");
+  revalidatePath(`/job-cards/${input.jobCardId}`);
+  return { id: c.id };
+}
+
+/**
+ * Change 39 G3 — append a person to our firm (the first active buyer) without disturbing the
+ * others, so a signatory can be added inline when none exist yet. Returns the created name.
+ */
+export async function createFirmContactQuick(input: { name: string }) {
+  await requireRole("ADMIN", "STAFF");
+  const name = input.name.trim();
+  if (!name) throw new Error("Name required");
+  const buyer = await db.buyer.findFirst({ where: { active: true }, orderBy: { id: "asc" }, select: { id: true } });
+  if (!buyer) throw new Error("Add a firm under Masters first");
+  const max = await db.contact.aggregate({ where: { buyerId: buyer.id }, _max: { sortOrder: true } });
+  await db.contact.create({ data: { name, buyerId: buyer.id, sortOrder: (max._max.sortOrder ?? 0) + 1 } });
+  revalidatePath("/masters");
+  return { name };
+}
+
+/** Change 39 G1 — set the authorised signatory on a draft challan (firm contact name only). */
+export async function setChallanSignatory(input: { id: number; signatoryName: string | null }) {
+  await requireRole("ADMIN", "STAFF");
+  await assertDraft(input.id);
+  await db.materialChallan.update({
+    where: { id: input.id },
+    data: { signatoryName: input.signatoryName?.trim() || null } as any,
+  });
+  revalidatePath(`/challan-doc/${input.id}`);
+  return { ok: true };
 }
 
 async function assertDraft(challanId: number) {
@@ -3031,6 +3204,18 @@ export async function lockChallan(input: { id: number }) {
   revalidatePath("/trims");
   revalidatePath("/fabric-orders");
   revalidatePath("/trim-orders");
+
+  // Change 39 E3 — locking a challan can change what a card is waiting on (an inward top-up
+  // clears a shortage; an outward issue depletes stock). Recompute the linked card's flag
+  // live from current stock so "ready cards" stays honest without a manual re-save.
+  if (c.jobCardId) {
+    await recomputeTrimsPending(c.jobCardId);
+    // Change 39 Part F — a locked challan against a card is one of the freeze triggers.
+    await syncJobLock(c.jobCardId);
+    revalidatePath(`/job-cards/${c.jobCardId}`);
+  }
+  revalidatePath("/pending-trims");
+  revalidatePath("/");
 
   // Change 36 Part 2 — AFTER the transaction, never inside it. This function's tx also
   // writes the stock ledger through postMaterialMovement; awaiting a transport hiccup in
@@ -3932,6 +4117,9 @@ export async function updateCuttingLayer(input: {
     include: { cells: true, colours: true, jobCard: { select: { id: true, siNo: true, product: { select: { fabricId: true } } } } },
   });
   if (!layer) throw new Error("Cutting layer not found");
+  // Change 39 Part F — a card frozen after material issued cannot have its cells/ratio/fabric
+  // edited until an admin unlocks it for correction.
+  await assertJobEditable(layer.jobCardId);
 
   const oldTotal = layer.cells.reduce((a, c) => a + c.qty, 0);
   const cells = input.cells
@@ -4043,6 +4231,8 @@ export async function updateCuttingLayer(input: {
     });
   });
 
+  // Change 39 Part F — re-freeze after a correction save (still meets the derived lock).
+  await syncJobLock(layer.jobCardId);
   revalidatePath(`/job-cards/${layer.jobCardId}`);
   revalidatePath("/job-cards");
   revalidatePath("/board");
@@ -4069,6 +4259,8 @@ export async function removeCuttingLayer(input: { id: number }) {
     },
   });
   if (!layer) throw new Error("Cutting layer not found");
+  // Change 39 Part F — a frozen card's layers can't be removed until an admin unlocks it.
+  await assertJobEditable(layer.jobCard.id);
   if (layer.dispatches.length > 0) {
     const nos = layer.dispatches.map((d) => d.dispatchNo ?? `#${d.id}`).join(", ");
     throw new Error(`This layer has been dispatched against (${nos}) — void those dispatches first`);
@@ -4175,6 +4367,8 @@ export async function removeCuttingLayer(input: { id: number }) {
     });
   });
 
+  // Change 39 Part F — removing a lay may reverse the last issued fabric; re-sync the lock.
+  await syncJobLock(layer.jobCard.id);
   revalidatePath(`/job-cards/${layer.jobCard.id}`);
   revalidatePath("/job-cards");
   revalidatePath("/board");

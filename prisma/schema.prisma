@@ -244,7 +244,7 @@ model PartyLedgerEntry {
   // never restate a settled bill.
   rateAtPosting Float?
 
-  createdBy   User? @relation("PartyLedgerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy   User?    @relation("PartyLedgerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdById Int?
   createdAt   DateTime @default(now())
 
@@ -262,20 +262,20 @@ model CuttingMaster {
 }
 
 model Fabric {
-  id           Int             @id @default(autoincrement())
-  name         String          @unique
-  unit         FabricUnit      @default(MTR)
-  openingStock Float           @default(0)
-  ratePerUnit  Float? // estimated price per unit (KG/MTR)
+  id             Int                   @id @default(autoincrement())
+  name           String                @unique
+  unit           FabricUnit            @default(MTR)
+  openingStock   Float                 @default(0)
+  ratePerUnit    Float? // estimated price per unit (KG/MTR)
   // master presets — defaults applied at point of use (lay/job card), overridable
-  gsm          Float?
-  rollWidth    Float?
-  form         FabricForm?
+  gsm            Float?
+  rollWidth      Float?
+  form           FabricForm?
   // Change 36 Part 0: the deactivate fallback when a fabric is referenced and so
   // cannot be deleted. Every other master already had one (Vendor/Supplier/Buyer/
   // Colour/CuttingMaster carry `active`; Product/TrimItem use their status enum) —
   // fabric was the only one with no way to retire it.
-  active       Boolean         @default(true)
+  active         Boolean               @default(true)
   styles         Style[]
   products       Product[]
   colors         FabricColor[]
@@ -364,7 +364,7 @@ model JobCard {
   // Change 36 Part 5: per-card override of the fabric standard. Falls back to
   // Product.avgConsumption — there is NO fabric BOM in this schema; Bom/BomLine are
   // trim-only and no BomLine ever references a Fabric.
-  stdFabricPerPc Float?
+  stdFabricPerPc   Float?
   estFabric        Float?
   // actual (entered later by staff)
   actualAvg        Float?
@@ -408,6 +408,18 @@ model JobCard {
   vendorId        Int
   cuttingMaster   CuttingMaster? @relation(fields: [cuttingMasterId], references: [id])
   cuttingMasterId Int?
+
+  // Change 39 Part C — optional link to the production order this card cuts against, so a
+  // PO can roll up "cut so far". SetNull on delete: dropping an order never deletes cards.
+  productionOrder   ProductionOrder? @relation(fields: [productionOrderId], references: [id], onDelete: SetNull)
+  productionOrderId Int?
+
+  // Change 39 Part F — audit stamp for the first time this card froze (material posted
+  // against it). NOT the source of truth for "is it locked now" — that stays derived.
+  editLockedAt  DateTime?
+  // Change 39 Part G — authorised signatory (firm/buyer contact name snapshot, like
+  // FabricOrder.signatoryName). Never the login user. Falls back to firm name when unset.
+  signatoryName String?
 
   dispatches        DispatchEvent[]
   sizeBreakup       SizeBreakup[]
@@ -468,18 +480,25 @@ model CuttingLayer {
   fabricLotNo  String?
   // Change 17 Part B: this lay's own editable size ratio, JSON [["S",1],["M",1.5],…].
   // null ⇒ fall back to the card ratio (back-compat for legacy layers).
-  sizeRatio String?
+  sizeRatio    String?
 
-  cells      CuttingLayerCell[]
+  // Change 39 Part B: measured length of this one lay of fabric, metres. The honest
+  // cousin of avgConsumption (an estimate) — avgPerPiece = layerLength / pieces is derived
+  // on read, never stored. Null on every legacy lay (honest "unknown").
+  layerLength Float?
+
+  cells         CuttingLayerCell[]
+  // Change 39 Part D2 — cutting-challan lines emitted from this lay (colour × size cut goods).
+  challanLines  MaterialChallanLine[]
   // Change 37: fabric issued/used per COLOUR on this lay. When these rows exist they are
   // the truth and fabricMtr/fabricIssued above are their sum; when they don't (every
   // legacy layer) the old proportional split still runs. See reconcileJobFabricColour.
-  colours    CuttingLayerColour[]
-  inspections Inspection[]
-  reworks     Rework[]
-  dispatches DispatchEvent[]    @relation("DispatchLayers") // Change 14: dispatched against these layers
+  colours       CuttingLayerColour[]
+  inspections   Inspection[]
+  reworks       Rework[]
+  dispatches    DispatchEvent[]       @relation("DispatchLayers") // Change 14: dispatched against these layers
   // Change 20: finishing job-work given out against this lay (same pattern as dispatch).
-  finishingJobs FinishingJob[]   @relation("FinishingLayers")
+  finishingJobs FinishingJob[]        @relation("FinishingLayers")
 
   // Change 25 Part A — audit stamps.
   createdAt   DateTime @default(now())
@@ -519,6 +538,9 @@ model CuttingLayerColour {
   fabricIssued  Float? // typed
   fabricBalance Float? // typed  (Change 38)
   fabricUsed    Float? // DERIVED on write = issued − balance
+  // Change 39 Part B — tied bundles this colour was split into on this lay (cutter writes
+  // it down). Nullable; null on legacy rows shows as "—".
+  bundles       Int?
 
   @@unique([layerId, colour])
   @@index([layerId])
@@ -568,26 +590,26 @@ model StitchReceipt {
 // actual avg + used are logged after cutting. gsm/rollWidth null ⇒ inherit the
 // fabric master preset (they vary roll-to-roll, overridable at the lay).
 model JobFabricLine {
-  id        Int     @id @default(autoincrement())
-  color     String
-  fabric    Fabric  @relation(fields: [fabricId], references: [id])
-  fabricId  Int
-  cutQty    Float   @default(0)
-  estAvg    Float?
-  actualAvg Float?
-  gsm       Float?
-  rollWidth Float?
-  qtyIssued Float?
-  qtyUsed   Float?
+  id         Int     @id @default(autoincrement())
+  color      String
+  fabric     Fabric  @relation(fields: [fabricId], references: [id])
+  fabricId   Int
+  cutQty     Float   @default(0)
+  estAvg     Float?
+  actualAvg  Float?
+  gsm        Float?
+  rollWidth  Float?
+  qtyIssued  Float?
+  qtyUsed    Float?
   arrangedBy String? // who issued the fabric (defaults to logged-in user)
   challan    String?
   // fabric-detail plan per colour (Change 10, Part F)
-  reqPcs    Float? // planned pieces for this colour
-  reqMtr    Float? // planned fabric metres for this colour
-  rolls     Int? // planned/used roll count for this colour
-  imageUrl  String? // per-colour fabric swatch/photo (reuse Change 06 upload)
-  jobCard   JobCard @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
-  jobCardId Int
+  reqPcs     Float? // planned pieces for this colour
+  reqMtr     Float? // planned fabric metres for this colour
+  rolls      Int? // planned/used roll count for this colour
+  imageUrl   String? // per-colour fabric swatch/photo (reuse Change 06 upload)
+  jobCard    JobCard @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  jobCardId  Int
 
   @@index([jobCardId])
   @@index([fabricId])
@@ -734,27 +756,27 @@ model User {
   // because a model can point at User twice (created/updated); nothing reads these
   // back-relations today, they exist to satisfy Prisma.
   auditLogs           AuditLog[]
-  jobCardsCreated     JobCard[]         @relation("JobCardCreatedBy")
-  jobCardsUpdated     JobCard[]         @relation("JobCardUpdatedBy")
-  challansCreated     MaterialChallan[] @relation("MaterialChallanCreatedBy")
-  challansUpdated     MaterialChallan[] @relation("MaterialChallanUpdatedBy")
-  dispatchesCreated   DispatchEvent[]   @relation("DispatchEventCreatedBy")
-  dispatchesUpdated   DispatchEvent[]   @relation("DispatchEventUpdatedBy")
-  layersCreated       CuttingLayer[]    @relation("CuttingLayerCreatedBy")
-  layersUpdated       CuttingLayer[]    @relation("CuttingLayerUpdatedBy")
-  fabricOrdersCreated FabricOrder[]     @relation("FabricOrderCreatedBy")
-  fabricOrdersUpdated FabricOrder[]     @relation("FabricOrderUpdatedBy")
-  trimOrdersCreated   TrimOrder[]       @relation("TrimOrderCreatedBy")
-  trimOrdersUpdated   TrimOrder[]       @relation("TrimOrderUpdatedBy")
-  fabricColorsCreated FabricColor[]     @relation("FabricColorCreatedBy")
-  partyLedgerEntries PartyLedgerEntry[] @relation("PartyLedgerCreatedBy")
-  notifications      Notification[]     @relation("NotificationUser")
-  inspections        Inspection[]       @relation("InspectionBy")
-  samplesRequested   Sample[]           @relation("SampleRequestedBy")
-  notificationPrefs  NotificationPref[] @relation("NotificationPrefUser")
-  fabricColorsUpdated FabricColor[]     @relation("FabricColorUpdatedBy")
-  trimItemsCreated    TrimItem[]        @relation("TrimItemCreatedBy")
-  trimItemsUpdated    TrimItem[]        @relation("TrimItemUpdatedBy")
+  jobCardsCreated     JobCard[]          @relation("JobCardCreatedBy")
+  jobCardsUpdated     JobCard[]          @relation("JobCardUpdatedBy")
+  challansCreated     MaterialChallan[]  @relation("MaterialChallanCreatedBy")
+  challansUpdated     MaterialChallan[]  @relation("MaterialChallanUpdatedBy")
+  dispatchesCreated   DispatchEvent[]    @relation("DispatchEventCreatedBy")
+  dispatchesUpdated   DispatchEvent[]    @relation("DispatchEventUpdatedBy")
+  layersCreated       CuttingLayer[]     @relation("CuttingLayerCreatedBy")
+  layersUpdated       CuttingLayer[]     @relation("CuttingLayerUpdatedBy")
+  fabricOrdersCreated FabricOrder[]      @relation("FabricOrderCreatedBy")
+  fabricOrdersUpdated FabricOrder[]      @relation("FabricOrderUpdatedBy")
+  trimOrdersCreated   TrimOrder[]        @relation("TrimOrderCreatedBy")
+  trimOrdersUpdated   TrimOrder[]        @relation("TrimOrderUpdatedBy")
+  fabricColorsCreated FabricColor[]      @relation("FabricColorCreatedBy")
+  partyLedgerEntries  PartyLedgerEntry[] @relation("PartyLedgerCreatedBy")
+  notifications       Notification[]     @relation("NotificationUser")
+  inspections         Inspection[]       @relation("InspectionBy")
+  samplesRequested    Sample[]           @relation("SampleRequestedBy")
+  notificationPrefs   NotificationPref[] @relation("NotificationPrefUser")
+  fabricColorsUpdated FabricColor[]      @relation("FabricColorUpdatedBy")
+  trimItemsCreated    TrimItem[]         @relation("TrimItemCreatedBy")
+  trimItemsUpdated    TrimItem[]         @relation("TrimItemUpdatedBy")
 
   @@index([role])
 }
@@ -830,33 +852,33 @@ enum ReworkStatus {
 }
 
 model DefectType {
-  id       Int            @id @default(autoincrement())
-  name     String         @unique
-  category DefectCategory @default(OTHER)
-  active   Boolean        @default(true)
+  id       Int                @id @default(autoincrement())
+  name     String             @unique
+  category DefectCategory     @default(OTHER)
+  active   Boolean            @default(true)
   lines    InspectionDefect[]
 }
 
 model Inspection {
-  id           Int              @id @default(autoincrement())
-  at           DateTime         @default(now())
-  jobCard      JobCard          @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
-  jobCardId    Int
-  layer        CuttingLayer?    @relation(fields: [layerId], references: [id], onDelete: SetNull)
-  layerId      Int?
-  inspectedBy   User?           @relation("InspectionBy", fields: [inspectedById], references: [id], onDelete: SetNull)
+  id            Int                @id @default(autoincrement())
+  at            DateTime           @default(now())
+  jobCard       JobCard            @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  jobCardId     Int
+  layer         CuttingLayer?      @relation(fields: [layerId], references: [id], onDelete: SetNull)
+  layerId       Int?
+  inspectedBy   User?              @relation("InspectionBy", fields: [inspectedById], references: [id], onDelete: SetNull)
   inspectedById Int?
-  sampleSize   Int?
-  checkedQty   Float            @default(0)
-  passQty      Float            @default(0)
-  rejectQty    Float            @default(0)
-  reworkQty    Float            @default(0)
-  result       InspectionResult @default(PASS)
-  note         String?
+  sampleSize    Int?
+  checkedQty    Float              @default(0)
+  passQty       Float              @default(0)
+  rejectQty     Float              @default(0)
+  reworkQty     Float              @default(0)
+  result        InspectionResult   @default(PASS)
+  note          String?
   // Voided rather than deleted, exactly like a challan — the count it produced may
   // already have been read, so the row stays and stops counting.
-  voidedAt     DateTime?
-  defects      InspectionDefect[]
+  voidedAt      DateTime?
+  defects       InspectionDefect[]
 
   @@index([jobCardId])
   @@index([layerId])
@@ -877,18 +899,18 @@ model InspectionDefect {
 // postMaterialMovement: finished-goods stock lives in the ERP, and pieces going back to
 // a vendor for repair have not left the factory's ownership.
 model Rework {
-  id        Int          @id @default(autoincrement())
-  docNo     String?      @unique // "RW-YYYY-NNN" — its own series; JW- is a billing doc
-  at        DateTime     @default(now())
-  jobCard   JobCard      @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  id        Int           @id @default(autoincrement())
+  docNo     String?       @unique // "RW-YYYY-NNN" — its own series; JW- is a billing doc
+  at        DateTime      @default(now())
+  jobCard   JobCard       @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
   jobCardId Int
   layer     CuttingLayer? @relation(fields: [layerId], references: [id], onDelete: SetNull)
   layerId   Int?
-  vendor    Vendor?      @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendor    Vendor?       @relation(fields: [vendorId], references: [id], onDelete: SetNull)
   vendorId  Int?
   qty       Float
-  qtyBack   Float        @default(0)
-  status    ReworkStatus @default(OPEN)
+  qtyBack   Float         @default(0)
+  status    ReworkStatus  @default(OPEN)
   note      String?
 
   @@index([jobCardId])
@@ -923,24 +945,26 @@ enum SampleCostKind {
 // ssfact does starts after a style is approved — but the money-losing decisions happen
 // before.
 model Sample {
-  id          Int          @id @default(autoincrement())
-  code        String       @unique // SMP-YYYY-NNN, allocated inside the transaction
-  name        String
-  round       Int          @default(1)
-  status      SampleStatus @default(REQUESTED)
-  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
-  productId   Int?
-  vendor      Vendor?      @relation(fields: [vendorId], references: [id], onDelete: SetNull)
-  vendorId    Int?
-  requestedBy   User?      @relation("SampleRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  id            Int          @id @default(autoincrement())
+  code          String       @unique // SMP-YYYY-NNN, allocated inside the transaction
+  name          String
+  round         Int          @default(1)
+  status        SampleStatus @default(REQUESTED)
+  product       Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId     Int?
+  vendor        Vendor?      @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorId      Int?
+  requestedBy   User?        @relation("SampleRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
   requestedById Int?
-  notes       String?
-  /** Set when APPROVED/REJECTED, with the remark that decided it. */
-  decidedAt   DateTime?
-  remark      String?
-  targetMrp   Float?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @default(now()) @updatedAt
+  notes         String?
+  /**
+   * Set when APPROVED/REJECTED, with the remark that decided it.
+   */
+  decidedAt     DateTime?
+  remark        String?
+  targetMrp     Float?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @default(now()) @updatedAt
 
   costLines    SampleCostLine[]
   measurements SampleMeasurement[]
@@ -1031,8 +1055,8 @@ model Product {
 
   // production-master fields (merged from Style)
   avgConsumption Float?
-  unit           FabricUnit @default(MTR)
-  fabric         Fabric?    @relation(fields: [fabricId], references: [id])
+  unit           FabricUnit      @default(MTR)
+  fabric         Fabric?         @relation(fields: [fabricId], references: [id])
   fabricId       Int?
   imageUrl       String?
   sizeRatioJson  String? // JSON [["S",0.08],...] — per-product configurable size ratio
@@ -1097,28 +1121,28 @@ model BomLine {
 }
 
 model TrimItem {
-  id           Int            @id @default(autoincrement())
-  sno          String?
-  name         String         @unique
-  normName     String
-  family       String? // legacy free-text family (kept for back-compat)
-  openingStock Float          @default(0)
-  currentStock Float          @default(0) // authoritative snapshot
+  id            Int                   @id @default(autoincrement())
+  sno           String?
+  name          String                @unique
+  normName      String
+  family        String? // legacy free-text family (kept for back-compat)
+  openingStock  Float                 @default(0)
+  currentStock  Float                 @default(0) // authoritative snapshot
   // unified trim master fields
-  category     TrimCategory?
-  supplier     Supplier?      @relation(fields: [supplierId], references: [id])
-  supplierId   Int?
-  ratePerUnit  Float?
-  unit         String? // pcs / mtr / kg / set (Change 17 H: growing dropdown via Lookup UNIT)
-  status       TrimStatus     @default(ACTIVE)
-  remarks      String?
-  imageUrl     String?
+  category      TrimCategory?
+  supplier      Supplier?             @relation(fields: [supplierId], references: [id])
+  supplierId    Int?
+  ratePerUnit   Float?
+  unit          String? // pcs / mtr / kg / set (Change 17 H: growing dropdown via Lookup UNIT)
+  status        TrimStatus            @default(ACTIVE)
+  remarks       String?
+  imageUrl      String?
   // Change 17 Part D: "applies to" + per-piece average defined ONCE on the master;
   // the trim sheet rolls these up (no re-entry on the job card). Nullable = no preset.
-  dimension    BomDimension?
-  perPieceAvg  Float?
+  dimension     BomDimension?
+  perPieceAvg   Float?
   // Change 17 Part H: per-trim reorder trigger; low-stock when currentStock <= reorderLevel.
-  reorderLevel Float?
+  reorderLevel  Float?
   // optional spec fields (surfaced per category, never forced)
   size          String?
   material      String?
@@ -1126,12 +1150,12 @@ model TrimItem {
   shape         String?
   color         String?
   estMonthlyReq Float? // OWNER-PLANNING only — hidden from the staff entry form
-  movements    TrimMovement[]
-  bomLines     BomLine[]
-  jobLines     JobBomLine[]
-  images       ImageAsset[]
-  challanLines MaterialChallanLine[]
-  orders       TrimOrder[] // Change 18 Part B
+  movements     TrimMovement[]
+  bomLines      BomLine[]
+  jobLines      JobBomLine[]
+  images        ImageAsset[]
+  challanLines  MaterialChallanLine[]
+  orders        TrimOrder[] // Change 18 Part B
 
   // Change 25 Part A — audit stamps.
   createdAt   DateTime @default(now())
@@ -1149,18 +1173,18 @@ model TrimItem {
 
 // Shared supplier master (fabric orders + every trim category point here).
 model Supplier {
-  ledgerEntries PartyLedgerEntry[]
-  id           Int           @id @default(autoincrement())
-  name         String        @unique
-  type         SupplierType?
-  city         String?
-  phone        String? // the firm's main line; named people live in contacts[]
-  address      String? // for the PO document
-  email        String? // for the PO email (mailto)
+  ledgerEntries    PartyLedgerEntry[]
+  id               Int                @id @default(autoincrement())
+  name             String             @unique
+  type             SupplierType?
+  city             String?
+  phone            String? // the firm's main line; named people live in contacts[]
+  address          String? // for the PO document
+  email            String? // for the PO email (mailto)
   // Change 25 Part G.1: GSTIN, printed on the PO document.
-  gstNo        String?
-  remarks      String?
-  active           Boolean           @default(true)
+  gstNo            String?
+  remarks          String?
+  active           Boolean            @default(true)
   trims            TrimItem[]
   fabricOrders     FabricOrder[]
   materialChallans MaterialChallan[]
@@ -1176,11 +1200,9 @@ model Supplier {
 
 /**
  * Change 25 Part G.0 — named people at a supplier or a buyer firm.
- *
  * The floor team needs to know WHO to call and in what capacity, not just a
  * number on the letterhead. Rendered everywhere as `name (role)` —
  * "Ramesh (Owner)", "Priya (Accounts)".
- *
  * One child table serves both parents through nullable FKs, the same
  * one-table-serves-many pattern as ImageAsset. The parent's own phone/email stay
  * as the main line for back-compat.
@@ -1203,7 +1225,6 @@ model Contact {
 
 /**
  * Change 25 Part G.2 — the firm a purchase order is issued FROM.
- *
  * Not an end customer: end-buyer/sales management stays in the separate B2B app.
  * This is the factory's own bill-from / ship-from identity. The owner runs three
  * or four firms and must choose which one a PO goes out under, with that firm's
@@ -1441,22 +1462,26 @@ model ImageAsset {
   sortOrder Int?
   createdAt DateTime @default(now())
 
-  trimItem      TrimItem?    @relation(fields: [trimItemId], references: [id], onDelete: Cascade)
-  trimItemId    Int?
-  fabric        Fabric?      @relation(fields: [fabricId], references: [id], onDelete: Cascade)
-  fabricId      Int?
-  fabricOrder   FabricOrder? @relation(fields: [fabricOrderId], references: [id], onDelete: Cascade)
-  fabricOrderId Int?
-  product       Product?     @relation(fields: [productId], references: [id], onDelete: Cascade)
-  productId     Int?
+  trimItem          TrimItem?        @relation(fields: [trimItemId], references: [id], onDelete: Cascade)
+  trimItemId        Int?
+  fabric            Fabric?          @relation(fields: [fabricId], references: [id], onDelete: Cascade)
+  fabricId          Int?
+  fabricOrder       FabricOrder?     @relation(fields: [fabricOrderId], references: [id], onDelete: Cascade)
+  fabricOrderId     Int?
+  product           Product?         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId         Int?
   // Change 25 Part H — two more attach points. Each needs its own nullable FK
   // (that is how the gallery stays queryable per entity), so we add exactly the
   // two that earn it rather than a loose polymorphic blob: a trim order's sample
   // photo, and the paper delivery challan snapped against an inward receipt.
-  trimOrder        TrimOrder?       @relation(fields: [trimOrderId], references: [id], onDelete: Cascade)
-  trimOrderId      Int?
-  materialChallan  MaterialChallan? @relation(fields: [materialChallanId], references: [id], onDelete: Cascade)
+  trimOrder         TrimOrder?       @relation(fields: [trimOrderId], references: [id], onDelete: Cascade)
+  trimOrderId       Int?
+  materialChallan   MaterialChallan? @relation(fields: [materialChallanId], references: [id], onDelete: Cascade)
   materialChallanId Int?
+  // Change 36 Part 7: a 7th nullable owner. Deliberately NOT a separate SampleImage
+  // model — that would fork the ImageUploader/attachImages/removeImage pipeline.
+  sample            Sample?          @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  sampleId          Int?
 
   @@index([trimItemId])
   @@index([fabricId])
@@ -1464,11 +1489,6 @@ model ImageAsset {
   @@index([productId])
   @@index([trimOrderId])
   @@index([materialChallanId])
-  // Change 36 Part 7: a 7th nullable owner. Deliberately NOT a separate SampleImage
-  // model — that would fork the ImageUploader/attachImages/removeImage pipeline.
-  sample   Sample? @relation(fields: [sampleId], references: [id], onDelete: Cascade)
-  sampleId Int?
-
 }
 
 model ProductionOrder {
@@ -1482,6 +1502,9 @@ model ProductionOrder {
   status         ProductionStatus @default(ORDER_GIVEN)
   urgency        String?
   remarks        String?
+
+  // Change 39 Part C — job cards cutting against this order (for the cut-so-far rollup).
+  jobCards JobCard[]
 
   @@index([productId])
 }
@@ -1497,10 +1520,10 @@ model MaterialChallan {
   date      DateTime         @default(now())
 
   // Change 17 Part C: derived kind (FABRIC/TRIM/COMBINED) — null for legacy rows.
-  kind ChallanKind?
+  kind      ChallanKind?
   // Change 17 Part C: the job card this challan is raised against ("master head").
   // Optional for FABRIC (pure stock purchase); expected (warned in UI) for TRIM/COMBINED.
-  jobCard   JobCard? @relation("JobCardChallans", fields: [jobCardId], references: [id])
+  jobCard   JobCard?     @relation("JobCardChallans", fields: [jobCardId], references: [id])
   jobCardId Int?
 
   // counterparty: exactly one side is set based on direction
@@ -1517,13 +1540,16 @@ model MaterialChallan {
   trimOrder     TrimOrder?   @relation(fields: [trimOrderId], references: [id], onDelete: SetNull)
   trimOrderId   Int?
 
-  note      String?
-  lockedAt  DateTime?
-  voidedAt  DateTime?
-  lines     MaterialChallanLine[]
-  createdAt DateTime              @default(now())
+  note          String?
+  lockedAt      DateTime?
+  voidedAt      DateTime?
+  // Change 39 Part G — authorised signatory (firm/buyer contact name snapshot). Never the
+  // login user; the printed challan falls back to the firm name when this is unset.
+  signatoryName String?
+  lines         MaterialChallanLine[]
+  createdAt     DateTime              @default(now())
   // Change 25 Part H.3 — proof photo of the paper challan / received bundle.
-  images    ImageAsset[]
+  images        ImageAsset[]
 
   // Change 25 Part D — purchase return. A return is an OUTWARD challan whose
   // counterparty is a supplier, pointing back at the inward challan the goods
@@ -1531,11 +1557,13 @@ model MaterialChallan {
   // rolls the PO back; a return says we received the goods, kept them, and later
   // sent them back — so the PO stays RECEIVED and this is a new movement.
   // Its number comes from its own CH-RET- series (see lockChallan).
-  returnOf         MaterialChallan?  @relation("ChallanReturns", fields: [returnOfChallanId], references: [id], onDelete: SetNull)
+  returnOf          MaterialChallan?  @relation("ChallanReturns", fields: [returnOfChallanId], references: [id], onDelete: SetNull)
   returnOfChallanId Int?
-  returns          MaterialChallan[] @relation("ChallanReturns")
-  /** DEFECT | WRONG_ITEM | EXCESS | OTHER — validated in the action, like AdjustReason. */
-  returnReason     String?
+  returns           MaterialChallan[] @relation("ChallanReturns")
+  /**
+   * DEFECT | WRONG_ITEM | EXCESS | OTHER — validated in the action, like AdjustReason.
+   */
+  returnReason      String?
 
   // Change 25 Part A — audit stamps.
   updatedAt   DateTime @default(now()) @updatedAt
@@ -1569,12 +1597,19 @@ model MaterialChallanLine {
   rate Float? // optional ₹/unit
   note String?
 
+  // Change 39 Part D2 — a cut-goods line: the cutting layer this handover came from and the
+  // size bucket (colour already exists above). A line carrying cuttingLayerId and neither
+  // fabricId nor trimItemId is informational (pieces, not store stock) and posts NO movement.
+  cuttingLayer   CuttingLayer? @relation(fields: [cuttingLayerId], references: [id], onDelete: SetNull)
+  cuttingLayerId Int?
+  size           String? // size bucket for a cut-goods line
+  lotNo          String?
+  shadeRef       String?
+
   @@index([challanId])
   @@index([fabricId])
   @@index([trimItemId])
-  lotNo     String?
-  shadeRef  String?
-
+  @@index([cuttingLayerId])
 }
 
 // ── Change 20 — finishing as job-work ────────────────────────────────────────
