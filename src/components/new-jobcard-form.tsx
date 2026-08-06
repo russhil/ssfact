@@ -7,10 +7,12 @@ import { createJobCard, upsertDraftJobCard, finaliseDraftJobCard } from "@/lib/a
 import { uploadImage } from "@/lib/uploads";
 import type { JobProductOption } from "@/lib/inventory";
 import type { DraftForEdit } from "@/lib/jobs";
+import type { OpenOrderOption } from "@/lib/production";
 import { colorKey } from "@/lib/colour";
 import { STAGES, STAGE_LABEL, DEFAULT_SIZE_RATIO, orderSizes, type Stage } from "@/lib/job-labels";
 import { Badge } from "@/components/ui";
 import { useMemoKeyboardList } from "@/components/use-keyboard-list";
+import { SignatoryPicker } from "@/components/signatory-picker";
 import { num, inr } from "@/lib/format";
 import { Check, AlertTriangle, ArrowLeft, Plus, X, Layers, Image as ImageIcon } from "lucide-react";
 // Change 38 Part D — one layer UI for every layer, and one home for the cell-key helpers
@@ -25,7 +27,6 @@ import {
   layerFabricPayload,
   layerTotal,
   numOrNull,
-  resolveColourRatio,
   splitCellKey,
   type LayerState,
 } from "@/components/job-card/layer-grid";
@@ -59,29 +60,37 @@ function newLayer(seed: [string, number][]): Layer {
  */
 function seedLayers(draft: DraftForEdit | null): Layer[] {
   if (!draft) return [];
-  return draft.layers.map((l, i) => ({
-    ...emptyLayer(l.sizes, l.ratio),
-    id: ++layerSeq,
-    label: l.label, date: l.date, master: l.master, vendor: l.vendor,
-    avg: l.avg, rolls: l.rolls,
-    // Whether these cells were typed or filled from a ratio is not persisted, and
-    // re-deriving them could silently change a number adjusted by hand. Show what was
-    // stored, editable.
-    cutMode: "manual" as const,
-    colourMode: "manual" as const,
-    cells: l.cells,
-    sizeQty: Object.fromEntries(
-      l.sizes.map((sz) => [sz, Object.entries(l.cells).filter(([k]) => splitCellKey(k)[0] === sz).reduce((a, [, q]) => a + q, 0)])
-    ),
-    byColour: Object.fromEntries(l.colours.map((c) => [c.colour, { issued: c.issued, balance: c.balance }])),
-    newSize: "",
-  }));
+  return draft.layers.map((l) => {
+    // Change 39 A: rebuild the per-colour TOTALS from the stored cells (the new entry model
+    // is one total per colour; the size split re-derives from the lay's own ratio).
+    const colourTotals: Record<string, number> = {};
+    for (const [k, q] of Object.entries(l.cells)) {
+      const colour = splitCellKey(k)[1];
+      colourTotals[colour] = (colourTotals[colour] ?? 0) + q;
+    }
+    return {
+      ...emptyLayer(l.sizes, l.ratio),
+      id: ++layerSeq,
+      label: l.label, date: l.date, master: l.master, vendor: l.vendor,
+      avg: l.avg, rolls: l.rolls,
+      colourTotals,
+      // Change 39 B — bundles per colour + measured lay length carried back into the draft.
+      bundles: Object.fromEntries(
+        l.colours.filter((c) => c.bundles != null).map((c) => [c.colour, c.bundles as number])
+      ),
+      layerLength: l.layerLength ?? "",
+      byColour: Object.fromEntries(l.colours.map((c) => [c.colour, { issued: c.issued, balance: c.balance }])),
+      newSize: "",
+    };
+  });
 }
 
 export function NewJobCardForm({
   products,
   vendors,
   masters,
+  orders = [],
+  signatories = [],
   canSeeCost = false,
   defaultProductId = null,
   defaultSi = null,
@@ -90,6 +99,10 @@ export function NewJobCardForm({
   products: JobProductOption[];
   vendors: string[];
   masters: string[];
+  /** Change 39 Part C — open production orders, for the "cut against" link. */
+  orders?: OpenOrderOption[];
+  /** Change 39 Part G1 — firm contact names for the authorised-signatory picker. */
+  signatories?: string[];
   canSeeCost?: boolean;
   defaultProductId?: number | null;
   defaultSi?: string | null;
@@ -130,9 +143,17 @@ export function NewJobCardForm({
 
   // colours are a property of the CARD, shared across every lay
   const [activeColors, setActiveColors] = useState<string[]>(draftProduct?.colors.map((c) => c.name) ?? []);
-  // Change 26 A: hand-edited colour weights, keyed by colour name. Only holds colours the
-  // user actually touched — everything else resolves through the product master.
-  const [colorWeight, setColorWeight] = useState<Record<string, number>>({});
+
+  // Change 39 Part C — the production order this card cuts against (optional link). Seeded
+  // from a resumed draft; auto-preselected in pick() when a product has exactly one open order.
+  const [productionOrderId, setProductionOrderId] = useState<number | null>(draft?.productionOrderId ?? null);
+  const orderOptions = useMemo(
+    () => (picked ? orders.filter((o) => o.productId === picked.id) : []),
+    [orders, picked]
+  );
+
+  // Change 39 Part G1 — authorised signatory (firm contact name; never the login user).
+  const [signatoryName, setSignatoryName] = useState<string>(draft?.signatoryName ?? "");
 
   // Change 38 Part D: every lay, including the first, is one of these.
   const [layers, setLayers] = useState<Layer[]>(() => seedLayers(draft));
@@ -162,35 +183,13 @@ export function NewJobCardForm({
   );
 
   const colors = picked?.colors ?? [];
-  const hasColors = colors.length > 0 && activeColors.length > 0;
   const gridColours = colors.length > 0 ? activeColors : [""]; // colourless products cut in one row
-
-  /**
-   * Change 26 A: the colour ratio, resolved for EVERY active colour.
-   *
-   * Previously the split came straight from the product master and was filtered to the
-   * active colours — so a colour added on the card (it isn't in the master's ratio) fell
-   * through to a 0 share and could only be filled by hand. Resolving per active colour
-   * instead means there is no longer a code path where an active colour has no weight:
-   * hand-edited → product master → 1.
-   */
-  const colourRatio = useMemo<[string, number][]>(
-    () => resolveColourRatio(gridColours, colorWeight, new Map(picked?.colorRatio ?? [])),
-    [gridColours, colorWeight, picked]
-  );
 
   /** Every lay's derived cells, in layer order. The single source of truth for all roll-ups. */
   const layerCells = useMemo(
-    () => layers.map((L) => deriveLayerCells(L, gridColours, colourRatio)),
-    [layers, gridColours, colourRatio]
+    () => layers.map((L) => deriveLayerCells(L, gridColours)),
+    [layers, gridColours]
   );
-
-  // Change 26 A: pieces per colour on the FIRST lay — the "N pc" hint under each colour weight.
-  const colourTotalsL1 = useMemo(() => {
-    const t: Record<string, number> = {};
-    for (const [k, q] of layerCells[0] ?? new Map()) t[splitCellKey(k)[1]] = (t[splitCellKey(k)[1]] ?? 0) + q;
-    return t;
-  }, [layerCells]);
 
   // combined cells across ALL layers — drives the live fabric preview + trim explosion + grand total
   const combinedCells = useMemo(() => {
@@ -339,7 +338,6 @@ export function NewJobCardForm({
     setQuery(p.styleNo);
     setOpen(false);
     setSizeRatio(p.sizeRatio);
-    setColorWeight({}); // Change 26 A: drop hand-edits, fall back to the new product's ratio
     setColorAvg({});
     setCardAvg("");
     setColorGsm({});
@@ -352,6 +350,9 @@ export function NewJobCardForm({
     setMrpInput(p.mrp != null ? String(p.mrp) : "");
     setBomRows(presetRows(p));
     setActiveColors(p.colors.map((c) => c.name)); // default: all colors in play
+    // Change 39 Part C — auto-link when exactly one open order exists for this product.
+    const open = orders.filter((o) => o.productId === p.id);
+    setProductionOrderId(open.length === 1 ? open[0].id : null);
   }
 
   // prefill from product master (Part A — "New Job Card" from a product)
@@ -409,6 +410,7 @@ export function NewJobCardForm({
         fabricIssued: null,
         fabricByColour: layerFabricPayload(L),
         sizeRatio: ratio.length ? JSON.stringify(ratio) : null, // Change 17 B
+        layerLength: numOrNull(L.layerLength), // Change 39 B
         cells,
       });
     }
@@ -439,6 +441,8 @@ export function NewJobCardForm({
         customStyle: mto ? customStyle.trim() || undefined : undefined,
         customMrp: mto && canSeeCost ? numOrNull(mrpInput) : undefined,
         siNo: defaultSi ?? undefined,
+        productionOrderId, // Change 39 Part C
+        signatoryName: signatoryName.trim() || null, // Change 39 Part G1
         vendorName: vendor,
         cuttingMaster: master,
         layers: buildLayers(),
@@ -681,6 +685,27 @@ export function NewJobCardForm({
               <label className="mb-1.5 block t-xs font-semibold text-t1">Planned ETD</label>
               <input type="date" value={etd} onChange={(e) => setEtd(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2.5 t-body outline-none focus:border-primary" />
             </div>
+            {/* Change 39 Part C — the production order this card cuts against (auto-linked when unambiguous) */}
+            {orderOptions.length > 0 && (
+              <div className="col-span-2">
+                <label className="mb-1.5 block t-xs font-semibold text-t1">Production order <span className="font-normal text-faint">(optional)</span></label>
+                <select
+                  value={productionOrderId ?? ""}
+                  onChange={(e) => setProductionOrderId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full rounded-lg border border-border px-3 py-2.5 t-body outline-none focus:border-primary"
+                >
+                  <option value="">— none —</option>
+                  {orderOptions.map((o) => (
+                    <option key={o.id} value={o.id}>{o.orderNo} · target {num(o.targetQty)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {/* Change 39 Part G1 — authorised signatory (firm contact, name only). */}
+            <div className="col-span-2">
+              <label className="mb-1.5 block t-xs font-semibold text-t1">Authorised signatory <span className="font-normal text-faint">(not the cutting master)</span></label>
+              <SignatoryPicker value={signatoryName} options={signatories} onChange={setSignatoryName} />
+            </div>
           </div>
 
           {/* process flags + stage */}
@@ -728,29 +753,6 @@ export function NewJobCardForm({
                       );
                     })}
                   </div>
-
-                  {/* Change 26 A: the colour ratio, visible and editable. Seeded from the product
-                      master; a colour added on this card joins as an equal share, never weight 1. */}
-                  {hasColors && (
-                    <div className="mt-3">
-                      <div className="mb-1 t-micro font-semibold uppercase tracking-wide text-faint">Colour ratio</div>
-                      <div className="grid gap-1.5 text-center" style={{ gridTemplateColumns: `repeat(${colourRatio.length}, minmax(0, 1fr))` }}>
-                        {colourRatio.map(([c, w]) => (
-                          <div key={c}>
-                            <div className="t-micro font-bold text-faint">{c}</div>
-                            <input
-                              type="number"
-                              step="0.01"
-                              value={w}
-                              onChange={(e) => setColorWeight((p) => ({ ...p, [c]: Math.max(0, +e.target.value) }))}
-                              className="mt-1 w-full rounded-md border border-border bg-surface py-1.5 text-center t-sm font-bold tnum outline-none focus:border-primary"
-                            />
-                            <div className="mt-0.5 t-micro text-faint tnum">{num(colourTotalsL1[c] ?? 0)} pc on layer 1</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -774,7 +776,6 @@ export function NewJobCardForm({
                   <CuttingLayerGrid
                     layer={L}
                     colours={gridColours}
-                    colourRatio={colourRatio}
                     masters={masters}
                     vendors={vendors}
                     onChange={(patch) => patchLayer(L.id, patch)}

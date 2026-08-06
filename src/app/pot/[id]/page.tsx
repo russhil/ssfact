@@ -119,7 +119,7 @@ export default async function TrimPOPage({ params }: { params: Promise<{ id: str
       {/* Change 25 Part J */}
       {o.remarks && <p className="mt-4 text-[11px] text-slate-600">Remarks: {o.remarks}</p>}
 
-      <PoSignatory signatory={o.signatory} />
+      <PoSignatory signatory={o.signatory} preparedBy={o.preparedBy} />
 
       {/* Change 25 Part H.2 — sample photo against the trim order. */}
       <div className="no-print mt-6 border-t border-slate-200 pt-4">

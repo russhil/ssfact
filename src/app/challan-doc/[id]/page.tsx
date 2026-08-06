@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { getChallan } from "@/lib/masters";
+import { getChallan, getFirmContactNames } from "@/lib/masters";
 import { getCurrentUser } from "@/lib/auth";
 import { num, inr, fmtDate } from "@/lib/format";
 import { ChallanDocActions } from "@/components/challan-doc-actions";
@@ -42,6 +42,8 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
       ])
     : [[], [], [], []];
 
+  // Change 39 G1 — firm contact names for the authorised-signatory picker.
+  const signatories = editable ? await getFirmContactNames() : [];
   const isOut = c.direction === "OUTWARD";
   // Change 25 Part D: a return is outward, but it is a debit note to a supplier, not a
   // delivery challan to a vendor — it must not print as one.
@@ -76,6 +78,8 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
         fabrics={fabrics}
         trims={trims}
         colours={colours}
+        signatories={signatories}
+        signatoryName={c.signatoryName}
       />
 
       {c.voided && <div className="no-print mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-semibold text-rose-700">This challan was voided — its stock movements have been reversed.</div>}
@@ -161,46 +165,41 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
-      <table className="mt-5 w-full border-collapse text-[11px]">
-        <thead>
-          <tr className="border-y border-ink text-left">
-            <th className="px-2 py-1">#</th>
-            <th className="px-2 py-1">Item</th>
-            <th className="px-2 py-1">Colour</th>
-            <th className="px-2 py-1 text-right">Qty</th>
-            <th className="px-2 py-1">Unit</th>
-            {hasRate && <th className="px-2 py-1 text-right">Rate</th>}
-            {hasRate && <th className="px-2 py-1 text-right">Amount</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {c.lines.map((l, i) => (
-            <tr key={l.id} className="border-b border-slate-200">
-              <td className="px-2 py-1">{i + 1}</td>
-              <td className="px-2 py-1 font-medium">{l.name}</td>
-              <td className="px-2 py-1">{l.colour ?? "—"}</td>
-              <td className="px-2 py-1 text-right tnum">{num(l.qty)}</td>
-              <td className="px-2 py-1">{l.unit}</td>
-              {hasRate && <td className="px-2 py-1 text-right tnum">{l.rate != null ? inr(l.rate) : "—"}</td>}
-              {hasRate && <td className="px-2 py-1 text-right tnum">{l.rate != null ? inr(Math.round(l.qty * l.rate)) : "—"}</td>}
-            </tr>
-          ))}
-          <tr className="border-t border-ink font-bold">
-            <td className="px-2 py-1" colSpan={3}>Total</td>
-            <td className="px-2 py-1 text-right tnum">{num(c.totalQty)}</td>
-            <td className="px-2 py-1"></td>
-            {hasRate && <td className="px-2 py-1"></td>}
-            {hasRate && <td className="px-2 py-1 text-right tnum">{inr(Math.round(c.totalValue ?? 0))}</td>}
-          </tr>
-        </tbody>
-      </table>
+      {/* Change 39 Part D1 — fabric and trims shown & subtotalled as separate sections;
+          Part D2 — cut-goods lines render as a colour × size grid, not in the flat list. */}
+      {(() => {
+        const cutLines = c.lines.filter((l) => l.isCut);
+        const fabricLines = c.lines.filter((l) => l.kind === "fabric" && !l.isCut);
+        const trimLines = c.lines.filter((l) => l.kind === "trim" && !l.isCut);
+        return (
+          <div className="mt-5 space-y-4">
+            <LineSection title="Fabric" lines={fabricLines} hasRate={hasRate} />
+            <LineSection title="Trims / Accessories" lines={trimLines} hasRate={hasRate} />
+            {cutLines.length > 0 && <CutGoodsGrid lines={cutLines} />}
+            <div className="flex justify-end border-t border-ink pt-1.5 text-[12px] font-bold">
+              <span className="mr-4">Grand total</span>
+              <span className="tnum">{num(c.totalQty)}{hasRate ? ` · ${inr(Math.round(c.totalValue ?? 0))}` : ""}</span>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="mt-10 flex justify-between text-[11px]">
-        <div className="w-40 border-t border-ink pt-1 text-center">Authorised — Sport Sun</div>
+        {/* Change 39 G1 — the named authorised signatory (a firm contact); firm name when
+            unset. Never the login user. */}
+        <div className="w-44 border-t border-ink pt-1 text-center">
+          <div className="font-semibold">{c.signatoryName ?? "Sport Sun"}</div>
+          <div className="text-slate-600">Authorised signatory</div>
+        </div>
         {/* Follows the counterparty, not the direction: a Change 25 return is outward
             but goes back to a supplier, so "Vendor acknowledgement" would be wrong. */}
         <div className="w-40 border-t border-ink pt-1 text-center">{c.counterpartyKind === "VENDOR" ? "Vendor" : "Supplier"} acknowledgement</div>
       </div>
+
+      {/* Change 39 G2 — who prepared the document (display only; omitted when unknown). */}
+      {c.preparedBy && (
+        <div className="mt-4 text-[11px] text-slate-600">Prepared by {c.preparedBy.name}{c.preparedBy.at ? ` · ${fmtDate(c.preparedBy.at)}` : ""}</div>
+      )}
 
       {/* Change 25 Part H.3 — the boxman photographs the paper challan / the bundle
           against this receipt, which is the photographic backup for the posting.
@@ -218,6 +217,94 @@ export default async function ChallanDoc({ params }: { params: Promise<{ id: str
         </div>
       )}
       <DocAttachments images={c.images} label="Proof photo" showThumbnails={false} />
+    </div>
+  );
+}
+
+type ChallanLineView = Awaited<ReturnType<typeof getChallan>> extends infer T
+  ? T extends { lines: (infer L)[] } ? L : never
+  : never;
+
+/** Change 39 Part D1 — one material section (Fabric or Trims) with its own subtotal. */
+function LineSection({ title, lines, hasRate }: { title: string; lines: ChallanLineView[]; hasRate: boolean }) {
+  if (lines.length === 0) return null;
+  const subQty = lines.reduce((a, l) => a + l.qty, 0);
+  const subVal = lines.reduce((a, l) => a + l.qty * (l.rate ?? 0), 0);
+  return (
+    <div>
+      <div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-muted">{title}</div>
+      <table className="w-full border-collapse text-[11px]">
+        <thead>
+          <tr className="border-y border-ink text-left">
+            <th className="px-2 py-1">#</th>
+            <th className="px-2 py-1">Item</th>
+            <th className="px-2 py-1">Colour</th>
+            <th className="px-2 py-1 text-right">Qty</th>
+            <th className="px-2 py-1">Unit</th>
+            {hasRate && <th className="px-2 py-1 text-right">Rate</th>}
+            {hasRate && <th className="px-2 py-1 text-right">Amount</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l, i) => (
+            <tr key={l.id} className="border-b border-slate-200">
+              <td className="px-2 py-1">{i + 1}</td>
+              <td className="px-2 py-1 font-medium">{l.name}</td>
+              <td className="px-2 py-1">{l.colour ?? "—"}</td>
+              <td className="px-2 py-1 text-right tnum">{num(l.qty)}</td>
+              <td className="px-2 py-1">{l.unit}</td>
+              {hasRate && <td className="px-2 py-1 text-right tnum">{l.rate != null ? inr(l.rate) : "—"}</td>}
+              {hasRate && <td className="px-2 py-1 text-right tnum">{l.rate != null ? inr(Math.round(l.qty * l.rate)) : "—"}</td>}
+            </tr>
+          ))}
+          <tr className="border-t border-ink font-semibold">
+            <td className="px-2 py-1" colSpan={3}>{title} subtotal</td>
+            <td className="px-2 py-1 text-right tnum">{num(subQty)}</td>
+            <td className="px-2 py-1"></td>
+            {hasRate && <td className="px-2 py-1"></td>}
+            {hasRate && <td className="px-2 py-1 text-right tnum">{subVal > 0 ? inr(Math.round(subVal)) : "—"}</td>}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Change 39 Part D2 — cut goods issued from a layer, as a colour × size grid of pieces. */
+function CutGoodsGrid({ lines }: { lines: ChallanLineView[] }) {
+  const colours = [...new Set(lines.map((l) => l.colour || "—"))];
+  const sizes = [...new Set(lines.map((l) => l.size || "—"))];
+  const at = (colour: string, size: string) =>
+    lines.filter((l) => (l.colour || "—") === colour && (l.size || "—") === size).reduce((a, l) => a + l.qty, 0);
+  const total = lines.reduce((a, l) => a + l.qty, 0);
+  return (
+    <div>
+      <div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-muted">Cut goods (pieces)</div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-center text-[11px]">
+          <thead>
+            <tr className="border-y border-ink">
+              <th className="px-2 py-1 text-left">Colour \ Size</th>
+              {sizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
+              <th className="px-2 py-1">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {colours.map((c) => (
+              <tr key={c} className="border-b border-slate-200">
+                <td className="px-2 py-1 text-left font-medium">{c}</td>
+                {sizes.map((s) => <td key={s} className="px-2 py-1 tnum">{at(c, s) || ""}</td>)}
+                <td className="px-2 py-1 font-semibold tnum">{num(sizes.reduce((a, s) => a + at(c, s), 0))}</td>
+              </tr>
+            ))}
+            <tr className="border-t border-ink font-semibold">
+              <td className="px-2 py-1 text-left">Total</td>
+              {sizes.map((s) => <td key={s} className="px-2 py-1 tnum">{num(colours.reduce((a, c) => a + at(c, s), 0))}</td>)}
+              <td className="px-2 py-1 tnum">{num(total)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

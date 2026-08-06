@@ -89,6 +89,25 @@ export async function getBuyerOptions() {
   return rows;
 }
 
+// Change 39 G1 — the names that may sign a challan / job card: our firm's own people, the
+// union of every active buyer's contacts, deduped, name only. Unlike a PO (issued by one
+// chosen firm), a challan/job card is not buyer-scoped, so all firm contacts are offered.
+export async function getFirmContactNames(): Promise<string[]> {
+  const buyers = await db.buyer.findMany({
+    where: { active: true },
+    select: { contacts: { select: { name: true }, orderBy: [{ sortOrder: "asc" }, { id: "asc" }] } },
+  });
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const b of buyers) {
+    for (const c of b.contacts) {
+      const n = c.name.trim();
+      if (n && !seen.has(n)) { seen.add(n); out.push(n); }
+    }
+  }
+  return out;
+}
+
 export async function getColours() {
   const rows = await db.colour.findMany({ where: { active: true }, orderBy: { name: "asc" } });
   return rows.map((c) => ({ id: c.id, name: c.name, hex: c.hex, active: c.active }));
@@ -212,8 +231,14 @@ type PoDocBuyer = {
 /** `Ramesh (Owner)` — the convention the owner asked for, blank role = plain name. */
 export const contactLabel = (c: { name: string; role?: string | null }) => (c.role ? `${c.name} (${c.role})` : c.name);
 
+// Change 39 G3 — POs raised from this date fall back to the FIRM name (never the login user)
+// when no signatory is chosen. Older filed POs keep their existing login-user rendering so a
+// document already sent out never changes shape. (Change 38 — signatory picker — merged here.)
+const SIGNATORY_FALLBACK_FROM = new Date("2026-08-03T00:00:00Z");
+
 function poParties(o: {
   signatoryName?: string | null;
+  createdAt?: Date | null;
   supplier: PoDocSupplier;
   buyer: PoDocBuyer;
   deliveryAddress: { label: string | null; address: string } | null;
@@ -221,6 +246,8 @@ function poParties(o: {
   gstRate: number | null;
   images: { id: number; url: string; thumbUrl: string | null; caption: string | null }[];
 }) {
+  const firmName = o.buyer?.name ?? "Sport Sun";
+  const isNewDoc = o.createdAt != null && o.createdAt >= SIGNATORY_FALLBACK_FROM;
   return {
     supplier: o.supplier
       ? {
@@ -247,9 +274,15 @@ function poParties(o: {
     // its signature graphic) so an already-filed document never changes shape.
     signatory: o.signatoryName
       ? { name: o.signatoryName, signatureUrl: null }
-      : o.placedBy
-        ? { name: o.placedBy.displayName, signatureUrl: o.placedBy.signatureUrl }
-        : null,
+      // Change 39 G3 — a NEW PO with no chosen signatory prints the firm name, not the login
+      // user's name + signature graphic. Legacy POs keep the login-user rendering.
+      : isNewDoc
+        ? { name: firmName, signatureUrl: null }
+        : o.placedBy
+          ? { name: o.placedBy.displayName, signatureUrl: o.placedBy.signatureUrl }
+          : { name: firmName, signatureUrl: null },
+    // Change 39 G2 — the staff who raised it, shown as "Prepared by" (display only).
+    preparedBy: o.placedBy ? { name: o.placedBy.displayName, at: o.createdAt ?? null } : null,
     gstRate: o.gstRate,
     images: o.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, caption: i.caption })),
   };
@@ -515,16 +548,23 @@ export async function getCuttingMasterList() {
 
 function challanLineView(l: {
   id: number; qty: number; unit: string | null; rate: number | null; colour: string | null; note: string | null;
+  size?: string | null; cuttingLayerId?: number | null;
   fabric: { name: string } | null; trimItem: { name: string; unit: string | null } | null;
 }) {
   const isFabric = !!l.fabric;
+  // Change 39 Part D2 — a cut-goods line carries a cuttingLayerId + size and no fabric/trim;
+  // it prints as pieces in the cutting grid and posts no store movement.
+  const isCut = l.cuttingLayerId != null && !l.fabric && !l.trimItem;
   return {
     id: l.id,
     kind: isFabric ? ("fabric" as const) : ("trim" as const),
-    name: l.fabric?.name ?? l.trimItem?.name ?? "—",
+    isCut,
+    cuttingLayerId: l.cuttingLayerId ?? null,
+    size: l.size ?? null,
+    name: l.fabric?.name ?? l.trimItem?.name ?? (isCut ? "Cut goods" : "—"),
     colour: l.colour,
     qty: l.qty,
-    unit: l.unit ?? l.trimItem?.unit ?? (isFabric ? "MTR" : "PCS"),
+    unit: l.unit ?? l.trimItem?.unit ?? (isFabric ? "MTR" : isCut ? "PCS" : "PCS"),
     rate: l.rate,
     note: l.note,
   };
@@ -591,6 +631,8 @@ export async function getChallan(id: number) {
       lines: { include: { fabric: true, trimItem: true }, orderBy: { id: "asc" } },
       // Change 25 Part H.3: the proof photo of the paper challan / received bundle.
       images: { orderBy: { sortOrder: "asc" } },
+      // Change 39 G2 — the staff who prepared it (shown as "Prepared by").
+      createdBy: { select: { displayName: true } },
     },
   });
   if (!c) return null;
@@ -638,6 +680,10 @@ export async function getChallan(id: number) {
     lines,
     totalQty: lines.reduce((a, l) => a + l.qty, 0),
     totalValue,
+    // Change 39 G1/G2 — authorised signatory (firm contact name; firm-name fallback in the
+    // doc, never the login user) + who prepared it.
+    signatoryName: c.signatoryName ?? null,
+    preparedBy: c.createdBy ? { name: c.createdBy.displayName, at: c.createdAt } : null,
     // Change 25 Part H.3
     images: c.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, caption: i.caption })),
   };

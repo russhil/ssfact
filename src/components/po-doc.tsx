@@ -155,20 +155,35 @@ export function PoTotals({
  * opposite is deliberately gone: the PO is our authorisation, not their counter-signature,
  * and the owner does not want to push the supplier into a sign-and-return step.
  */
-export function PoSignatory({ signatory }: { signatory: { name: string; signatureUrl: string | null } | null }) {
+export function PoSignatory({
+  signatory,
+  preparedBy = null,
+}: {
+  signatory: { name: string; signatureUrl: string | null } | null;
+  /** Change 39 G2 — the staff who raised the PO (display only). */
+  preparedBy?: { name: string; at: Date | null } | null;
+}) {
   return (
-    <div className="mt-10 flex justify-end text-[11px]">
-      <div className="w-56 text-center">
-        {signatory?.signatureUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={signatory.signatureUrl} alt="" className="mx-auto mb-1 h-12 object-contain" />
-        )}
-        <div className="border-t border-ink pt-1">
-          <div className="font-semibold">{signatory?.name ?? ""}</div>
-          <div className="text-slate-600">Authorised signatory</div>
+    <>
+      <div className="mt-10 flex justify-end text-[11px]">
+        <div className="w-56 text-center">
+          {signatory?.signatureUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={signatory.signatureUrl} alt="" className="mx-auto mb-1 h-12 object-contain" />
+          )}
+          <div className="border-t border-ink pt-1">
+            <div className="font-semibold">{signatory?.name ?? ""}</div>
+            <div className="text-slate-600">Authorised signatory</div>
+          </div>
         </div>
       </div>
-    </div>
+      {preparedBy && (
+        <div className="mt-4 text-[11px] text-slate-600">
+          Prepared by {preparedBy.name}
+          {preparedBy.at ? ` · ${new Date(preparedBy.at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}
+        </div>
+      )}
+    </>
   );
 }
 

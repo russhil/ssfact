@@ -10,8 +10,8 @@
  * split even resolved differently in each (see resolveColourRatio).
  *
  * Everything a lay needs now lives here and every layer renders it, so Layer 1 and Layer N are
- * the same controls. The Fill helper is gone: "By ratio" + Cut Qty does the same job in the
- * mechanism Layer 1 already used, and it works on every layer.
+ * the same controls. Change 39 A: entry is now one TOTAL per colour (size split derived from the
+ * lay's own ratio) — the old cut-qty box and colour-ratio machinery are gone.
  *
  * Also the single home for the cell-key/parse helpers that were copy-pasted into three files.
  */
@@ -47,15 +47,18 @@ export type LayerState = {
   rolls: string;
   /** this lay's own size list — a real lay may drop 3XL or add 4XL (Change 26 C) */
   sizes: string[];
-  /** this lay's own size ratio (Change 17 B) */
+  /** this lay's own size ratio (Change 17 B) — the ONLY size-distribution control now */
   ratio: [string, number][];
-  cutMode: "ratio" | "manual";
-  cutQty: string;
-  /** manual per-size totals, used when cutMode === "manual" */
-  sizeQty: Record<string, number>;
-  /** manual per-cell qty, used when colourMode === "manual" */
-  cells: Record<string, number>;
-  colourMode: "ratio" | "manual";
+  /**
+   * Change 39 Part A — the entered TOTAL pieces per colour on this lay. The size split for
+   * each colour is derived from `ratio` (splitByRatio). Colourless lays hold their whole
+   * lay total under the key "". Replaces the old cut-qty + colour-ratio machinery.
+   */
+  colourTotals: Record<string, number>;
+  /** Change 39 Part B — tied bundles per colour on this lay (integer the cutter writes down). */
+  bundles: Record<string, number>;
+  /** Change 39 Part B — measured length of this one lay, metres. avg/pc is derived on read. */
+  layerLength: string;
   byColour: Record<string, LayerFabricRow>;
   newSize: string;
 };
@@ -69,64 +72,30 @@ export const emptyLayer = (sizes: string[], ratio: [string, number][]): LayerSta
   rolls: "",
   sizes,
   ratio,
-  cutMode: "ratio",
-  cutQty: "",
-  sizeQty: {},
-  cells: {},
-  colourMode: "ratio",
+  colourTotals: {},
+  bundles: {},
+  layerLength: "",
   byColour: {},
   newSize: "",
 });
 
 /**
- * The colour ratio, resolved for EVERY colour on the card.
+ * A layer's colour×size cells (Change 39 Part A).
  *
- * ⚠️ A colour the product master has never heard of joins as an EQUAL share of the existing
- * curve, NOT weight 1. The master stores fractions (0.1667 each), so a literal 1 would hand
- * the newcomer six times everyone else's cut. add-cutting-layer.tsx used `?? 1` and so split
- * "all colours" differently from the create form for the same card — that was a bug, and this
- * is the one resolution both now use.
+ * The floor types one TOTAL per colour; the size split for that colour comes straight from
+ * the lay's own size ratio. splitByRatio already distributes the rounding remainder, so a
+ * colour's cells always sum back to its entered total. Colourless lays cut one implicit
+ * colour ("") whose total is the whole lay.
  */
-export function resolveColourRatio(
-  colours: string[],
-  colourWeight: Record<string, number>,
-  fromProduct: Map<string, number>
-): [string, number][] {
-  const known = colours.map((c) => fromProduct.get(c)).filter((w): w is number => w != null);
-  const fallback = known.length ? known.reduce((a, w) => a + w, 0) / known.length : 1;
-  return colours.map((c) => [c, colourWeight[c] ?? fromProduct.get(c) ?? fallback]);
-}
-
-/**
- * A layer's colour×size cells, derived the way Layer 1 has always derived them: split the
- * cut qty across sizes first, then each size across colours. Manual mode on either axis
- * short-circuits that axis to the typed numbers.
- */
-export function deriveLayerCells(
-  L: LayerState,
-  colours: string[],
-  colourRatio: [string, number][]
-): Map<string, number> {
+export function deriveLayerCells(L: LayerState, colours: string[]): Map<string, number> {
   const out = new Map<string, number>();
-  const sizeTotals: Record<string, number> = {};
-  if (L.cutMode === "manual") {
-    for (const s of L.sizes) sizeTotals[s] = Math.max(0, Math.round(L.sizeQty[s] ?? 0));
-  } else {
-    const split = splitByRatio(numOrNull(L.cutQty) ?? 0, L.ratio.filter(([s]) => L.sizes.includes(s)));
-    for (const s of L.sizes) sizeTotals[s] = split.get(s) ?? 0;
-  }
+  const sizeRatio = L.ratio.filter(([s]) => L.sizes.includes(s));
   const colourless = colours.length === 0 || (colours.length === 1 && colours[0] === "");
-  for (const s of L.sizes) {
-    if (colourless) {
-      out.set(cellKey(s, ""), sizeTotals[s] ?? 0);
-      continue;
-    }
-    if (L.colourMode === "manual") {
-      for (const c of colours) out.set(cellKey(s, c), Math.max(0, Math.round(L.cells[cellKey(s, c)] ?? 0)));
-    } else {
-      const split = splitByRatio(sizeTotals[s] ?? 0, colourRatio.filter(([c]) => colours.includes(c)));
-      for (const c of colours) out.set(cellKey(s, c), split.get(c) ?? 0);
-    }
+  const cs = colourless ? [""] : colours;
+  for (const c of cs) {
+    const total = Math.max(0, Math.round(L.colourTotals[c] ?? 0));
+    const split = splitByRatio(total, sizeRatio);
+    for (const s of L.sizes) out.set(cellKey(s, c), split.get(s) ?? 0);
   }
   return out;
 }
@@ -144,11 +113,21 @@ export function layerCellRows(L: LayerState, cells: Map<string, number>) {
     .filter((c) => L.sizes.includes(c.size));
 }
 
-/** Change 38 Part B — the fabricByColour payload: issued + balance typed, USED derived server-side. */
+/**
+ * Change 38 Part B — the fabricByColour payload: issued + balance typed, USED derived server-side.
+ * Change 39 Part B — also carries per-colour `bundles`, so a colour with bundles but no fabric
+ * figures still produces a CuttingLayerColour row.
+ */
 export function layerFabricPayload(L: LayerState) {
-  const rows = Object.entries(L.byColour ?? {})
-    .map(([colour, v]) => ({ colour, issued: numOrNull(v.issued), balance: numOrNull(v.balance) }))
-    .filter((r) => r.issued != null || r.balance != null);
+  const colours = new Set<string>([...Object.keys(L.byColour ?? {}), ...Object.keys(L.bundles ?? {})]);
+  const rows = [...colours]
+    .map((colour) => ({
+      colour,
+      issued: numOrNull(L.byColour?.[colour]?.issued ?? ""),
+      balance: numOrNull(L.byColour?.[colour]?.balance ?? ""),
+      bundles: L.bundles?.[colour] != null && L.bundles[colour] > 0 ? Math.round(L.bundles[colour]) : null,
+    }))
+    .filter((r) => r.issued != null || r.balance != null || r.bundles != null);
   return rows.length ? rows : null;
 }
 
@@ -174,25 +153,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="mb-0.5 block truncate t-micro uppercase tracking-wide text-faint">{label}</span>
       {children}
     </label>
-  );
-}
-
-function Toggle<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: [T, string][] }) {
-  return (
-    <div className="inline-flex rounded-lg border border-border bg-surface p-0.5">
-      {options.map(([v, label]) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => onChange(v)}
-          className={`rounded-md px-2.5 py-1 t-xs font-semibold transition ${
-            value === v ? "bg-primary-soft text-primary-ink" : "text-t2 hover:text-ink"
-          }`}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -266,15 +226,19 @@ export function LayerFabricTable({
 /**
  * The whole body of one cutting layer. Identical for Layer 1 and every added layer.
  *
- * Colour SELECTION and the colour ratio stay at card level — colours are a property of the
- * card, not of a lay — so they arrive as props; everything that genuinely varies per lay
- * (sizes, size ratio, cut qty, cells, per-colour fabric, date/master/vendor) lives in
+ * Change 39 Part A — the floor types one TOTAL per colour; the size split is the lay's own
+ * size ratio (editable weights). No cut-qty box, no colour ratio, no manual per-cell grid —
+ * cutQty is now derived = Σ colour totals. Part B adds a Bundles integer per colour and one
+ * Layer length (m) for the lay, from which the measured avg m/pc is derived on read.
+ *
+ * Colour SELECTION stays at card level — colours are a property of the card, not of a lay —
+ * so the colour list arrives as a prop; everything that varies per lay (sizes, size ratio,
+ * colour totals, bundles, layer length, per-colour fabric, date/master/vendor) lives in
  * LayerState and is edited here.
  */
 export function CuttingLayerGrid({
   layer,
   colours,
-  colourRatio,
   masters,
   vendors,
   onChange,
@@ -282,7 +246,6 @@ export function CuttingLayerGrid({
 }: {
   layer: LayerState;
   colours: string[];
-  colourRatio: [string, number][];
   masters: string[];
   vendors: string[];
   onChange: (patch: Partial<LayerState>) => void;
@@ -290,11 +253,15 @@ export function CuttingLayerGrid({
   showIdentity?: boolean;
 }) {
   const L = layer;
-  const cells = deriveLayerCells(L, colours, colourRatio);
+  const cells = deriveLayerCells(L, colours);
   const total = layerTotal(cells);
   const colourless = colours.length === 0 || (colours.length === 1 && colours[0] === "");
   const gridColours = colourless ? [""] : colours;
   const totals = layerFabricTotals(L, gridColours);
+  // Change 39 Part B — measured avg = lay length ÷ pieces. Real, not the pre-cut estimate.
+  const layerLen = numOrNull(L.layerLength);
+  const avgMeasured = layerLen != null && total > 0 ? layerLen / total : null;
+  const bundleTotal = gridColours.reduce((a, c) => a + Math.max(0, Math.round(L.bundles?.[c] ?? 0)), 0);
 
   const addSize = (raw: string) => {
     const s = sizeKey(raw);
@@ -315,23 +282,20 @@ export function CuttingLayerGrid({
     onChange({
       sizes: L.sizes.filter((x) => x !== s),
       ratio: L.ratio.filter(([x]) => x !== s),
-      // drop the column's cells too — a hidden size must never reach the payload
-      cells: Object.fromEntries(Object.entries(L.cells).filter(([k]) => splitCellKey(k)[0] !== s)),
     });
   const setRatioWeight = (s: string, w: number) =>
     onChange({ ratio: L.ratio.map((row) => (row[0] === s ? ([row[0], Math.max(0, w)] as [string, number]) : row)) });
-  const setCell = (s: string, c: string, qty: number) =>
-    onChange({ cells: { ...L.cells, [cellKey(s, c)]: Math.max(0, Math.round(qty)) } });
+  const setColourTotal = (c: string, v: number) =>
+    onChange({ colourTotals: { ...L.colourTotals, [c]: Math.max(0, Math.round(v)) } });
+  const setBundles = (c: string, v: number) =>
+    onChange({ bundles: { ...(L.bundles ?? {}), [c]: Math.max(0, Math.round(v)) } });
   const setFabric = (c: string, k: keyof LayerFabricRow, v: string) =>
     onChange({ byColour: { ...(L.byColour ?? {}), [c]: { ...(L.byColour?.[c] ?? { issued: "", balance: "" }), [k]: v } } });
 
   return (
     <>
       {/* sizes for this lay */}
-      <div className="flex items-center justify-between">
-        <label className="t-xs font-semibold text-t1">Cut sizing</label>
-        <Toggle value={L.cutMode} onChange={(v) => onChange({ cutMode: v })} options={[["ratio", "By ratio"], ["manual", "Manual"]]} />
-      </div>
+      <label className="t-xs font-semibold text-t1">Cut sizing</label>
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {L.sizes.map((s) => (
@@ -350,104 +314,100 @@ export function CuttingLayerGrid({
         />
       </div>
 
-      {L.cutMode === "ratio" && (
-        <div className="mt-2 flex items-center gap-2">
-          <span className="t-xs font-semibold text-t1">Cut Qty</span>
-          <input
-            type="number"
-            value={L.cutQty}
-            placeholder="0"
-            onChange={(e) => onChange({ cutQty: e.target.value })}
-            className="w-28 rounded-lg border border-border px-3 py-2 t-body font-semibold outline-none focus:border-primary"
-          />
-        </div>
-      )}
-
-      {/* per-size split / inputs */}
-      <div className="mt-3 grid gap-1.5 text-center" style={{ gridTemplateColumns: `repeat(${L.sizes.length + 1}, minmax(0, 1fr))` }}>
+      {/* size ratio — the size-distribution curve for this lay (Change 39 A: the only size control) */}
+      <div className="mt-2 t-micro font-semibold uppercase tracking-wide text-faint">Size ratio</div>
+      <div className="mt-1 grid gap-1.5 text-center" style={{ gridTemplateColumns: `repeat(${L.sizes.length}, minmax(0, 1fr))` }}>
         {L.sizes.map((s) => {
           const colTotal = gridColours.reduce((a, c) => a + (cells.get(cellKey(s, c)) ?? 0), 0);
           return (
             <div key={s}>
               <div className="t-micro font-bold text-faint">{s}</div>
-              {L.cutMode === "manual" ? (
-                <input
-                  type="number"
-                  value={L.sizeQty[s] || ""}
-                  placeholder="0"
-                  onChange={(e) => onChange({ sizeQty: { ...L.sizeQty, [s]: Math.max(0, +e.target.value) } })}
-                  className="mt-1 w-full rounded-md border border-border bg-surface py-1.5 text-center t-sm font-bold tnum outline-none focus:border-primary"
-                />
-              ) : (
-                <>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={L.ratio.find(([x]) => x === s)?.[1] ?? 0}
-                    onChange={(e) => setRatioWeight(s, +e.target.value)}
-                    className="mt-1 w-full rounded-md border border-border bg-surface py-1.5 text-center t-sm font-bold tnum outline-none focus:border-primary"
-                  />
-                  <div className="mt-0.5 t-micro text-faint tnum">{num(colTotal)} pc</div>
-                </>
-              )}
+              <input
+                type="number"
+                step="0.01"
+                inputMode="decimal"
+                value={L.ratio.find(([x]) => x === s)?.[1] ?? 0}
+                onChange={(e) => setRatioWeight(s, +e.target.value)}
+                className="mt-1 w-full rounded-md border border-border bg-surface py-1.5 text-center t-sm font-bold tnum outline-none focus:border-primary"
+              />
+              <div className="mt-0.5 t-micro text-faint tnum">{num(colTotal)} pc</div>
             </div>
           );
         })}
-        <div>
-          <div className="t-micro font-bold text-primary-ink">Total</div>
-          <div className="mt-1 rounded-md bg-primary-soft py-1.5 t-sm font-bold text-primary-ink tnum">{num(total)}</div>
-        </div>
       </div>
 
-      {/* colour×size grid */}
-      {!colourless && (
-        <>
-          <div className="mt-4 flex items-center justify-between">
-            <label className="t-xs font-semibold text-t1">Colours</label>
-            <Toggle value={L.colourMode} onChange={(v) => onChange({ colourMode: v })} options={[["ratio", "By ratio"], ["manual", "Manual grid"]]} />
-          </div>
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-center t-sm">
-              <thead>
-                <tr className="t-micro font-bold text-faint">
-                  <th className="px-2 py-1 text-left">Colour \ Size</th>
-                  {L.sizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
-                  <th className="px-2 py-1 text-primary-ink">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {gridColours.map((c) => {
-                  const rowTotal = L.sizes.reduce((a, s) => a + (cells.get(cellKey(s, c)) ?? 0), 0);
-                  return (
-                    <tr key={c || COLORLESS}>
-                      <td className="px-2 py-1 text-left font-semibold text-t1">{c || COLORLESS}</td>
-                      {L.sizes.map((s) => (
-                        <td key={s} className="px-1 py-1">
-                          {L.colourMode === "manual" ? (
-                            <input
-                              type="number"
-                              value={L.cells[cellKey(s, c)] || ""}
-                              placeholder="0"
-                              onChange={(e) => setCell(s, c, +e.target.value)}
-                              className="w-full min-w-[44px] rounded-md border border-border bg-surface py-1 text-center t-xs font-bold tnum outline-none focus:border-primary"
-                            />
-                          ) : (
-                            <div className="rounded-md bg-surface py-1 t-xs font-bold tnum">{num(cells.get(cellKey(s, c)) ?? 0)}</div>
-                          )}
-                        </td>
-                      ))}
-                      <td className="px-2 py-1 font-bold text-primary-ink tnum">{num(rowTotal)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+      {/* colour quantities — the primary input (Change 39 A: one TOTAL per colour + bundles) */}
+      <div className="mt-4 flex items-center justify-between">
+        <label className="t-xs font-semibold text-t1">{colourless ? "Cut quantity" : "Cut quantity by colour"}</label>
+        <span className="t-xs text-muted">{num(total)} pcs{bundleTotal > 0 ? ` · ${num(bundleTotal)} bundles` : ""}</span>
+      </div>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full text-center t-sm">
+          <thead>
+            <tr className="t-micro font-bold text-faint">
+              <th className="px-2 py-1 text-left">{colourless ? "" : "Colour"}</th>
+              <th className="px-2 py-1 text-right">Qty</th>
+              <th className="px-2 py-1 text-right">Bundles</th>
+              {L.sizes.map((s) => <th key={s} className="px-1 py-1">{s}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {gridColours.map((c) => (
+              <tr key={c || COLORLESS} className="border-t border-hairline">
+                <td className="px-2 py-1 text-left font-semibold text-t1">{c || COLORLESS}</td>
+                <td className="px-1 py-1">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={L.colourTotals?.[c] || ""}
+                    placeholder="0"
+                    onChange={(e) => setColourTotal(c, +e.target.value)}
+                    className="w-20 min-w-[64px] rounded-md border border-border bg-surface py-1.5 text-right t-sm font-bold tnum outline-none focus:border-primary"
+                  />
+                </td>
+                <td className="px-1 py-1">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={L.bundles?.[c] || ""}
+                    placeholder="—"
+                    onChange={(e) => setBundles(c, +e.target.value)}
+                    className="w-16 min-w-[52px] rounded-md border border-border bg-surface-2 py-1.5 text-right t-sm font-semibold tnum text-t2 outline-none focus:border-primary focus:bg-surface"
+                  />
+                </td>
+                {L.sizes.map((s) => (
+                  <td key={s} className="px-1 py-1">
+                    <div className="rounded-md bg-surface py-1 t-xs font-bold tnum text-t2">{num(cells.get(cellKey(s, c)) ?? 0)}</div>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-border t-micro font-bold text-primary-ink">
+              <td className="px-2 py-1 text-left">Total</td>
+              <td className="px-1 py-1 text-right tnum">{num(total)}</td>
+              <td className="px-1 py-1 text-right tnum">{bundleTotal > 0 ? num(bundleTotal) : "—"}</td>
+              {L.sizes.map((s) => {
+                const colTotal = gridColours.reduce((a, c) => a + (cells.get(cellKey(s, c)) ?? 0), 0);
+                return <td key={s} className="px-1 py-1 tnum">{num(colTotal)}</td>;
+              })}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
 
       {/* fabric maths for this lay */}
       <div className="mt-3 border-t border-border/60 pt-2.5">
+        {/* Change 39 Part B — layer length + derived measured avg, beside the estimate */}
+        <div className="mb-2 grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+          <Field label="layer length (m)">
+            <input type="number" step="0.01" inputMode="decimal" value={L.layerLength} placeholder="—" onChange={(e) => onChange({ layerLength: e.target.value })} className={inp} />
+          </Field>
+          <Field label="avg m/pc (actual)">
+            <div className={ro} title="Measured = layer length ÷ pieces">{avgMeasured != null ? num(avgMeasured, 3) : "—"}</div>
+          </Field>
+        </div>
         <div className={`grid grid-cols-3 gap-1.5 sm:grid-cols-6 ${showIdentity ? "lg:grid-cols-8" : "lg:grid-cols-5"}`}>
           <Field label="avg m/pc (est)"><input type="number" step="0.001" value={L.avg} placeholder="—" onChange={(e) => onChange({ avg: e.target.value })} className={faint} /></Field>
           <Field label="rolls"><input type="number" value={L.rolls} placeholder="—" onChange={(e) => onChange({ rolls: e.target.value })} className={faint} /></Field>

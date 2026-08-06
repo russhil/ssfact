@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { POSTED } from "@/lib/job-scope";
 
 export const PO_STATUS_LABEL: Record<string, string> = {
   ORDER_GIVEN: "Order Given",
@@ -35,10 +36,16 @@ export type OrderRow = {
   status: string;
   urgency: string | null;
   orderDate: Date | null;
+  // Change 39 Part C — pieces cut so far against this order (Σ cut qty of linked POSTED cards).
+  cutSoFar: number;
 };
 
 export async function getProductionOrders(): Promise<OrderRow[]> {
-  const orders = await db.productionOrder.findMany({ include: { product: true }, orderBy: { orderNo: "asc" } });
+  const orders = await db.productionOrder.findMany({
+    // Change 39 Part C — pull linked posted cards to roll up "cut so far".
+    include: { product: true, jobCards: { where: POSTED, select: { cutQty: true } } },
+    orderBy: { orderNo: "asc" },
+  });
   return orders.map((o) => ({
     id: o.id,
     orderNo: o.orderNo,
@@ -50,6 +57,7 @@ export async function getProductionOrders(): Promise<OrderRow[]> {
     status: o.status,
     urgency: o.urgency,
     orderDate: o.orderDate,
+    cutSoFar: o.jobCards.reduce((a, j) => a + (j.cutQty ?? 0), 0),
   }));
 }
 
@@ -70,6 +78,17 @@ export async function getProductionSummary(): Promise<ProductionSummary> {
     completed: orders.filter((o) => o.status === "COMPLETED").length,
     targetUnits: orders.reduce((a, o) => a + o.targetQty, 0),
   };
+}
+
+// Change 39 Part C — open production orders for the job-card picker. A card links to the
+// order it cuts against so the order can roll up "cut so far". Open = not COMPLETED.
+export type OpenOrderOption = { id: number; orderNo: string; productId: number; targetQty: number };
+export async function getOpenOrderOptions(): Promise<OpenOrderOption[]> {
+  return db.productionOrder.findMany({
+    where: { status: { in: ["ORDER_GIVEN", "IN_PRODUCTION"] } },
+    select: { id: true, orderNo: true, productId: true, targetQty: true },
+    orderBy: { orderNo: "asc" },
+  });
 }
 
 export async function hasActiveOrder(productId: number): Promise<boolean> {

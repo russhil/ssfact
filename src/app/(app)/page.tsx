@@ -1,7 +1,7 @@
 import { getDashboard } from "@/lib/queries";
 import { getDraftJobs } from "@/lib/jobs";
 import { DraftsStrip } from "@/components/drafts-strip";
-import { getLowStockAlerts, getDelayedOrders } from "@/lib/insights";
+import { getLowStockAlerts, getDelayedOrders, getReadyCards } from "@/lib/insights";
 import { getPayables } from "@/lib/party-ledger";
 import { getCurrentUser, canSeeCost } from "@/lib/auth";
 import { redirect } from "next/navigation";
@@ -31,13 +31,14 @@ export default async function DashboardPage() {
   // more than elsewhere: `/` is in no proxy.ts rule, so every role reaches this page.
   const me = who;
   const owner = canSeeCost(me);
-  const [{ kpis, vendors, overdue, trend }, drafts, lowStock, delayed, payables, capacity] = await Promise.all([
+  const [{ kpis, vendors, overdue, trend }, drafts, lowStock, delayed, payables, capacity, ready] = await Promise.all([
     getDashboard(),
     getDraftJobs(),
     getLowStockAlerts(),
     getDelayedOrders(),
     owner ? getPayables() : Promise.resolve([]),
     owner ? getCockpitCapacity() : Promise.resolve(null),
+    getReadyCards(),
   ]);
 
   const cards = [
@@ -61,6 +62,18 @@ export default async function DashboardPage() {
       />
 
       <DraftsStrip drafts={drafts} />
+
+      {/* Change 39 Part E1 — cards whose every trim is now covered by store stock. */}
+      {ready.length > 0 && (
+        <Link
+          href="/pending-trims"
+          className="mb-3.5 flex items-center gap-2 rounded-lg border border-ok/40 bg-ok/5 px-3.5 py-2.5 t-sm font-semibold text-ink hover:bg-ok/10"
+        >
+          <CheckCircle2 size={16} className="text-ok" />
+          {num(ready.length)} job card{ready.length === 1 ? "" : "s"} ready to start
+          <span className="t-xs font-normal text-muted">· all trims covered</span>
+        </Link>
+      )}
 
       <section className="grid grid-cols-2 gap-3.5 rise lg:grid-cols-4">
         {cards.map((c) => (

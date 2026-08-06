@@ -55,12 +55,16 @@ export default async function ProductionOrdersPage() {
                 <th className="px-4 py-2.5 font-semibold">Date</th>
                 <th className="px-4 py-2.5 text-right font-semibold">Monthly Sale</th>
                 <th className="px-4 py-2.5 text-right font-semibold">Target</th>
+                <th className="px-4 py-2.5 text-right font-semibold">Cut so far</th>
                 <th className="px-4 py-2.5 font-semibold">Urgency</th>
                 <th className="px-4 py-2.5 font-semibold">Status</th>
               </tr>
             </thead>
             <tbody>
-              {orders.map((o) => (
+              {orders.map((o) => {
+                const pct = o.targetQty > 0 ? Math.round((o.cutSoFar / o.targetQty) * 100) : 0;
+                const remaining = o.targetQty - o.cutSoFar;
+                return (
                 <tr key={o.id} className="border-b border-hairline last:border-0 hover:bg-surface-2">
                   <td className="px-4 py-2.5 font-bold text-primary-ink">{o.orderNo}</td>
                   <td className="px-4 py-2.5">
@@ -72,10 +76,19 @@ export default async function ProductionOrdersPage() {
                   <td className="px-4 py-2.5 text-t2 tnum">{fmtDate(o.orderDate)}</td>
                   <td className="px-4 py-2.5 text-right tnum text-t2">{num(o.avgMonthlySale)}</td>
                   <td className="px-4 py-2.5 text-right font-bold tnum">{num(o.targetQty)}</td>
+                  {/* Change 39 Part C — cut so far / target, with remaining (may go negative). */}
+                  <td className="px-4 py-2.5 text-right tnum">
+                    <span className="font-semibold text-t1">{num(o.cutSoFar)}</span>
+                    <span className="text-faint"> · {pct}%</span>
+                    <span className={`ml-1.5 t-micro ${remaining < 0 ? "text-danger" : "text-faint"}`}>
+                      {remaining < 0 ? `${num(-remaining)} over` : `${num(remaining)} left`}
+                    </span>
+                  </td>
                   <td className="px-4 py-2.5">{o.urgency ? <Badge tone={urgencyTone(o.urgency)}>{o.urgency}</Badge> : "—"}</td>
                   <td className="px-4 py-2.5"><Badge tone={poStatusTone(o.status)}>{PO_STATUS_LABEL[o.status] ?? o.status}</Badge></td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

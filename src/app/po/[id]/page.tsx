@@ -111,7 +111,7 @@ export default async function POPage({ params }: { params: Promise<{ id: string 
       {/* Change 25 Part J — the remark column existed and was stored; it just never printed. */}
       {o.remarks && <p className="mt-4 text-[11px] text-slate-600">Remarks: {o.remarks}</p>}
 
-      <PoSignatory signatory={o.signatory} />
+      <PoSignatory signatory={o.signatory} preparedBy={o.preparedBy} />
 
       {/* Change 25 Part H.1 — the shade card the supplier sent, attached against the
           order it belongs to. Pure UI: attachImages already mapped fabricOrder. */}

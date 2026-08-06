@@ -17,7 +17,6 @@ import {
   layerFabricPayload,
   layerTotal,
   numOrNull,
-  resolveColourRatio,
   type LayerState,
 } from "@/components/job-card/layer-grid";
 
@@ -27,15 +26,12 @@ export function AddCuttingLayer({
   colours,
   masters,
   vendors = [],
-  colourRatio: seedRatio,
 }: {
   jobCardId: number;
   sizes: string[];
   colours: string[];
   masters: string[];
   vendors?: string[];
-  /** the card's colour weights, when known; otherwise every colour takes an equal share */
-  colourRatio?: [string, number][];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -44,8 +40,7 @@ export function AddCuttingLayer({
   const [layer, setLayer] = useState<LayerState>(blank);
 
   const cols = colours.length > 0 ? colours : [""];
-  const colourRatio = seedRatio?.length ? seedRatio : resolveColourRatio(cols, {}, new Map());
-  const cells = deriveLayerCells(layer, cols, colourRatio);
+  const cells = deriveLayerCells(layer, cols);
   const total = layerTotal(cells);
 
   async function save() {
@@ -69,6 +64,7 @@ export function AddCuttingLayer({
         fabricIssued: null,
         fabricByColour: layerFabricPayload(layer),
         sizeRatio: JSON.stringify(layer.ratio.filter(([s]) => layer.sizes.includes(s))),
+        layerLength: numOrNull(layer.layerLength), // Change 39 B
         cells: payloadCells,
       });
       setLayer(blank());
@@ -96,7 +92,6 @@ export function AddCuttingLayer({
       <CuttingLayerGrid
         layer={layer}
         colours={cols}
-        colourRatio={colourRatio}
         masters={masters}
         vendors={vendors}
         onChange={(patch) => setLayer((L) => ({ ...L, ...patch }))}

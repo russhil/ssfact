@@ -87,10 +87,17 @@ export default async function BomDocPage({ params }: { params: Promise<{ sku: st
         </tbody>
       </table>
 
-      <div className="mt-10 grid grid-cols-3 gap-6 text-center text-[11px]">
-        {["Prepared by", "Checked by", "Approved by"].map((s) => (
-          <div key={s} className="border-t border-ink pt-1">{s}</div>
-        ))}
+      {/* Change 39 G4 — firm name as authoriser (never the login user) + a real "Prepared by". */}
+      <div className="mt-10 flex items-end justify-between text-[11px]">
+        <div className="text-slate-600">
+          {u?.displayName && (
+            <>Prepared by {u.displayName} · {new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</>
+          )}
+        </div>
+        <div className="w-44 border-t border-ink pt-1 text-center">
+          <div className="font-semibold">Sport Sun</div>
+          <div className="text-slate-600">Authorised signatory</div>
+        </div>
       </div>
     </div>
   );

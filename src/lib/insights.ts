@@ -37,6 +37,33 @@ export async function getPendingTrims(): Promise<PendingTrim[]> {
   return out.filter((g) => g.shortfall > 0).sort((a, b) => b.shortfall - a.shortfall);
 }
 
+// ── Change 39 Part E1 — cards ready to start: every trim covered by store stock ──
+// The positive mirror of the shortage list. Computed LIVE against current stock (not the
+// trimsPending flag) so a card whose stock was topped up via an inward challan surfaces here
+// immediately, even though nothing recomputed its flag.
+export type ReadyCard = { id: number; siNo: string; productName: string; cutQty: number };
+
+export async function getReadyCards(): Promise<ReadyCard[]> {
+  const jobs = await db.jobCard.findMany({
+    // ACTIVE = posted and not closed (the only non-DRAFT, non-CLOSED status). Pre-stitch only.
+    where: { status: "ACTIVE", stage: { in: ["FABRIC_AWAITED", "CUTTING"] } },
+    include: { jobLines: { include: { trimItem: true } }, product: { select: { name: true } } },
+  });
+  const out: ReadyCard[] = [];
+  for (const j of jobs) {
+    const trimLines = j.jobLines.filter((l) => l.trimItemId && l.trimItem);
+    if (trimLines.length === 0) continue; // no trims to be "ready" about
+    const allCovered = trimLines.every((l) => {
+      const need = (l.requiredQty ?? l.totalQty ?? 0) - (l.issuedQty ?? 0);
+      if (need <= 0) return true; // already issued
+      const stock = l.trimItem!.currentStock;
+      return need <= stock && (l.requiredQty ?? 0) <= stock; // covered by store stock
+    });
+    if (allCovered) out.push({ id: j.id, siNo: j.siNo, productName: j.product?.name ?? j.customItem ?? "—", cutQty: j.cutQty });
+  }
+  return out.sort((a, b) => a.siNo.localeCompare(b.siNo));
+}
+
 // ── Vendor fabric variance: who over-consumes fabric vs assumed, and what it costs ──
 export type VendorVariance = {
   vendor: string;
