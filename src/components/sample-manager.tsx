@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Card, Button, Field, Input, Select, Badge, Sheet, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
+import { Card, Button, Field, Input, Select, Badge, MobileCardList, Sheet, SortHeader, TableToolbar, useTableView, type FilterDef } from "@/components/ui";
 import { runAction } from "@/lib/action-result";
 import { createSample } from "@/lib/actions";
 import { inr } from "@/lib/format";
@@ -70,7 +70,30 @@ export function SampleManager({
         <Button onClick={() => setOpen(true)}><Plus size={14} /> New sample</Button>
       </div>
 
-      <Card className="overflow-hidden p-0">
+      {/* phones: a card per sample */}
+      <MobileCardList
+        className="mb-3 md:hidden"
+        rows={view.rows}
+        keyOf={(s) => s.id}
+        empty={<p className="rounded-card bg-surface px-2 py-10 text-center t-sm text-muted elev">No samples</p>}
+        renderCard={(s) => (
+          <Link href={`/samples/${s.id}`} className="block rounded-card bg-surface p-4 elev active:scale-[0.99]">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="t-body font-bold text-primary-ink">{s.code}</span>
+              <Badge tone={SAMPLE_TONE[s.status] ?? "default"}>{LABEL(s.status)}</Badge>
+            </div>
+            {s.name && <p className="mt-0.5 t-sm text-t2">{s.name}</p>}
+            <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 t-sm text-t3">
+              {s.product && <span>{s.product}</span>}
+              {s.vendor && <span>{s.vendor}</span>}
+              <span className="tnum">round {s.round}</span>
+              {owner && s.cost > 0 && <span className="tnum text-t2">{inr(s.cost)}</span>}
+            </div>
+          </Link>
+        )}
+      />
+
+      <Card className="hidden overflow-hidden p-0 md:block">
         <div className="overflow-x-auto">
           <table className="w-full t-sm">
             <thead>

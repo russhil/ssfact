@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { Card, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
+import { Badge, Card, MobileCardList, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { DispatchActions, type DispatchEditable } from "@/components/dispatch-actions";
 import { num, fmtDate } from "@/lib/format";
 
@@ -101,7 +101,42 @@ export function DispatchLog({ rows, canEdit }: { rows: DispatchRow[]; canEdit: b
         unit="pcs"
         csv={csv}
       />
-      <div className="overflow-x-auto">
+      {/* phones: a card per dispatch */}
+      <MobileCardList
+        className="md:hidden"
+        rows={view.rows}
+        keyOf={(e) => e.id}
+        empty={<p className="px-2 py-10 text-center t-sm text-muted">{rows.length === 0 ? "No dispatches" : "No dispatches match these filters"}</p>}
+        renderCard={(e) => {
+          const dead = !!e.voidedAt;
+          return (
+            <div className={`rounded-card bg-surface p-4 elev ${dead ? "opacity-55" : ""}`}>
+              <div className="flex items-baseline justify-between gap-2">
+                <Link href={`/job-cards/${e.jobCardId}`} className="t-body font-bold text-primary-ink">
+                  {e.siNo}
+                </Link>
+                <Badge tone={dead ? "default" : "ok"}>{dead ? "Void" : `+${num(e.qty)}`}</Badge>
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 t-sm">
+                <span className="tnum text-t3">{fmtDate(e.date)}</span>
+                <Link href={`/dispatch-doc/${e.id}`} className="tnum text-primary-ink hover:underline">
+                  {e.dispatchNo ?? e.challan ?? `#${e.id}`}
+                </Link>
+                <span className="text-t2">{e.item}</span>
+                {e.vendor && <span className="text-t3">{e.vendor}</span>}
+                <span className="text-t3">{e.reason}</span>
+              </div>
+              {canEdit && (
+                <div className="mt-2 flex justify-end">
+                  <DispatchActions compact event={e} />
+                </div>
+              )}
+            </div>
+          );
+        }}
+      />
+
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full t-sm">
           <thead>
             <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">

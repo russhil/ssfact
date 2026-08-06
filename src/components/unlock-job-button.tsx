@@ -7,13 +7,21 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { unlockJobCardForCorrection } from "@/lib/actions";
+import { usePrompt } from "@/components/ui";
 import { LockOpen } from "lucide-react";
 
 export function UnlockJobButton({ jobCardId }: { jobCardId: number }) {
   const router = useRouter();
+  const prompt = usePrompt();
   const [busy, setBusy] = useState(false);
   async function go() {
-    const reason = window.prompt("Unlock this card for correction. Reason (recorded in the audit log):", "");
+    const reason = await prompt({
+      title: "Unlock job card for correction",
+      message: "Give a reason — it is recorded in the audit log.",
+      placeholder: "Reason",
+      confirmLabel: "Unlock",
+      required: true,
+    });
     if (reason === null) return; // cancelled
     setBusy(true);
     try {

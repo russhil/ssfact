@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createTrim, updateTrim, deleteTrim } from "@/lib/actions";
 import { MasterDelete } from "@/components/master-delete";
-import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
+import { Card, Badge, MobileCardList, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { StockAdjust } from "@/components/stock-adjust";
 import { LookupSelect } from "@/components/masters/lookup-select";
 import { num } from "@/lib/format";
@@ -201,7 +201,46 @@ export function TrimMasterManager({
 
       <Card className="p-5">
         <TableToolbar view={view} filters={filters} searchPlaceholder="Search trim, category, supplier…" showDate={false} unit="in store" csv={csv} />
-        <div className="overflow-x-auto">
+
+        {/* phones: a card per trim */}
+        <MobileCardList
+          className="md:hidden"
+          rows={view.rows.slice(0, 500)}
+          keyOf={(t) => t.id}
+          empty={<p className="px-2 py-10 text-center t-sm text-muted">No trims match these filters</p>}
+          renderCard={(t) => {
+            const low = isLow(t);
+            return (
+              <div className={`rounded-card bg-surface p-4 elev ${t.status === "DISCONTINUED" ? "opacity-50" : ""}`}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <Link href={`/trims/${t.id}`} className="t-body font-bold text-primary-ink">{t.name}</Link>
+                  {t.current <= 0 ? <Badge tone="danger">Indent</Badge> : low ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 t-sm text-t2">
+                  <span>{t.category ?? t.family ?? "—"}</span>
+                  {t.supplier && <span className="text-t3">{t.supplier}</span>}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 t-sm">
+                  <span className={`tnum font-semibold ${t.current <= 0 ? "text-danger" : low ? "text-warn" : ""}`}>{num(t.current)} in store</span>
+                  {t.reorderLevel != null && <span className="tnum text-t3">reorder {num(t.reorderLevel)}</span>}
+                  {t.ratePerUnit != null && <span className="tnum text-t3">₹{num(t.ratePerUnit, 2)}</span>}
+                </div>
+                <div className="mt-2 flex items-center justify-end gap-1.5">
+                  <StockAdjust target={{ kind: "trim", trimItemId: t.id }} name={t.name} current={t.current} unit={t.unit} />
+                  <MasterDelete
+                    kind="trim"
+                    id={t.id}
+                    label="Trim"
+                    onDelete={() => deleteTrim({ id: t.id })}
+                    onDeactivate={t.status !== "DISCONTINUED" ? () => updateTrim({ id: t.id, status: "DISCONTINUED" }) : undefined}
+                  />
+                </div>
+              </div>
+            );
+          }}
+        />
+
+        <div className="hidden overflow-x-auto md:block">
         <table className="w-full t-sm">
           <thead>
             <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">

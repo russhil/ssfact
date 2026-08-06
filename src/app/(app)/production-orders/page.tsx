@@ -26,7 +26,7 @@ export default async function ProductionOrdersPage() {
         }
       />
 
-      <div className="mb-4 grid grid-cols-4 gap-3.5">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5">
         <Card className="p-4">
           <div className="t-xs font-semibold uppercase tracking-wide text-muted">Orders</div>
           <div className="mt-1.5 t-display font-extrabold tnum">{num(summary.total)}</div>

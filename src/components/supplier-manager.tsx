@@ -12,6 +12,7 @@ import {
   Card,
   Field,
   Input,
+  MobileCardList,
   SortHeader,
   TableToolbar,
   Td,
@@ -210,7 +211,55 @@ export function SupplierManager({
           showDate={false}
           csv={csv}
         />
-        <div className="overflow-x-auto">
+        {/* phones: a card per supplier */}
+        <MobileCardList
+          className="md:hidden"
+          rows={view.rows}
+          keyOf={(s) => s.id}
+          empty={<p className="px-2 py-10 text-center t-sm text-muted">{suppliers.length === 0 ? "No suppliers" : "No suppliers match these filters"}</p>}
+          renderCard={(s) => (
+            <div className={`rounded-card bg-surface p-4 elev ${s.active ? "" : "opacity-55"}`}>
+              <div className="flex items-baseline justify-between gap-2">
+                <Link href={`/suppliers/${s.id}`} className="t-body font-bold text-primary-ink">{s.name}</Link>
+                {s.active ? (
+                  <Badge tone="ok">Active</Badge>
+                ) : (
+                  <button onClick={() => toggle(s)} disabled={busy} title="Reactivate"><Badge tone="default">Inactive</Badge></button>
+                )}
+              </div>
+              {onTimeById[s.id] != null && (
+                <Link href={`/suppliers/${s.id}/scorecard`} className="mt-1 inline-block">
+                  <Badge tone={onTimeById[s.id]! >= 0.9 ? "ok" : onTimeById[s.id]! >= 0.7 ? "warn" : "danger"}>
+                    {Math.round(onTimeById[s.id]! * 100)}% on time
+                  </Badge>
+                </Link>
+              )}
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 t-sm text-t2">
+                {s.type && <span>{s.type}</span>}
+                {s.city && <span>{s.city}</span>}
+                {s.phone && <span className="tnum">{s.phone}</span>}
+                {s.gstNo && <span className="tnum text-t3">{s.gstNo}</span>}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 t-sm text-t3">
+                <span className="tnum">{s.trims} trims</span>
+                <span className="tnum">{s.orders} orders</span>
+              </div>
+              <div className="mt-2 flex items-center justify-end gap-1">
+                <Button variant="ghost" size="sm" onClick={() => startEdit(s)} disabled={busy}><Pencil size={12} /> Edit</Button>
+                <MasterDelete
+                  kind="supplier"
+                  id={s.id}
+                  label="Supplier"
+                  onDelete={() => deleteSupplier({ id: s.id })}
+                  onDeactivate={s.active ? () => updateSupplier({ id: s.id, active: false }) : undefined}
+                  disabled={busy}
+                />
+              </div>
+            </div>
+          )}
+        />
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full border-collapse t-sm">
             <thead>
               <tr className="border-b border-border">

@@ -23,7 +23,7 @@ export default async function FabricOrdersPage() {
   return (
     <div className="p-6">
       <PageHeader title="Fabric Orders" subtitle="Purchase orders for fabric" />
-      <div className="mb-4 grid grid-cols-3 gap-3.5">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-3.5">
         <Card className="p-4"><div className="t-xs font-semibold uppercase tracking-wide text-muted">Planning</div><div className="mt-1.5 t-display font-extrabold tnum">{num(planning)}</div></Card>
         <Card className="p-4"><div className="t-xs font-semibold uppercase tracking-wide text-muted">Pending Delivery</div><div className="mt-1.5 t-display font-extrabold text-warn tnum">{num(pending)}</div></Card>
         <Card className="p-4"><div className="t-xs font-semibold uppercase tracking-wide text-muted">Received</div><div className="mt-1.5 t-display font-extrabold text-ok tnum">{num(received)}</div></Card>

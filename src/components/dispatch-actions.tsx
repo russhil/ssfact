@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { voidDispatch, editDispatch } from "@/lib/actions";
-import { Badge, Button, Field, Input, Select, Sheet } from "@/components/ui";
+import { Badge, Button, Field, Input, Select, Sheet, useConfirm } from "@/components/ui";
 import { num } from "@/lib/format";
 import { Pencil, Undo2 } from "lucide-react";
 
@@ -37,6 +37,7 @@ export function VoidedBadge() {
 
 export function DispatchActions({ event, compact = false }: { event: DispatchEditable; compact?: boolean }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [date, setDate] = useState(event.date.slice(0, 10));
@@ -51,7 +52,15 @@ export function DispatchActions({ event, compact = false }: { event: DispatchEdi
   const changed = Math.round((newQty - event.qty) * 100) / 100;
 
   async function doVoid() {
-    if (!confirm(`Void ${label} and add these ${num(event.qty)} pieces back to the card?`)) return;
+    if (
+      !(await confirm({
+        title: `Void dispatch ${label}?`,
+        message: `This reverses the stock movement and adds these ${num(event.qty)} pieces back to the card.`,
+        tone: "danger",
+        confirmLabel: "Void",
+      }))
+    )
+      return;
     setBusy(true);
     try {
       const r = await voidDispatch({ id: event.id });

@@ -283,7 +283,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
       </div>
 
       {/* top stats */}
-      <div className="grid grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5">
         {[
           ["Cut Qty", num(j.cutQty)],
           ["Received", num(j.dispatchedQty)],

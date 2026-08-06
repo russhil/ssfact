@@ -1,6 +1,6 @@
 "use client";
 
-import { inputClass } from "@/components/ui";
+import { inputClass, useConfirm } from "@/components/ui";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -32,6 +32,7 @@ export function ChallanDocActions({
   signatories?: string[]; signatoryName?: string | null;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [sig, setSig] = useState(signatoryName ?? "");
   async function saveSig(name: string) {
@@ -73,7 +74,11 @@ export function ChallanDocActions({
   async function saveEdit() {
     const filled = elines.filter((l) => l.refId && +l.qty > 0);
     if (filled.length === 0) { alert("A locked challan must keep at least one line."); return; }
-    if (!confirm("Re-post this challan? Old stock movements are reversed and the new lines posted.")) return;
+    if (!(await confirm({
+      title: "Re-post this challan?",
+      message: "The old stock movements are reversed and the new lines posted.",
+      confirmLabel: "Re-post",
+    }))) return;
     setBusy(true);
     try {
       await editLockedChallan({
@@ -138,8 +143,8 @@ export function ChallanDocActions({
       router.refresh();
     } catch (err) { alert((err as Error).message); } finally { setBusy(false); }
   }
-  async function lock() { if (!confirm("Lock & post to inventory? Lines become read-only.")) return; setBusy(true); try { await lockChallan({ id: challanId }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
-  async function doVoid() { if (!confirm(`Void ${challanNo} and reverse its stock movements?`)) return; setBusy(true); try { await voidChallan({ id: challanId }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
+  async function lock() { if (!(await confirm({ title: "Lock & post to inventory?", message: "The stock movements are posted and the lines become read-only.", confirmLabel: "Lock & Post" }))) return; setBusy(true); try { await lockChallan({ id: challanId }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
+  async function doVoid() { if (!(await confirm({ title: `Void challan ${challanNo}?`, message: "This reverses its stock movements.", tone: "danger", confirmLabel: "Void" }))) return; setBusy(true); try { await voidChallan({ id: challanId }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
 
   if (status === "DRAFT") {
     return (

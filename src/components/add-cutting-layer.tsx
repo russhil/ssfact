@@ -10,7 +10,6 @@ import { Plus } from "lucide-react";
 // colour-weight resolution (`?? 1`) that split "all colours" differently from the create
 // form for the same card. It now renders the one shared layer UI.
 import {
-  CuttingLayerGrid,
   deriveLayerCells,
   emptyLayer,
   layerCellRows,
@@ -19,6 +18,7 @@ import {
   numOrNull,
   type LayerState,
 } from "@/components/job-card/layer-grid";
+import { ResponsiveCuttingLayerGrid } from "@/components/job-card/layer-grid-mobile";
 
 export function AddCuttingLayer({
   jobCardId,
@@ -89,7 +89,7 @@ export function AddCuttingLayer({
     <div className="mt-3 rounded-xl border border-border bg-surface-2 p-3.5">
       <div className="mb-2 t-xs font-bold uppercase tracking-wide text-primary-ink">New layer · {num(total)} pcs</div>
 
-      <CuttingLayerGrid
+      <ResponsiveCuttingLayerGrid
         layer={layer}
         colours={cols}
         masters={masters}

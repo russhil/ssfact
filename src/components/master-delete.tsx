@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Trash2 } from "lucide-react";
-import { IconButton, Sheet, Button, Badge } from "@/components/ui";
+import { IconButton, Sheet, Button, Badge, useConfirm } from "@/components/ui";
 import { runAction } from "@/lib/action-result";
 import { checkMasterRefs } from "@/lib/actions";
 import type { MasterKind, MasterRefs } from "@/lib/master-refs";
@@ -40,6 +40,7 @@ export function MasterDelete({
   disabled?: boolean;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [refs, setRefs] = useState<MasterRefs | null>(null);
 
@@ -51,7 +52,15 @@ export function MasterDelete({
         setRefs(found);
         return;
       }
-      if (!confirm(`Delete ${label.toLowerCase()} ${found.name}? This cannot be undone.`)) return;
+      if (
+        !(await confirm({
+          title: `Delete ${label.toLowerCase()} ${found.name}?`,
+          message: "This cannot be undone.",
+          tone: "danger",
+          confirmLabel: "Delete",
+        }))
+      )
+        return;
       if (await runAction(onDelete)) router.refresh();
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));

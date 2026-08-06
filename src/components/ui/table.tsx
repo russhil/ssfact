@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn";
+import { MobileCardList } from "./mobile-list";
 
 /* Row height and cell padding come from --row-h / --row-px, which the density
    toggle flips on <html>. Tables inherit it; they don't read any state. */
@@ -24,6 +25,7 @@ export function DataTable<T>({
   isSelected,
   footer,
   className,
+  renderCard,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -33,9 +35,12 @@ export function DataTable<T>({
   isSelected?: (row: T, index: number) => boolean;
   footer?: React.ReactNode;
   className?: string;
+  /** When given, phones show a card per row instead of the wide table (Change 40).
+   *  The table then renders desktop-only; without it, behaviour is unchanged. */
+  renderCard?: (row: T, index: number) => React.ReactNode;
 }) {
-  return (
-    <div className={cn("overflow-hidden rounded-card bg-surface elev", className)}>
+  const table = (
+    <div className={cn("overflow-hidden rounded-card bg-surface elev", renderCard && "hidden md:block", className)}>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse t-sm">
           <thead>
@@ -95,6 +100,14 @@ export function DataTable<T>({
       </div>
       {footer && <div className="border-t border-hairline px-[var(--row-px)] py-2.5 t-xs text-t3">{footer}</div>}
     </div>
+  );
+
+  if (!renderCard) return table;
+  return (
+    <>
+      {table}
+      <MobileCardList className="md:hidden" rows={rows} keyOf={keyOf} renderCard={renderCard} empty={empty} />
+    </>
   );
 }
 

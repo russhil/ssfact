@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick, voidChallan } from "@/lib/actions";
-import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
+import { Card, Badge, MobileCardList, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
 import { orderFlag } from "@/lib/order-flags";
 import { GeneratePoButton, type BuyerOption } from "@/components/generate-po";
@@ -500,7 +500,42 @@ export function FabricOrderManager({
           search, status/stage/supplier filters, received-vs-pending, date range, sort. */}
       <Card className="mt-4 p-5">
         <TableToolbar view={view} filters={filters} searchPlaceholder="Search fabric, supplier, PO…" dateLabel="Order date" unit="ordered" csv={csv} />
-        <div className="overflow-x-auto">
+
+        {/* Change 40 — phones: a card per fabric order, fed the same view.rows the table maps. */}
+        <MobileCardList
+          className="mt-2 md:hidden"
+          rows={view.rows}
+          keyOf={(o) => o.id}
+          empty={<p className="px-2 py-10 text-center t-sm text-muted">{orders.length === 0 ? "No fabric orders" : "No orders match these filters"}</p>}
+          renderCard={(o) => (
+            <div className={`rounded-card bg-surface p-4 elev ${editingId === o.id ? "ring-2 ring-accent/40" : ""}`}>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="t-body font-bold text-primary-ink">{o.fabric}</span>
+                <span className="flex flex-wrap items-center justify-end gap-1">
+                  <Badge tone={STATUS_TONE[o.status] ?? "default"}>{o.status.replace("_", " ")}</Badge>
+                  <DelayBadge order={o} />
+                </span>
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 t-sm">
+                <span className="tnum">
+                  <b>{num(o.totalQty)}</b> {o.unit.toLowerCase()}
+                </span>
+                {o.receivedQty > 0 && (
+                  <span className={`tnum ${o.receivedQty < o.totalQty ? "text-warn" : "text-ok"}`}>{num(o.receivedQty)} received</span>
+                )}
+                {o.supplier && <span className="text-t3">{o.supplier}</span>}
+                {o.lines.length > 0 && <span className="text-t3">{o.lines.length} colours</span>}
+                {o.poNumber ? (
+                  <Link href={`/po/${o.id}`} className="tnum font-semibold text-primary-ink">{o.poNumber}</Link>
+                ) : (
+                  <span className="text-t3">{o.poStage}</span>
+                )}
+              </div>
+            </div>
+          )}
+        />
+
+        <div className="hidden overflow-x-auto md:block">
         <table className="w-full t-sm">
           <thead>
             <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">

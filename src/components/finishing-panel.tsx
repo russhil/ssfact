@@ -8,7 +8,7 @@ import {
   deleteFinishingJob,
   type FinishingProcessName,
 } from "@/lib/actions";
-import { Badge, Button, Card, Field, Input, Select, Sheet } from "@/components/ui";
+import { Badge, Button, Card, Field, Input, Select, Sheet, useConfirm } from "@/components/ui";
 import { num, fmtDate } from "@/lib/format";
 import { Plus, PackageCheck, Trash2 } from "lucide-react";
 
@@ -59,6 +59,7 @@ export function FinishingPanel({
   canSeeCost: boolean;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [give, setGive] = useState(false);
   const [receiving, setReceiving] = useState<FinishingRow | null>(null);
   const [busy, setBusy] = useState(false);
@@ -68,7 +69,15 @@ export function FinishingPanel({
   const open = rows.filter((r) => r.status === "OPEN").length;
 
   async function remove(r: FinishingRow) {
-    if (!confirm(`Delete ${r.docNo ?? "this job-work"}? Nothing has come back yet, so nothing is reversed.`)) return;
+    if (
+      !(await confirm({
+        title: `Delete ${r.docNo ?? "this job-work"}?`,
+        message: "Nothing has come back yet, so nothing is reversed.",
+        tone: "danger",
+        confirmLabel: "Delete",
+      }))
+    )
+      return;
     setBusy(true);
     try {
       await deleteFinishingJob({ id: r.id });

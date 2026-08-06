@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
+import { Card, Badge, MobileCardList, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { AuditDiff, summarizeAudit, actionTone } from "@/components/audit-diff";
 import type { AuditRow } from "@/lib/masters";
 
@@ -113,7 +113,46 @@ export function AuditLog({
         dateLabel="Date"
         csv={csv}
       />
-      <div className="overflow-x-auto">
+      {/* phones: a card per log entry, tap to expand the diff */}
+      <MobileCardList
+        className="md:hidden"
+        rows={view.rows}
+        keyOf={(r) => r.id}
+        empty={<p className="px-2 py-10 text-center t-sm text-faint">No entries in this range</p>}
+        renderCard={(r) => {
+          const expanded = open === r.id;
+          const detail = !!(r.changes || r.meta);
+          const href = entityHref(r);
+          return (
+            <div
+              className={`rounded-card bg-surface p-4 elev ${detail ? "cursor-pointer" : ""}`}
+              onClick={() => detail && setOpen(expanded ? null : r.id)}
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="t-body font-semibold text-t1">{summarizeAudit(r)}</span>
+                <Badge tone={actionTone(r.action)}>{r.action}</Badge>
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 t-sm">
+                <span className="tnum text-t3">{ts(r.at)}</span>
+                {href ? (
+                  <Link href={href} onClick={(e) => e.stopPropagation()} className="font-semibold text-primary-ink hover:underline">
+                    {r.entityLabel ?? `${r.entity} #${r.entityId}`}
+                  </Link>
+                ) : (
+                  <span className="text-t2">{r.entityLabel ?? `${r.entity} #${r.entityId}`}</span>
+                )}
+              </div>
+              {expanded && (
+                <div className="mt-3">
+                  <AuditDiff row={r} />
+                </div>
+              )}
+            </div>
+          );
+        }}
+      />
+
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full t-sm">
           <thead>
             <tr className="border-b border-border text-left t-xs uppercase tracking-wide text-faint">

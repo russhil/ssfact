@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteFabricOrder, deleteTrimOrder } from "@/lib/actions";
-import { Badge, Card } from "@/components/ui";
+import { Badge, Card, useConfirm } from "@/components/ui";
 import { num } from "@/lib/format";
 import { Trash2 } from "lucide-react";
 
@@ -18,11 +18,20 @@ export type OrderDraft = { id: number; name: string; supplier: string | null; qt
  */
 export function OrderDraftsStrip({ kind, drafts }: { kind: "FABRIC" | "TRIM"; drafts: OrderDraft[] }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState<number | null>(null);
   if (drafts.length === 0) return null;
 
   async function discard(d: OrderDraft) {
-    if (!confirm(`Discard the draft order for ${d.name}? It was never placed, so nothing is reversed.`)) return;
+    if (
+      !(await confirm({
+        title: `Discard draft order for ${d.name}?`,
+        message: "It was never placed, so nothing is reversed.",
+        tone: "danger",
+        confirmLabel: "Discard",
+      }))
+    )
+      return;
     setBusy(d.id);
     try {
       await (kind === "FABRIC" ? deleteFabricOrder({ id: d.id }) : deleteTrimOrder({ id: d.id }));

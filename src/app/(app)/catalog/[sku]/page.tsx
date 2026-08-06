@@ -103,7 +103,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ sku:
             In production
             <span className="font-medium text-faint">· linked style {p.production.styleNo}</span>
           </div>
-          <div className="grid grid-cols-4 gap-3.5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5">
             {[
               ["Job Cards", num(p.production.jobCount)],
               ["Open", num(p.production.openJobs)],

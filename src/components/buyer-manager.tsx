@@ -11,6 +11,7 @@ import {
   Card,
   Field,
   Input,
+  MobileCardList,
   SortHeader,
   TableToolbar,
   Td,
@@ -274,7 +275,47 @@ export function BuyerManager({ buyers }: { buyers: BuyerRow[] }) {
           showDate={false}
           csv={csv}
         />
-        <div className="overflow-x-auto">
+        {/* phones: a card per firm */}
+        <MobileCardList
+          className="md:hidden"
+          rows={view.rows}
+          keyOf={(b) => b.id}
+          empty={<p className="px-2 py-10 text-center t-sm text-muted">{buyers.length === 0 ? "No firms" : "No firms match these filters"}</p>}
+          renderCard={(b) => (
+            <div className={`rounded-card bg-surface p-4 elev ${b.active ? "" : "opacity-55"}`}>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="t-body font-bold text-primary-ink">{b.name}</span>
+                {b.active ? (
+                  <Badge tone="ok">Active</Badge>
+                ) : (
+                  <button onClick={() => toggle(b)} disabled={busy} title="Reactivate"><Badge tone="default">Inactive</Badge></button>
+                )}
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 t-sm text-t2">
+                {b.gstNo && <span className="tnum">{b.gstNo}</span>}
+                {b.city && <span>{b.city}</span>}
+                {b.contacts.length > 0 && <span className="text-t3">{b.contacts.map(contactLabel).join(", ")}</span>}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 t-sm text-t3">
+                <span className="tnum">{activeAddrs(b).length} delivery</span>
+                <span className="tnum">{b.orders} orders</span>
+              </div>
+              <div className="mt-2 flex items-center justify-end gap-1">
+                <Button variant="ghost" size="sm" onClick={() => startEdit(b)} disabled={busy}><Pencil size={12} /> Edit</Button>
+                <MasterDelete
+                  kind="buyer"
+                  id={b.id}
+                  label="Firm"
+                  onDelete={() => deleteBuyer({ id: b.id })}
+                  onDeactivate={b.active ? () => deactivateBuyer({ id: b.id, active: false }) : undefined}
+                  disabled={busy}
+                />
+              </div>
+            </div>
+          )}
+        />
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full border-collapse t-sm">
             <thead>
               <tr className="border-b border-border">

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateCuttingLayer, removeCuttingLayer } from "@/lib/actions";
-import { Button, Field, Input, Sheet } from "@/components/ui";
+import { Button, Field, Input, Sheet, useConfirm } from "@/components/ui";
 import { num } from "@/lib/format";
 import { Pencil, Trash2 } from "lucide-react";
 // Change 38 Part D — the per-colour fabric editor is one shared table now.
@@ -53,6 +53,7 @@ export function LayerActions({
   unit: string;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -131,14 +132,15 @@ export function LayerActions({
   }
 
   async function remove() {
-    const msg = [
-      `Remove layer ${layer.layerNo}?`,
-      "",
-      `Its ${num(layer.total)} pieces come off the card's cut quantity and the fabric it was issued goes back to stock.`,
-      "",
-      "This cannot be undone.",
-    ].join("\n");
-    if (!confirm(msg)) return;
+    if (
+      !(await confirm({
+        title: `Remove layer ${layer.layerNo}?`,
+        message: `Its ${num(layer.total)} pieces come off the card's cut quantity and the fabric it was issued goes back to stock. This cannot be undone.`,
+        tone: "danger",
+        confirmLabel: `Remove layer ${layer.layerNo}`,
+      }))
+    )
+      return;
     setBusy(true);
     try {
       await removeCuttingLayer({ id: layer.id });

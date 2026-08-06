@@ -19,7 +19,6 @@ import { Check, AlertTriangle, ArrowLeft, Plus, X, Layers, Image as ImageIcon } 
 // that used to be copy-pasted into this file, add-cutting-layer and layer-actions.
 import {
   COLORLESS,
-  CuttingLayerGrid,
   deriveLayerCells,
   emptyLayer,
   intOrNull,
@@ -30,6 +29,7 @@ import {
   splitCellKey,
   type LayerState,
 } from "@/components/job-card/layer-grid";
+import { ResponsiveCuttingLayerGrid } from "@/components/job-card/layer-grid-mobile";
 
 type BomDim = "COLOR" | "SIZE" | "FLAT";
 type BomRow = { trimItemId: number | null; material: string; color: string; dimension: BomDim; perPieceQty: number };
@@ -773,7 +773,7 @@ export function NewJobCardForm({
                     </span>
                   </div>
 
-                  <CuttingLayerGrid
+                  <ResponsiveCuttingLayerGrid
                     layer={L}
                     colours={gridColours}
                     masters={masters}
