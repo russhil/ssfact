@@ -218,12 +218,15 @@ body {
   height: 100%;
 }
 
-/* No document-level horizontal scroll: off-canvas overlays (closed right-side
-   Sheets translate past the right edge) must never let the whole page rubber-band
-   sideways on a phone. `hidden` on the root clips it; vertical `position: sticky`
-   (the mobile top bar, the desktop sidebar) is unaffected — verified. Wide tables
-   scroll inside their own overflow-x-auto containers, untouched. */
-html {
+/* No sideways scroll into empty space: closed right-side Sheets sit translated
+   ~334px past the right edge, and without this a phone can swipe/scroll to that
+   emptiness. It must be on BODY (the actual scroll container) — `html` alone
+   clips paint but does NOT clamp the scroll position (verified: scrollX still
+   reached 300 with html-only, 0 with body). Vertical `position: sticky` (mobile
+   top bar, desktop sidebar) keeps working; wide tables scroll inside their own
+   overflow-x-auto containers, untouched. */
+html,
+body {
   overflow-x: hidden;
 }
 
