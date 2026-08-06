@@ -19,7 +19,6 @@ import { Check, AlertTriangle, ArrowLeft, Plus, X, Layers, Image as ImageIcon } 
 // that used to be copy-pasted into this file, add-cutting-layer and layer-actions.
 import {
   COLORLESS,
-  CuttingLayerGrid,
   deriveLayerCells,
   emptyLayer,
   intOrNull,
@@ -30,6 +29,8 @@ import {
   splitCellKey,
   type LayerState,
 } from "@/components/job-card/layer-grid";
+import { ResponsiveCuttingLayerGrid } from "@/components/job-card/layer-grid-mobile";
+import { TABBAR_H } from "@/components/shell/bottom-nav";
 
 type BomDim = "COLOR" | "SIZE" | "FLAT";
 type BomRow = { trimItemId: number | null; material: string; color: string; dimension: BomDim; perPieceQty: number };
@@ -538,8 +539,17 @@ export function NewJobCardForm({
     }
   }
 
+  // Change 40 — mobile wizard. On phones the long form is shown one step at a
+  // time (Details → Cutting → Trims → Review) via `max-md:` gating, so DESKTOP is
+  // untouched (max-md never applies at md+). State-preserving: sections are
+  // hidden, never unmounted.
+  const WIZARD_STEPS = ["Details", "Cutting", "Trims", "Review"];
+  const [step, setStep] = useState(0);
+  const lastStep = WIZARD_STEPS.length - 1;
+  const stepShow = (n: number) => (step === n ? "" : "max-md:hidden");
+
   return (
-    <div>
+    <div className="max-md:pb-24">
       <Link href="/job-cards" className="mb-4 inline-flex items-center gap-1.5 t-sm font-medium text-muted hover:text-ink">
         <ArrowLeft size={14} /> Job Cards
       </Link>
@@ -572,7 +582,8 @@ export function NewJobCardForm({
 
       <div className="grid grid-cols-1 gap-3.5 md:grid-cols-[1.25fr_1fr]">
         {/* form */}
-        <div className="min-w-0 rounded-card border border-border bg-surface p-5">
+        <div className={`min-w-0 rounded-card border border-border bg-surface p-5 ${step === lastStep ? "max-md:hidden" : ""}`}>
+          <div className={stepShow(0)}>
           <h3 className="mb-4 t-xs font-bold uppercase tracking-wide text-muted">Order details</h3>
 
           {/* product autocomplete (hidden in made-to-order mode) */}
@@ -627,7 +638,7 @@ export function NewJobCardForm({
                   ← Pick a catalogue product
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 <label className="col-span-2 flex flex-col gap-1">
                   <span className="t-xs font-semibold text-t1">Item <span className="text-danger">*</span></span>
                   <input value={customItem} onChange={(e) => setCustomItem(e.target.value)} placeholder="e.g. JHARKHAND TRACKSUIT" className="rounded-lg border border-border px-3 py-2 t-body font-semibold outline-none focus:border-primary" />
@@ -645,7 +656,7 @@ export function NewJobCardForm({
           )}
 
           {/* autofilled fields */}
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <Field label="Item Description" value={picked?.itemDesc ?? (mto ? customItem : "")} auto={!!picked} />
             <Field label="Fabric" value={picked?.fabricName ?? ""} auto={!!picked} />
             <Field
@@ -664,7 +675,7 @@ export function NewJobCardForm({
           </div>
 
           {/* manual fields */}
-          <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+          <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <div>
               <label className="mb-1.5 block t-xs font-semibold text-t1">Vendor</label>
               <select value={vendor} onChange={(e) => setVendor(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2.5 t-body outline-none focus:border-primary">
@@ -728,9 +739,11 @@ export function NewJobCardForm({
             <label className="mb-1.5 block t-xs font-semibold text-t1">Remark <span className="font-normal text-faint">(optional)</span></label>
             <input value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="e.g. urgent, colour pending from party…" className="w-full rounded-lg border border-border px-3 py-2 t-body outline-none focus:border-primary" />
           </div>
+          </div>{/* end wizard step 0 (Details) */}
 
           {picked && (
             <>
+            <div className={stepShow(1)}>
               {/* ── colours: a property of the CARD, shared by every lay ── */}
               {colors.length > 0 && (
                 <div className="mt-5 rounded-xl border border-border bg-surface-2 p-3.5">
@@ -773,7 +786,7 @@ export function NewJobCardForm({
                     </span>
                   </div>
 
-                  <CuttingLayerGrid
+                  <ResponsiveCuttingLayerGrid
                     layer={L}
                     colours={gridColours}
                     masters={masters}
@@ -786,8 +799,10 @@ export function NewJobCardForm({
               <button type="button" onClick={addLayer} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-2 t-sm font-semibold text-primary-ink hover:bg-primary-soft">
                 <Plus size={13} /> Add layer
               </button>
+              </div>{/* end wizard step 1 (Cutting) */}
 
               {/* editable trim sheet (BOM) */}
+              <div className={stepShow(2)}>
               <div className="mt-4">
                 <div className="mb-2 flex items-center justify-between">
                   <h4 className="t-xs font-bold uppercase tracking-wide text-muted">Trim sheet · ×{num(cutQty)} pcs</h4>
@@ -880,12 +895,13 @@ export function NewJobCardForm({
                   <p className="mt-1.5 t-xs text-danger">Some trims are short of stock.</p>
                 )}
               </div>
+              </div>{/* end wizard step 2 (Trims) */}
             </>
           )}
         </div>
 
         {/* live calc panel */}
-        <div className="rounded-card panel-invert p-5">
+        <div className={`rounded-card panel-invert p-5 ${step !== lastStep ? "max-md:hidden" : ""}`}>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h3 className="t-xs font-bold uppercase tracking-wide text-t3">Live summary · {num(cutQty)} pcs</h3>
             {picked && (
@@ -977,7 +993,7 @@ export function NewJobCardForm({
                         <MiniInput label="width" value={colorWidth[r.key]} placeholder={picked.fabricRollWidth ?? undefined} onChange={(v) => setColorWidth((p) => upd(p, r.key, v))} />
                       </div>
                       {/* fabric-detail plan (Part F) */}
-                      <div className="mt-1.5 grid grid-cols-4 items-end gap-1.5">
+                      <div className="mt-1.5 grid grid-cols-2 items-end gap-1.5 sm:grid-cols-4">
                         <MiniInput label="req pcs" value={colorReqPcs[r.key]} placeholder={r.qty} onChange={(v) => setColorReqPcs((p) => upd(p, r.key, v))} />
                         <MiniInput label="req mtr" value={colorReqMtr[r.key]} placeholder={r.required ?? undefined} onChange={(v) => setColorReqMtr((p) => upd(p, r.key, v))} />
                         <MiniInput label="rolls" value={colorRolls[r.key]} onChange={(v) => setColorRolls((p) => upd(p, r.key, v))} />
@@ -1028,6 +1044,41 @@ export function NewJobCardForm({
         </div>
       </div>
 
+      {/* mobile wizard nav — sits above the bottom tab bar */}
+      <div
+        className="fixed inset-x-0 z-40 flex items-center gap-3 border-t border-hairline bg-surface/95 px-4 py-2.5 backdrop-blur md:hidden"
+        style={{ bottom: `calc(${TABBAR_H}px + env(safe-area-inset-bottom))` }}
+      >
+        <button
+          type="button"
+          onClick={() => setStep((s) => Math.max(0, s - 1))}
+          disabled={step === 0}
+          className="rounded-lg px-3 py-2 t-sm font-semibold text-t2 active:scale-[0.97] disabled:opacity-40"
+        >
+          Back
+        </button>
+        <span className="min-w-0 truncate t-xs font-semibold text-t3">
+          Step {step + 1}/{WIZARD_STEPS.length} · {WIZARD_STEPS[step]}
+        </span>
+        {step < lastStep ? (
+          <button
+            type="button"
+            onClick={() => setStep((s) => Math.min(lastStep, s + 1))}
+            className="ml-auto rounded-lg bg-accent px-5 py-2 t-sm font-semibold text-accent-on active:scale-[0.97]"
+          >
+            Next
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={save}
+            disabled={!canSave || saving}
+            className="ml-auto rounded-lg bg-accent px-5 py-2 t-sm font-semibold text-accent-on active:scale-[0.97] disabled:opacity-40"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

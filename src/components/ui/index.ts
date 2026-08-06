@@ -14,6 +14,7 @@ export { Card, Panel, PageHeader, SectionTitle, StatCard, DefList, EmptyState, S
 export { Button, ButtonLink, IconButton, buttonClass } from "./button";
 export { Input, Textarea, Select, Field, SearchInput, inputClass } from "./form";
 export { DataTable, TableWrap, Th, Td, type Column } from "./table";
+export { MobileCardList, MobileCard } from "./mobile-list";
 export { SegmentedFilter, type SegmentOption } from "./segmented";
 export {
   useTableView,
@@ -26,4 +27,6 @@ export {
   type CsvExport,
 } from "./table-toolbar";
 export { Badge, Tag, StatusDot, Bar } from "./status";
-export { Sheet } from "./sheet";
+export { Sheet, BottomSheet } from "./sheet";
+export { ConfirmProvider, useConfirm, usePrompt } from "./confirm-sheet";
+export { NumpadSheet } from "./numpad-sheet";

@@ -48,7 +48,7 @@ export default async function FinishingPage() {
         subtitle="Print · embroidery · wash · sublimation"
       />
 
-      <div className="mb-4 grid grid-cols-4 gap-3.5">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5">
         {[
           ["Documents", num(rows.length), ""],
           ["Pieces Out", num(out), ""],

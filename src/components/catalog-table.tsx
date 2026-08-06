@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import type { ProductRow } from "@/lib/catalog";
 import { STATUS_LABEL, statusTone } from "@/lib/catalog-labels";
-import { Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
+import { Badge, MobileCardList, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { inr } from "@/lib/format";
 import { MasterDelete } from "@/components/master-delete";
 import { deleteProduct, updateProduct } from "@/lib/actions";
@@ -71,7 +71,43 @@ export function CatalogTable({ rows, categories, canSeeCost = true, canDelete = 
     <div>
       <TableToolbar view={view} filters={filters} searchPlaceholder="Search SKU, name, category…" showDate={false} csv={csv} />
 
-      <div className="overflow-hidden rounded-card border border-border bg-surface">
+      {/* phones: a card per product */}
+      <MobileCardList
+        className="md:hidden"
+        rows={view.rows}
+        keyOf={(r) => r.extId}
+        empty={<p className="px-2 py-10 text-center t-sm text-muted">{rows.length === 0 ? "No products" : "No products match"}</p>}
+        renderCard={(r) => (
+          <div className="flex gap-3 rounded-card bg-surface p-3 elev">
+            {r.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={r.imageUrl} alt="" loading="lazy" className="size-11 shrink-0 rounded-md border border-border object-cover" />
+            ) : (
+              <div className="size-11 shrink-0 rounded-md border border-dashed border-border bg-surface-2" />
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline justify-between gap-2">
+                <Link href={`/catalog/${encodeURIComponent(r.skuCode)}`} className="t-body font-bold text-primary-ink">
+                  {r.skuCode}
+                </Link>
+                <Badge tone={statusTone(r.status)}>{STATUS_LABEL[r.status] ?? r.status}</Badge>
+              </div>
+              <p className="truncate t-sm font-medium">{r.name}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 t-xs text-t3">
+                <span>{r.headCategory ?? "—"}</span>
+                {canSeeCost ? (
+                  <span className="tnum">MRP {inr(r.mrp)}</span>
+                ) : (
+                  r.fabricName && <span>{r.fabricName}</span>
+                )}
+                {r.whereInProduction && <Badge tone="ok">{r.whereInProduction}</Badge>}
+              </div>
+            </div>
+          </div>
+        )}
+      />
+
+      <div className="hidden overflow-hidden rounded-card border border-border bg-surface md:block">
         <div className="overflow-x-auto">
           <table className="w-full t-sm">
             <thead>

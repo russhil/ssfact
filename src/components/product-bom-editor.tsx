@@ -6,7 +6,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { upsertBomLine, removeBomLine } from "@/lib/actions";
-import { Card, Badge } from "@/components/ui";
+import { Card, Badge, MobileCardList } from "@/components/ui";
 import { num } from "@/lib/format";
 import { Plus, X, Printer } from "lucide-react";
 
@@ -52,7 +52,32 @@ export function ProductBomEditor({ productId, extId, lines, trims }: { productId
         <h3 className="t-body font-bold">Master BOM <span className="font-medium text-faint">· authored on the product · inherited by new job cards</span></h3>
         <Link href={`/bom-doc/${extId}`} className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 t-xs font-semibold text-primary-ink hover:bg-surface-2"><Printer size={13} /> Print BOM</Link>
       </div>
-      <div className="overflow-x-auto">
+      {/* phones: a card per BOM line */}
+      <MobileCardList
+        className="md:hidden"
+        rows={lines}
+        keyOf={(l) => l.id}
+        empty={<p className="px-2 py-6 text-center t-sm text-muted">No BOM lines</p>}
+        renderCard={(l) => (
+          <div className="rounded-card bg-surface p-3 elev">
+            <div className="flex items-start justify-between gap-2">
+              <div className="t-body font-semibold text-t1">
+                {l.material}
+                {l.trim && <Badge tone="ok" className="ml-1.5">linked</Badge>}
+              </div>
+              <button onClick={() => del(l.id)} disabled={busy} className="text-faint hover:text-danger"><X size={14} /></button>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 t-sm text-t2">
+              <span className="capitalize">{(l.dimension ?? "FLAT").toLowerCase()}</span>
+              <span>{l.color || "—"}</span>
+              <span className="tnum">{l.perPieceQty != null ? `${num(l.perPieceQty, 3)}/pc` : "—/pc"}</span>
+              {l.trim && <span className="tnum text-t3">{num(l.trim.current)} in store</span>}
+            </div>
+          </div>
+        )}
+      />
+
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full t-sm">
           <thead>
             <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">

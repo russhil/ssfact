@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { Badge, Card, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
+import { Badge, Card, MobileCardList, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, fmtDate } from "@/lib/format";
 
 /**
@@ -140,12 +140,44 @@ export function FinishingLog({
         unit="out"
         csv={csv}
       />
+      {/* phones: a card per job-work line */}
+      <MobileCardList
+        className="md:hidden"
+        rows={view.rows}
+        keyOf={(r) => r.id}
+        empty={<p className="px-2 py-10 text-center t-sm text-muted">{rows.length === 0 ? "No finishing job-work" : "No job-work matches these filters"}</p>}
+        renderCard={(r) => {
+          const bal = Math.round((r.qtyOut - r.qtyBack) * 100) / 100;
+          return (
+            <div className="rounded-card bg-surface p-4 elev">
+              <div className="flex items-baseline justify-between gap-2">
+                <Link href={`/job-cards/${r.jobCardId}`} className="t-body font-bold text-primary-ink">
+                  {r.siNo}
+                </Link>
+                <Badge tone={r.status === "CLOSED" ? "ok" : "warn"}>{r.status}</Badge>
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 t-sm">
+                <span className="tnum text-t3">{fmtDate(r.issuedDate)}</span>
+                <span className="tnum text-t2">{r.docNo ?? `#${r.id}`}</span>
+                <span className="text-t2">{r.process}</span>
+                {showVendor && <span className="text-t3">{r.vendor}</span>}
+                <span className="tnum">out {num(r.qtyOut)}</span>
+                <span className="tnum text-t3">back {num(r.qtyBack)}</span>
+                <span className={`tnum ${bal < 0 ? "text-ok" : bal > 0 ? "text-warn" : "text-t3"}`}>bal {num(bal)}</span>
+                {r.billNo && <span className="text-t3">bill {r.billNo}</span>}
+                {canSeeCost && r.rate != null && <span className="tnum text-t3">₹{num(Math.round(r.rate * r.qtyBack))}</span>}
+              </div>
+            </div>
+          );
+        }}
+      />
+
       {view.rows.length === 0 ? (
-        <p className="py-6 text-center t-sm text-muted">
+        <p className="hidden py-6 text-center t-sm text-muted md:block">
           {rows.length === 0 ? "No finishing job-work" : "No job-work matches these filters"}
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full t-sm">
             <thead>
               <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">

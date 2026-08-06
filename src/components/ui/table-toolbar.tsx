@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Download, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Download, SlidersHorizontal, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { num } from "@/lib/format";
 import { toCsv, downloadCsv, ymd, type CsvColumn } from "@/lib/csv";
 import { SearchInput, inputClass } from "./form";
+import { BottomSheet } from "./sheet";
 
 /**
  * Change 23 Part A — one table toolbar, reused by every list screen.
@@ -246,71 +247,132 @@ export function TableToolbar<T>({
   children?: React.ReactNode;
   className?: string;
 }) {
-  const dateCls = inputClass("sm", "w-[9.25rem] text-t2");
-  const selectCls = inputClass("sm", "max-w-[11rem] pr-7");
+  const [sheet, setSheet] = useState(false);
+  const hasFilters = (filters ?? []).length > 0 || showDate;
+  const filterCount =
+    (view.q ? 0 : 0) + // search shown separately
+    (filters ?? []).filter((f) => (view.values[f.key] ?? "") !== (f.initial ?? "")).length +
+    (view.from ? 1 : 0) +
+    (view.to ? 1 : 0);
+
+  const clearBtn = view.active && (
+    <button onClick={view.reset} className="inline-flex items-center gap-1 t-xs font-semibold text-t3 hover:text-danger">
+      <X size={12} /> Clear
+    </button>
+  );
+  const csvBtn = csv && (
+    <button
+      onClick={() => downloadCsv(`${csv.filename}-${ymd(new Date())}`, toCsv(view.rows, csv.columns))}
+      disabled={view.rows.length === 0}
+      className="inline-flex items-center gap-1 t-xs font-semibold text-t3 hover:text-t1 disabled:pointer-events-none disabled:opacity-40"
+    >
+      <Download size={12} /> Export CSV
+    </button>
+  );
+  const count = (
+    <span className="t-xs font-medium tabular-nums text-t3">
+      {view.rows.length === view.all.length
+        ? `${num(view.all.length)} row${view.all.length === 1 ? "" : "s"}`
+        : `${num(view.rows.length)} of ${num(view.all.length)}`}
+      {view.total != null && ` · ${num(view.total)}${unit ? ` ${unit}` : ""}`}
+    </span>
+  );
+
+  const controls = (stacked: boolean) => {
+    const dateCls = inputClass("sm", stacked ? "flex-1 text-t2" : "w-[9.25rem] text-t2");
+    const selectCls = inputClass("sm", stacked ? "w-full" : "max-w-[11rem] pr-7");
+    return (
+      <>
+        {/* A raw <select> rather than the Select primitive: that one bakes in `w-full`,
+            and `cn` is a plain join (no tailwind-merge), so a `w-auto` override loses
+            and every filter would stack full-width down the page. */}
+        {(filters ?? []).map((f) => (
+          <select
+            key={f.key}
+            value={view.values[f.key] ?? ""}
+            onChange={(e) => view.setFilter(f.key, e.target.value)}
+            className={selectCls}
+            aria-label={f.label}
+          >
+            <option value="">All {f.label}</option>
+            {f.options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        ))}
+
+        {showDate && (
+          <span className={cn("flex items-center gap-1.5 t-xs text-t3", stacked && "w-full")}>
+            {dateLabel}
+            <input type="date" value={view.from} onChange={(e) => view.setFrom(e.target.value)} className={dateCls} aria-label={`${dateLabel} from`} />
+            <span aria-hidden>→</span>
+            <input type="date" value={view.to} onChange={(e) => view.setTo(e.target.value)} className={dateCls} aria-label={`${dateLabel} to`} />
+          </span>
+        )}
+      </>
+    );
+  };
+
   return (
-    <div className={cn("mb-3 flex flex-wrap items-center gap-x-3 gap-y-2", className)}>
-      {children}
+    <div className={cn("mb-3", className)}>
+      {/* one row on mobile: search + a Filters button; the rest lives in a sheet */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {children}
 
-      <SearchInput
-        size="sm"
-        value={view.q}
-        onChange={(e) => view.setQ(e.target.value)}
-        placeholder={searchPlaceholder}
-        wrapClassName="w-60"
-      />
+        <SearchInput
+          size="sm"
+          value={view.q}
+          onChange={(e) => view.setQ(e.target.value)}
+          placeholder={searchPlaceholder}
+          wrapClassName="w-full sm:w-60"
+        />
 
-      {/* A raw <select> rather than the Select primitive: that one bakes in `w-full`,
-          and `cn` is a plain join (no tailwind-merge), so a `w-auto` override loses
-          and every filter would stack full-width down the page. */}
-      {(filters ?? []).map((f) => (
-        <select
-          key={f.key}
-          value={view.values[f.key] ?? ""}
-          onChange={(e) => view.setFilter(f.key, e.target.value)}
-          className={selectCls}
-          aria-label={f.label}
-        >
-          <option value="">All {f.label}</option>
-          {f.options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      ))}
+        {/* mobile: open filters in a sheet */}
+        {hasFilters && (
+          <button
+            type="button"
+            onClick={() => setSheet(true)}
+            className={cn(inputClass("sm", "inline-flex w-auto items-center gap-1.5 md:hidden"), filterCount > 0 && "text-t1")}
+          >
+            <SlidersHorizontal size={13} />
+            Filters
+            {filterCount > 0 && (
+              <span className="grid size-4 place-items-center rounded-full bg-accent t-micro font-bold text-accent-on">{filterCount}</span>
+            )}
+          </button>
 
-      {showDate && (
-        <span className="flex items-center gap-1.5 t-xs text-t3">
-          {dateLabel}
-          <input type="date" value={view.from} onChange={(e) => view.setFrom(e.target.value)} className={dateCls} aria-label={`${dateLabel} from`} />
-          <span aria-hidden>→</span>
-          <input type="date" value={view.to} onChange={(e) => view.setTo(e.target.value)} className={dateCls} aria-label={`${dateLabel} to`} />
+        )}
+
+        {/* desktop: inline controls */}
+        <span className="hidden items-center gap-x-3 gap-y-2 md:flex md:flex-wrap">
+          {controls(false)}
+          {clearBtn}
+          {csvBtn}
         </span>
-      )}
 
-      {view.active && (
-        <button onClick={view.reset} className="inline-flex items-center gap-1 t-xs font-semibold text-t3 hover:text-danger">
-          <X size={12} /> Clear
-        </button>
-      )}
+        <span className="ml-auto">{count}</span>
+      </div>
 
-      {csv && (
-        <button
-          onClick={() => downloadCsv(`${csv.filename}-${ymd(new Date())}`, toCsv(view.rows, csv.columns))}
-          disabled={view.rows.length === 0}
-          className="inline-flex items-center gap-1 t-xs font-semibold text-t3 hover:text-t1 disabled:pointer-events-none disabled:opacity-40"
-        >
-          <Download size={12} /> Export CSV
-        </button>
-      )}
-
-      <span className="ml-auto t-xs font-medium tabular-nums text-t3">
-        {view.rows.length === view.all.length
-          ? `${num(view.all.length)} row${view.all.length === 1 ? "" : "s"}`
-          : `${num(view.rows.length)} of ${num(view.all.length)}`}
-        {view.total != null && ` · ${num(view.total)}${unit ? ` ${unit}` : ""}`}
-      </span>
+      <BottomSheet
+        open={sheet}
+        onClose={() => setSheet(false)}
+        title="Filters"
+        footer={
+          <>
+            {clearBtn}
+            <span className="ml-auto flex items-center gap-3">
+              {csvBtn}
+              <button onClick={() => setSheet(false)} className="rounded-lg bg-accent px-4 py-2 t-sm font-semibold text-accent-on active:scale-[0.97]">
+                Done
+              </button>
+            </span>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">{controls(true)}</div>
+      </BottomSheet>
     </div>
   );
 }

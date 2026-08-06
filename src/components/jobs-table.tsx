@@ -100,6 +100,19 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
     [rows]
   );
 
+  const statusBadge = (r: JobRow) =>
+    r.status === "DRAFT" ? (
+      <Badge tone="warn">Draft</Badge>
+    ) : r.overdue ? (
+      <Badge tone="danger">Overdue</Badge>
+    ) : r.status === "CLOSED" ? (
+      <Badge tone="ok">Closed</Badge>
+    ) : (
+      <Badge tone="primary">Active</Badge>
+    );
+
+  const fillTone = (v: number) => (v < 0.65 ? "warn" : v >= 0.99 ? "ok" : "primary");
+
   const columns: Column<JobRow>[] = [
     {
       key: "si",
@@ -190,6 +203,36 @@ export function JobsTable({ rows }: { rows: JobRow[] }) {
             <EmptyState title="No job cards match" />
           )
         }
+        renderCard={(r) => (
+          <Link href={`/job-cards/${r.slug}`} className="block rounded-card bg-surface p-4 elev active:scale-[0.99]">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="t-body font-bold text-accent">{r.siNo}</span>
+              <span className="flex flex-wrap items-center justify-end gap-1">
+                {statusBadge(r)}
+                {r.trimsPending && <Badge tone="warn">Trims short</Badge>}
+              </span>
+            </div>
+            {r.item && (
+              <p className="mt-0.5 t-sm text-t2">
+                {r.item}
+                {r.styleNo && <span className="text-t3"> · {r.styleNo}</span>}
+              </p>
+            )}
+            <div className="mt-2 flex items-center gap-2">
+              <Bar className="flex-1" value={r.fill} tone={fillTone(r.fill)} />
+              <span className="t-xs font-semibold tnum">{pct(r.fill)}</span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 t-sm">
+              <span className="tnum">
+                <b>{num(r.dispatchedQty)}</b> / {num(r.cutQty)} recd
+              </span>
+              <span className="text-t3">{r.vendor}</span>
+              {r.plannedEtd && (
+                <span className={r.overdue ? "font-semibold text-danger" : "text-t3"}>{fmtDate(r.plannedEtd)}</span>
+              )}
+            </div>
+          </Link>
+        )}
       />
     </div>
   );

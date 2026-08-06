@@ -40,7 +40,7 @@ export default async function BomDocPage({ params }: { params: Promise<{ sku: st
 
       <div className="mb-4 flex items-center justify-between">
         <Link href={`/catalog/${p.extId}`} className="no-print text-[12px] font-medium text-muted hover:text-ink">← Back to product</Link>
-        <div className="no-print flex items-center gap-2">
+        <div className="no-print flex flex-wrap items-center gap-2">
           <a href={waLink(null, summary)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50">
             <MessageCircle size={14} /> WhatsApp
           </a>

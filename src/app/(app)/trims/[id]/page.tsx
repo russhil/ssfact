@@ -55,7 +55,7 @@ export default async function TrimDetail({ params }: { params: Promise<{ id: str
         )}
       </div>
 
-      <div className="grid grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5">
         {[
           ["Opening", num(stock.opening)],
           ["Current", num(stock.current)],

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { discardDraftJobCard } from "@/lib/actions";
-import { Badge, Card } from "@/components/ui";
+import { Badge, Card, useConfirm } from "@/components/ui";
 import { num } from "@/lib/format";
 import { Trash2 } from "lucide-react";
 import type { DraftRow } from "@/lib/jobs";
@@ -19,11 +19,20 @@ import type { DraftRow } from "@/lib/jobs";
  */
 export function DraftsStrip({ drafts }: { drafts: DraftRow[] }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState<number | null>(null);
   if (drafts.length === 0) return null;
 
   async function discard(d: DraftRow) {
-    if (!confirm(`Discard "${d.label}"? It has posted nothing, so nothing is reversed.`)) return;
+    if (
+      !(await confirm({
+        title: `Discard "${d.label}"?`,
+        message: "It has posted nothing, so nothing is reversed.",
+        tone: "danger",
+        confirmLabel: "Discard",
+      }))
+    )
+      return;
     setBusy(d.id);
     try {
       await discardDraftJobCard({ id: d.id });

@@ -5,7 +5,7 @@ import { inputClass } from "@/components/ui";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createUser, updateUser, resetUserPassword, setUserActive, deleteUser } from "@/lib/actions";
-import { Card, Badge, SearchInput } from "@/components/ui";
+import { Card, Badge, MobileCardList, SearchInput, useConfirm } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { SignatureUpload } from "@/components/signature-upload";
 import { Plus, Check, KeyRound, Trash2, X } from "lucide-react";
@@ -33,6 +33,7 @@ export function UserManager({
   meId: number;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   // Change 23 Part H: search on the master lists — cheap, and they grow.
   const [q, setQ] = useState("");
@@ -109,7 +110,15 @@ export function UserManager({
   }
 
   async function remove(u: UserRow) {
-    if (!confirm(`Delete the login "${u.username}"? This cannot be undone — deactivate instead if you may need it back.`)) return;
+    if (
+      !(await confirm({
+        title: `Delete login "${u.username}"?`,
+        message: "This cannot be undone — deactivate instead if you may need it back.",
+        tone: "danger",
+        confirmLabel: "Delete",
+      }))
+    )
+      return;
     await run(() => deleteUser({ id: u.id }));
   }
 
@@ -174,7 +183,86 @@ export function UserManager({
           wrapClassName="mb-2 w-72"
         />
       )}
-      <Card className="overflow-hidden p-0">
+      {/* phones: a card per login */}
+      <MobileCardList
+        className="md:hidden"
+        rows={shown}
+        keyOf={(u) => u.id}
+        empty={<p className="rounded-card bg-surface px-2 py-10 text-center t-sm text-muted elev">No logins</p>}
+        renderCard={(u) => {
+          const isMe = u.id === meId;
+          return (
+            <div className={`rounded-card bg-surface p-4 elev ${u.active ? "" : "opacity-50"}`}>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="flex items-baseline gap-1.5">
+                  <span className="t-body font-bold text-primary-ink">{u.displayName}</span>
+                  {isMe && <Badge tone="primary">you</Badge>}
+                </span>
+                <button
+                  onClick={() => run(() => setUserActive({ id: u.id, active: !u.active }))}
+                  disabled={busy || isMe}
+                  className="disabled:cursor-not-allowed"
+                >
+                  {u.active ? <Badge tone="ok">Active</Badge> : <Badge tone="default">Disabled</Badge>}
+                </button>
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 t-sm text-t2">
+                <span className="font-mono">{u.username}</span>
+                <span className="text-t3">{u.role}</span>
+                {u.role === "VENDOR" && u.vendorName && <span className="text-t3">{u.vendorName}</span>}
+                <span className="tnum text-t3">{fmtDate(u.createdAt)}</span>
+              </div>
+              {resetId === u.id ? (
+                <div className="mt-2 flex items-center gap-1.5">
+                  <input
+                    type="password"
+                    autoFocus
+                    value={resetPw}
+                    onChange={(e) => setResetPw(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && confirmReset(u)}
+                    placeholder="New password"
+                    className="w-full rounded-md border border-border px-2 py-1 t-sm outline-none focus:border-primary"
+                  />
+                  <button
+                    onClick={() => confirmReset(u)}
+                    disabled={busy || resetPw.length < 6}
+                    className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 t-xs font-semibold text-accent-on disabled:opacity-40"
+                  >
+                    <Check size={12} /> Set
+                  </button>
+                  <button
+                    onClick={() => { setResetId(null); setResetPw(""); }}
+                    className="rounded-md border border-border px-1.5 py-1 text-t2 hover:bg-surface-2"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-2 flex items-center justify-end gap-1.5">
+                  <button
+                    onClick={() => { setResetId(u.id); setResetPw(""); }}
+                    disabled={busy}
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2 disabled:opacity-40"
+                  >
+                    <KeyRound size={12} /> Password
+                  </button>
+                  {!isMe && (
+                    <button
+                      onClick={() => remove(u)}
+                      disabled={busy}
+                      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-danger hover:bg-danger-soft disabled:opacity-40"
+                    >
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        }}
+      />
+
+      <Card className="hidden overflow-hidden p-0 md:block">
         <div className="overflow-x-auto">
           <table className="w-full t-sm">
             <thead>

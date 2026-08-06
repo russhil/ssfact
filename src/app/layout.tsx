@@ -15,6 +15,9 @@ export const metadata: Metadata = {
 
 /* Colours the mobile browser chrome to match the app shell in each theme. */
 export const viewport: Viewport = {
+  // cover so `env(safe-area-inset-*)` reports real values on notched phones —
+  // the bottom nav pads by inset-bottom.
+  viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
     { media: "(prefers-color-scheme: dark)", color: "#1a1a1e" },

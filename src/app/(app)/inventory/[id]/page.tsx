@@ -50,7 +50,7 @@ export default async function FabricDetail({ params }: { params: Promise<{ id: s
         {stock.available <= 0 ? <Badge tone="danger">Indent</Badge> : stock.usedPct >= 0.85 ? <Badge tone="warn">Low</Badge> : <Badge tone="ok">OK</Badge>}
       </div>
 
-      <div className="grid grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5">
         {[
           ["Opening", num(stock.opening)],
           ["Issued", num(stock.issued)],

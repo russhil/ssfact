@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Card, Badge, Bar, Input, Button } from "@/components/ui";
+import { Card, Badge, Bar, Input, Button, MobileCardList } from "@/components/ui";
 import { runAction } from "@/lib/action-result";
 import { setVendorCapacity } from "@/lib/actions";
 import { num, fmtDate } from "@/lib/format";
@@ -22,8 +22,72 @@ export function PlanningBoard({ rows }: { rows: VendorLoad[] }) {
   const [edit, setEdit] = useState<Record<number, string>>({});
   const maxOpen = Math.max(1, ...rows.map((r) => Math.max(0, r.openPcs)));
 
+  async function saveCapacity(vendorId: number, draft: string) {
+    setBusy(true);
+    const ok = await runAction(() =>
+      setVendorCapacity({ id: vendorId, dailyCapacityPcs: draft.trim() === "" ? null : Number(draft) })
+    );
+    setBusy(false);
+    if (ok) router.refresh();
+  }
+
   return (
-    <Card className="mt-3.5 overflow-hidden p-0">
+    <>
+      {/* Change 40 — phones: a card per vendor, so capacity is still readable and editable at 390px. */}
+      <MobileCardList
+        className="mt-3.5 md:hidden"
+        rows={rows}
+        keyOf={(r) => r.vendor}
+        empty={<p className="px-2 py-10 text-center t-sm text-muted">No vendors with open load</p>}
+        renderCard={(r) => {
+          const draft = edit[r.vendorId ?? -1];
+          const dirty = draft != null && draft !== (r.capacityPcs != null ? String(r.capacityPcs) : "");
+          return (
+            <div className="rounded-card bg-surface p-4 elev">
+              <div className="flex items-baseline justify-between gap-2">
+                <Link href={`/vendors/${encodeURIComponent(r.vendor)}`} className="t-body font-bold text-primary-ink">
+                  {r.vendor}
+                </Link>
+                {r.overCommitted && <Badge tone="danger">Over-committed</Badge>}
+              </div>
+              {r.capacityNote && <div className="mt-0.5 t-micro text-faint">{r.capacityNote}</div>}
+              <div className="mt-2">
+                <Bar value={Math.max(0, r.openPcs) / maxOpen} tone={r.overCommitted ? "danger" : "primary"} />
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 t-sm">
+                <span className={`tnum ${r.openPcs < 0 ? "text-ok" : ""}`}>
+                  <b>{num(r.openPcs)}</b> open
+                </span>
+                <span className="tnum text-t2">{num(r.cards)} cards</span>
+                <span className="tnum">{r.daysToClear == null ? "— d to clear" : `${num(r.daysToClear)} d to clear`}</span>
+                {r.nearestEtd && (
+                  <span className={r.daysToEtd != null && r.daysToEtd < 0 ? "text-danger" : "text-t2"}>
+                    ETD {fmtDate(r.nearestEtd)}
+                    {r.daysToEtd != null && <span className="ml-1 t-xs">({r.daysToEtd}d)</span>}
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="t-micro font-semibold uppercase tracking-wide text-faint">Pcs / day</span>
+                <Input
+                  type="number"
+                  value={draft ?? (r.capacityPcs != null ? String(r.capacityPcs) : "")}
+                  placeholder="—"
+                  onChange={(e) => setEdit((p) => ({ ...p, [r.vendorId ?? -1]: e.target.value }))}
+                  className="w-20 text-right tnum"
+                />
+                {dirty && r.vendorId != null && (
+                  <Button size="sm" disabled={busy} onClick={() => saveCapacity(r.vendorId!, draft)}>
+                    Save
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        }}
+      />
+
+      <Card className="mt-3.5 hidden overflow-hidden p-0 md:block">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[52rem] t-sm">
           <thead>
@@ -66,18 +130,7 @@ export function PlanningBoard({ rows }: { rows: VendorLoad[] }) {
                         className="w-20 text-right tnum"
                       />
                       {dirty && r.vendorId != null && (
-                        <Button
-                          size="sm"
-                          disabled={busy}
-                          onClick={async () => {
-                            setBusy(true);
-                            const ok = await runAction(() =>
-                              setVendorCapacity({ id: r.vendorId!, dailyCapacityPcs: draft.trim() === "" ? null : Number(draft) })
-                            );
-                            setBusy(false);
-                            if (ok) router.refresh();
-                          }}
-                        >
+                        <Button size="sm" disabled={busy} onClick={() => saveCapacity(r.vendorId!, draft)}>
                           Save
                         </Button>
                       )}
@@ -103,5 +156,6 @@ export function PlanningBoard({ rows }: { rows: VendorLoad[] }) {
         </table>
       </div>
     </Card>
+    </>
   );
 }

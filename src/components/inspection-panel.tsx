@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Button, Field, Input, Select, Badge, Sheet } from "@/components/ui";
+import { Card, Button, Field, Input, Select, Badge, Sheet, useConfirm, usePrompt } from "@/components/ui";
 import { runAction } from "@/lib/action-result";
 import { createInspection, voidInspection, sendToRework, receiveRework } from "@/lib/actions";
 import { num, fmtDate } from "@/lib/format";
@@ -64,6 +64,8 @@ export function InspectionPanel({
   reworks: ReworkRow[];
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const [open, setOpen] = useState(false);
   const [rwOpen, setRwOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -151,7 +153,15 @@ export function InspectionPanel({
                         className="t-xs text-faint hover:text-danger"
                         disabled={busy}
                         onClick={async () => {
-                          if (!confirm("Void this inspection? It stops counting but stays on the record.")) return;
+                          if (
+                            !(await confirm({
+                              title: "Void inspection?",
+                              message: "It stops counting but stays on the record.",
+                              tone: "danger",
+                              confirmLabel: "Void",
+                            }))
+                          )
+                            return;
                           setBusy(true);
                           const ok = await runAction(() => voidInspection({ id: i.id }));
                           setBusy(false);
@@ -184,7 +194,13 @@ export function InspectionPanel({
                   className="t-xs font-semibold text-primary-ink hover:underline"
                   disabled={busy}
                   onClick={async () => {
-                    const v = prompt(`How many pieces came back on ${r.docNo}?`, String(r.qty - r.qtyBack));
+                    const v = await prompt({
+                      title: `Receive rework ${r.docNo}`,
+                      message: "How many pieces came back?",
+                      placeholder: "Pieces",
+                      defaultValue: String(r.qty - r.qtyBack),
+                      confirmLabel: "Receive",
+                    });
                     if (!v) return;
                     setBusy(true);
                     const ok = await runAction(() => receiveRework({ id: r.id, qtyBack: Number(v) }));

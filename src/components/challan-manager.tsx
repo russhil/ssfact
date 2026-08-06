@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createChallan, addChallanLine, lockChallan, voidChallan } from "@/lib/actions";
-import { Card, Badge, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
+import { Card, Badge, MobileCardList, SortHeader, TableToolbar, useTableView, useConfirm, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
 import { X, Printer } from "lucide-react";
 
@@ -164,8 +164,53 @@ export function ChallanManager({
             </div>
           )}
 
-          {/* line table */}
-          <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+          {/* phones: a stacked card per line — the wide inline table can't be typed into at 390px */}
+          <div className="mt-4 flex flex-col gap-2 md:hidden">
+            {lines.map((l, i) => (
+              <div key={i} className="rounded-lg border border-border p-3">
+                <div className="flex items-center gap-2">
+                  <select
+                    value={l.kind}
+                    onChange={(e) => setLine(i, { kind: e.target.value as "fabric" | "trim", refId: 0, colour: "" })}
+                    className={`${inp} w-full`}
+                  >
+                    <option value="fabric">Fabric</option>
+                    <option value="trim">Trim/Acc</option>
+                  </select>
+                  {lines.length > 1 && (
+                    <button onClick={() => removeLine(i)} aria-label="Remove line" className="shrink-0 rounded-md p-1.5 text-faint active:text-danger">
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+                <select value={l.refId} onChange={(e) => setLine(i, { refId: +e.target.value })} className={`${inp} mt-2 w-full`}>
+                  <option value={0}>— pick {l.kind} —</option>
+                  {(l.kind === "fabric" ? fabrics : trims).map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+                {l.kind === "fabric" && (
+                  <input list="challan-colours" value={l.colour} onChange={(e) => setLine(i, { colour: e.target.value })} placeholder="colour" className={`${inp} mt-2 w-full`} />
+                )}
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  <input type="number" inputMode="decimal" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="qty" className={`${inp} w-full text-right tnum`} />
+                  <select value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} className={`${inp} w-full`}>
+                    <option value="">unit</option>
+                    <option>MTR</option>
+                    <option>KG</option>
+                    <option>PCS</option>
+                    <option>SET</option>
+                  </select>
+                  <input type="number" inputMode="decimal" value={l.rate} onChange={(e) => setLine(i, { rate: e.target.value })} placeholder="₹ rate" className={`${inp} w-full text-right tnum`} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* line table (desktop) */}
+          <div className="mt-4 hidden overflow-x-auto rounded-lg border border-border md:block">
             <table className="w-full t-sm">
               <thead>
                 <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
@@ -328,7 +373,14 @@ function ChallanList({ rows, tab }: { rows: ChallanRow[]; tab: "INWARD" | "OUTWA
           {rows.length === 0 ? "No challans" : "No challans match these filters"}
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        <MobileCardList
+          className="md:hidden"
+          rows={view.rows}
+          keyOf={(c) => c.id}
+          renderCard={(c) => <ChallanCardItem c={c} tab={tab} />}
+        />
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full t-sm">
             <thead>
               <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
@@ -349,16 +401,87 @@ function ChallanList({ rows, tab }: { rows: ChallanRow[]; tab: "INWARD" | "OUTWA
             </tbody>
           </table>
         </div>
+        </>
       )}
     </Card>
   );
 }
 
+/** Phone card for one challan — the same identity + actions as the desktop row. */
+function ChallanCardItem({ c, tab }: { c: ChallanRow; tab: "INWARD" | "OUTWARD" }) {
+  const router = useRouter();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState(false);
+  const dead = c.status === "VOID";
+  async function doLock() {
+    setBusy(true);
+    try {
+      await lockChallan({ id: c.id });
+      router.refresh();
+    } catch (e) {
+      alert((e as Error).message);
+      setBusy(false);
+    }
+  }
+  async function doVoid() {
+    if (!(await confirm({ title: `Void ${c.challanNo ?? "challan"}?`, message: "This reverses its stock movement.", tone: "danger", confirmLabel: "Void" }))) return;
+    setBusy(true);
+    try {
+      await voidChallan({ id: c.id });
+      router.refresh();
+    } catch (e) {
+      alert((e as Error).message);
+      setBusy(false);
+    }
+  }
+  return (
+    <div className={`rounded-card bg-surface p-4 elev ${dead ? "opacity-55" : ""}`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <Link href={`/challan-doc/${c.id}`} className="t-body font-bold text-primary-ink">
+          {c.challanNo ?? `Draft #${c.id}`}
+        </Link>
+        <span className="flex items-center gap-1">
+          {c.kind && <Badge tone={KIND_TONE[c.kind] ?? "default"}>{c.kind}</Badge>}
+          <Badge tone={c.status === "LOCKED" ? "ok" : c.status === "VOID" ? "danger" : "warn"}>{c.status}</Badge>
+        </span>
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 t-sm">
+        <span className="tnum text-t3">{fmtDate(c.date)}</span>
+        <span className="text-t2">{c.counterparty}</span>
+        {c.jobCardSiNo && (
+          <Link href={`/job-cards/${c.jobCardId}`} className="text-primary-ink">
+            {c.jobCardSiNo}
+          </Link>
+        )}
+        <span className={`tnum ${dead ? "line-through" : ""}`}>
+          {c.lineCount} line{c.lineCount === 1 ? "" : "s"} · {num(c.totalQty)}
+        </span>
+      </div>
+      <div className="mt-2 flex items-center gap-3">
+        {c.status === "DRAFT" && (
+          <button onClick={doLock} disabled={busy} className="t-xs font-semibold text-primary-ink disabled:opacity-40">
+            Lock &amp; post
+          </button>
+        )}
+        {c.status === "LOCKED" && (
+          <button onClick={doVoid} disabled={busy} className="t-xs font-semibold text-danger disabled:opacity-40">
+            Void
+          </button>
+        )}
+        <Link href={`/challan-doc/${c.id}`} className="ml-auto inline-flex items-center gap-1 t-xs font-medium text-t2">
+          <Printer size={12} /> open
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 function ChallanRowItem({ c }: { c: ChallanRow }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   async function doLock() { setBusy(true); try { await lockChallan({ id: c.id }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
-  async function doVoid() { if (!confirm(`Void ${c.challanNo} and reverse its stock?`)) return; setBusy(true); try { await voidChallan({ id: c.id }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
+  async function doVoid() { if (!(await confirm({ title: `Void ${c.challanNo ?? "challan"}?`, message: "This reverses its stock movement.", tone: "danger", confirmLabel: "Void" }))) return; setBusy(true); try { await voidChallan({ id: c.id }); router.refresh(); } catch (e) { alert((e as Error).message); setBusy(false); } }
   const isDraft = c.status === "DRAFT";
   const dead = c.status === "VOID"; // Change 23 B: shown when asked for, always dimmed
   return (

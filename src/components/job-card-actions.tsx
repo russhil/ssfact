@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { setJobCardOpen, updateJobCard, deleteJobCard } from "@/lib/actions";
-import { Button, Field, Input, Sheet } from "@/components/ui";
+import { Button, Field, Input, Sheet, useConfirm } from "@/components/ui";
 import { Lock, LockOpen, Pencil, Trash2 } from "lucide-react";
 
 /**
@@ -41,6 +41,7 @@ export type JobCardEditable = {
 
 export function JobCardActions({ job, canSeeCost }: { job: JobCardEditable; canSeeCost: boolean }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -92,14 +93,16 @@ export function JobCardActions({ job, canSeeCost }: { job: JobCardEditable; canS
   }
 
   async function remove() {
-    const warning = [
-      `Delete job card ${job.siNo}?`,
-      "",
-      "This will reverse every stock movement the card posted — the fabric it issued for cutting goes back to that colour's stock — and remove its layers, fabric lines, BOM snapshot and any draft trim challan.",
-      "",
-      "This cannot be undone.",
-    ].join("\n");
-    if (!confirm(warning)) return;
+    if (
+      !(await confirm({
+        title: `Delete job card ${job.siNo}?`,
+        message:
+          "This reverses every stock movement the card posted — the fabric it issued for cutting goes back to that colour's stock — and removes its layers, fabric lines, BOM snapshot and any draft trim challan. This cannot be undone.",
+        tone: "danger",
+        confirmLabel: "Delete",
+      }))
+    )
+      return;
     setBusy(true);
     try {
       await deleteJobCard({ id: job.id });

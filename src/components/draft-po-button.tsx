@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { runAction } from "@/lib/action-result";
 import { draftReorderPO } from "@/lib/actions";
+import { usePrompt } from "@/components/ui";
 import { num } from "@/lib/format";
 
 /**
@@ -27,6 +28,7 @@ export function DraftPOButton({
   name: string;
 }) {
   const router = useRouter();
+  const prompt = usePrompt();
   const [busy, setBusy] = useState(false);
 
   return (
@@ -37,7 +39,13 @@ export function DraftPOButton({
         // The row is a Link; drafting must not also navigate.
         ev.preventDefault();
         ev.stopPropagation();
-        const qty = prompt(`How much ${name} to order? (${unit})`, String(Math.max(gap, 0)));
+        const qty = await prompt({
+          title: `Draft order for ${name}`,
+          message: `How much to order? (${unit})`,
+          placeholder: unit,
+          defaultValue: String(Math.max(gap, 0)),
+          confirmLabel: "Draft PO",
+        });
         if (!qty) return;
         setBusy(true);
         const ok = await runAction(() => draftReorderPO({ kind, id, qty: Number(qty) }));

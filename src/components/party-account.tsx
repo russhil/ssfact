@@ -15,6 +15,7 @@ import {
   StatCard,
   SectionTitle,
   EmptyState,
+  MobileCardList,
 } from "@/components/ui";
 import { runAction } from "@/lib/action-result";
 import { recordPayment, recordAdvance, recordAdjustment, setVendorJobRate } from "@/lib/actions";
@@ -160,7 +161,34 @@ export function PartyAccount({
         {s.lines.length === 0 ? (
           <EmptyState title="Nothing on this account yet" />
         ) : (
-          <div className="mt-4 overflow-x-auto">
+          <>
+          {/* phones: a card per ledger entry */}
+          <MobileCardList
+            className="mt-4 md:hidden"
+            rows={s.lines}
+            keyOf={(_l, i) => i}
+            renderCard={(l) => (
+              <div className="rounded-card bg-surface p-4 elev">
+                <div className="flex items-baseline justify-between gap-2">
+                  {l.href ? (
+                    <Link href={l.href} className="t-body font-semibold text-primary-ink">{l.label}</Link>
+                  ) : (
+                    <span className="t-body font-semibold text-t1">{l.label}</span>
+                  )}
+                  {l.debit ? (
+                    <span className="tnum t-body font-bold text-warn">{inr(l.debit)}</span>
+                  ) : l.credit ? (
+                    <span className="tnum t-body font-bold text-ok">{inr(l.credit)}</span>
+                  ) : null}
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 t-sm">
+                  <span className="tnum text-t3">{fmtDate(l.at)}</span>
+                  <span className="text-t3">{l.debit ? "Owed" : l.credit ? "Paid" : ""}</span>
+                </div>
+              </div>
+            )}
+          />
+          <div className="mt-4 hidden overflow-x-auto md:block">
             <table className="w-full t-sm">
               <thead>
                 {/* Only Entry flexes; the rest collapse to their content, so the figures sit
@@ -190,6 +218,7 @@ export function PartyAccount({
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Panel>
 
