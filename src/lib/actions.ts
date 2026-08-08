@@ -274,6 +274,9 @@ export type NewJobInput = {
   productionOrderId?: number | null;
   // Change 39 Part G1 — authorised signatory (firm contact name; never the login user).
   signatoryName?: string | null;
+  // Change 40 Part L2 — the firm (own factory) this card belongs to; it consumes only this
+  // firm's stock. Required in the UI, defaulted from the logged-in user's home firm.
+  buyerId?: number | null;
   vendorName: string;
   cuttingMaster?: string;
   // legacy single-grid entry (kept for back-compat); new cards send `layers` instead
@@ -572,6 +575,7 @@ async function writeJobCard(input: NewJobInput, opts: { post: boolean; existingI
         customMrp: product ? null : customMrp,
         productionOrderId: input.productionOrderId ?? null, // Change 39 Part C
         signatoryName: input.signatoryName?.trim() || null, // Change 39 Part G1
+        buyerId: input.buyerId ?? null, // Change 40 Part L2 — the card's firm
         vendorId: vendor.id,
         cuttingMasterId,
         // Layers are the source of truth for new cards; legacy grids still write SizeBreakup.

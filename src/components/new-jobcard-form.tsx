@@ -96,6 +96,8 @@ export function NewJobCardForm({
   defaultProductId = null,
   defaultSi = null,
   draft = null,
+  firms = [],
+  defaultFirmId = null,
 }: {
   products: JobProductOption[];
   vendors: string[];
@@ -109,6 +111,9 @@ export function NewJobCardForm({
   defaultSi?: string | null;
   /** Change 38 Part A — a draft being resumed. */
   draft?: DraftForEdit | null;
+  /** Change 40 Part L2 — the firm-factories that hold stock, and the user's home firm default. */
+  firms?: { id: number; name: string }[];
+  defaultFirmId?: number | null;
 }) {
   const router = useRouter();
   // Change 38 Part A — the product a resumed draft was raised against.
@@ -126,6 +131,8 @@ export function NewJobCardForm({
     draft?.vendor || (vendors.find((v) => v === "Pebble") ?? vendors.find((v) => v !== "Unassigned") ?? vendors[0] ?? "")
   );
   const [master, setMaster] = useState(draft?.master || (masters.find((m) => m.includes("Attri")) ?? masters[0] ?? ""));
+  // Change 40 Part L2 — the card's firm, defaulted from the logged-in user's home firm.
+  const [firmId, setFirmId] = useState<number | null>(defaultFirmId ?? (firms.length === 1 ? firms[0].id : null));
   const [etd, setEtd] = useState(draft?.plannedEtd ?? "");
   const [stage, setStage] = useState<Stage>((draft?.stage as Stage) ?? "CUTTING");
   const [remark, setRemark] = useState(draft?.remark ?? "");
@@ -440,6 +447,7 @@ export function NewJobCardForm({
         siNo: defaultSi ?? undefined,
         productionOrderId, // Change 39 Part C
         signatoryName: signatoryName.trim() || null, // Change 39 Part G1
+        buyerId: firmId, // Change 40 Part L2 — the card's firm
         vendorName: vendor,
         cuttingMaster: master,
         layers: buildLayers(),
@@ -672,6 +680,17 @@ export function NewJobCardForm({
 
           {/* manual fields */}
           <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            {firms.length > 0 && (
+              <div>
+                {/* Change 40 Part L2 — the firm this card belongs to; it consumes only this
+                    firm's stock. Defaulted from the logged-in user's home firm. */}
+                <label className="mb-1.5 block t-xs font-semibold text-t1">Firm</label>
+                <select value={firmId ?? ""} onChange={(e) => setFirmId(e.target.value ? +e.target.value : null)} className="w-full rounded-lg border border-border px-3 py-2.5 t-body outline-none focus:border-primary">
+                  <option value="">— pick firm —</option>
+                  {firms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label className="mb-1.5 block t-xs font-semibold text-t1">Vendor</label>
               <select value={vendor} onChange={(e) => setVendor(e.target.value)} className="w-full rounded-lg border border-border px-3 py-2.5 t-body outline-none focus:border-primary">
