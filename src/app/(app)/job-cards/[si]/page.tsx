@@ -21,6 +21,8 @@ import { JobCardActions } from "@/components/job-card-actions";
 import { LayerActions } from "@/components/layer-actions";
 import { LayerFabricTable } from "@/components/job-card/layer-grid";
 import { FinishingPanel } from "@/components/finishing-panel";
+import { PressPanel } from "@/components/press-panel";
+import { getJobPress } from "@/lib/press";
 import { JobTrimChallanButton } from "@/components/job-trim-challan-button";
 import { num, inr, fmtDate, pct } from "@/lib/format";
 import { STAGE_LABEL, stageTone, normStage, SIZE_ORDER, orderSizes } from "@/lib/job-labels";
@@ -48,6 +50,8 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   const masterList = canEdit
     ? await db.cuttingMaster.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { name: true } })
     : [];
+  // Change 40 Part K — this card's in-house pressing documents + selectable layers.
+  const jobPress = canEdit ? await getJobPress(j.id) : null;
   // Change 20: this card's finishing job-work (optional — a card may have none).
   const finishingJobs = await db.finishingJob.findMany({
     where: { jobCardId: j.id },
@@ -670,6 +674,9 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           billNo: f.billNo, note: f.note,
         }))}
       />
+
+      {/* Change 40 Part K — in-house pressing (moves no stock). */}
+      {canEdit && jobPress && <PressPanel jobCardId={j.id} press={jobPress} />}
 
       {/* Change 17 Part C: challans raised against this job card */}
       {canEdit && (

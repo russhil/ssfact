@@ -3261,6 +3261,98 @@ export async function orderLinesForFill(kind: "fabric" | "trim", orderId: number
   }));
 }
 
+// ── Change 40 Part K — press challan (in-house pressing, moves NO stock) ──────
+//
+// A press challan is a tracking document only: it never touches FabricColor.currentStock,
+// TrimItem.currentStock or JobCard.dispatchedQty. PR-OUT and PR-IN count on separate series and
+// are NOT part of the CH- series. Built standalone (owner ruling K12 — not on FinishingJob).
+
+async function nextPressSeq(tx: Tx, direction: "OUT" | "IN"): Promise<number> {
+  const prefix = direction === "OUT" ? "PR-OUT-" : "PR-IN-";
+  const trailing = /-(\d+)$/;
+  const rows = await tx.pressChallan.findMany({ where: { docNo: { startsWith: prefix } }, select: { docNo: true } });
+  return rows.reduce((m, e) => { const h = trailing.exec(e.docNo ?? ""); return Math.max(m, h ? parseInt(h[1], 10) : 0); }, 0) + 1;
+}
+
+/**
+ * Log garments for pressing (K6/K7). Picks a vendor's layers on this card, freezes their pooled
+ * size×colour grid into PressChallanLine (K5 — a derived document is not a document), and mints a
+ * PR-OUT number. A layer may sit on only ONE live outward per (card, vendor); a supplementary
+ * top-up (K8) is the one sanctioned exception and must pass supplementaryOfId explicitly.
+ */
+export async function createPressOutward(input: {
+  jobCardId: number; vendorId: number; layerIds: number[]; qty: number; note?: string | null; supplementaryOfId?: number | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  if (!input.layerIds.length) throw new Error("Pick at least one layer");
+  if (!input.qty || input.qty <= 0) throw new Error("Enter the quantity being sent to press");
+  const layers = await db.cuttingLayer.findMany({
+    where: { id: { in: input.layerIds }, jobCardId: input.jobCardId, vendorId: input.vendorId },
+    include: { cells: true },
+  });
+  if (layers.length !== input.layerIds.length) throw new Error("Some layers don't belong to this vendor on this card");
+  // K7 exclusivity — unless this is a supplementary, none of these layers may already sit on a
+  // live (non-void) press outward for this card+vendor. Voiding an outward frees its layers
+  // automatically because that query filters voidedAt: null.
+  if (!input.supplementaryOfId) {
+    const clash = await db.pressChallan.findFirst({
+      where: { direction: "OUT", voidedAt: null, jobCardId: input.jobCardId, vendorId: input.vendorId, layers: { some: { id: { in: input.layerIds } } } },
+      select: { docNo: true },
+    });
+    if (clash) throw new Error(`Some of these layers are already on ${clash.docNo ?? "a live press outward"} — void it or raise a supplementary`);
+  }
+  // K5 — freeze the pooled grid at creation.
+  const cellMap = new Map<string, number>();
+  for (const l of layers) for (const c of l.cells) if (c.qty > 0) { const k = `${c.colour}|||${c.size}`; cellMap.set(k, (cellMap.get(k) ?? 0) + c.qty); }
+  const now = new Date();
+  const docNo = await db.$transaction(async (tx) => {
+    const seq = String(await nextPressSeq(tx, "OUT")).padStart(3, "0");
+    const no = `PR-OUT-${now.getFullYear()}-${seq}`;
+    await tx.pressChallan.create({
+      data: {
+        docNo: no, direction: "OUT", date: now, jobCardId: input.jobCardId, vendorId: input.vendorId,
+        qty: input.qty, note: input.note ?? null, createdById: user.userId, supplementaryOfId: input.supplementaryOfId ?? null,
+        layers: { connect: input.layerIds.map((id) => ({ id })) },
+        lines: { create: [...cellMap.entries()].map(([k, qty]) => { const [colour, size] = k.split("|||"); return { colour, size, qty }; }) },
+      },
+    });
+    return no;
+  });
+  revalidatePath(`/job-cards/${input.jobCardId}`);
+  return { docNo };
+}
+
+/** Log a return from pressing (K9) — one typed total answering an outward; no size entry. */
+export async function createPressInward(input: { pressOutId: number; qty: number; note?: string | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const out = await db.pressChallan.findUnique({ where: { id: input.pressOutId }, select: { id: true, direction: true, jobCardId: true, vendorId: true, voidedAt: true } });
+  if (!out || out.direction !== "OUT") throw new Error("Pick a valid press outward to answer");
+  if (out.voidedAt) throw new Error("That outward was voided");
+  if (!input.qty || input.qty <= 0) throw new Error("Enter the quantity received back");
+  const now = new Date();
+  const docNo = await db.$transaction(async (tx) => {
+    const seq = String(await nextPressSeq(tx, "IN")).padStart(3, "0");
+    const no = `PR-IN-${now.getFullYear()}-${seq}`;
+    await tx.pressChallan.create({
+      data: { docNo: no, direction: "IN", date: now, jobCardId: out.jobCardId, vendorId: out.vendorId, qty: input.qty, note: input.note ?? null, pressOutId: out.id, createdById: user.userId },
+    });
+    return no;
+  });
+  revalidatePath(`/job-cards/${out.jobCardId}`);
+  return { docNo };
+}
+
+/** Void a press document (K7 — voiding an outward releases its layers back to selectable). */
+export async function voidPressChallan(input: { id: number; reason?: string | null }) {
+  await requireRole("ADMIN", "STAFF");
+  const c = await db.pressChallan.findUnique({ where: { id: input.id }, select: { id: true, jobCardId: true, voidedAt: true } });
+  if (!c) throw new Error("Press document not found");
+  if (c.voidedAt) return { ok: true };
+  await db.pressChallan.update({ where: { id: input.id }, data: { voidedAt: new Date(), voidReason: input.reason ?? null } });
+  revalidatePath(`/job-cards/${c.jobCardId}`);
+  return { ok: true };
+}
+
 /**
  * Change 39 Part D2 — raise a "cutting challan" from one lay: an OUTWARD draft challan whose
  * lines are the lay's colour × size cut goods (pieces), derived — never re-typed. Cut-goods
