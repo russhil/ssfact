@@ -868,3 +868,86 @@ function orderLabel(
   const draft = isDraft ? " [DRAFT]" : "";
   return `${handle} · ${itemName} · ${q}${exp}${draft}`;
 }
+
+/**
+ * Change 40 Part H8.2 — the "Pending POs" list the owner asked for by name: every order placed
+ * and not fully received. Received qty comes from LOCKED challans linked to the order — never
+ * from the order's own fields. Excludes drafts, voided and fully-received. Balance/overdue are
+ * derived, never stored.
+ */
+export type PendingPO = {
+  id: number; kind: "fabric" | "trim"; poNumber: string | null; supplier: string; item: string;
+  ordered: number; unit: string; received: number; balance: number; expectedDate: Date | null; daysOverdue: number;
+};
+
+function daysOverdueOf(expected: Date | null, now: Date): number {
+  if (!expected) return 0;
+  const d = Math.floor((now.getTime() - new Date(expected).getTime()) / 86_400_000);
+  return d > 0 ? d : 0;
+}
+
+export async function getPendingPOs(now = new Date()): Promise<PendingPO[]> {
+  const notReceived = { poNumber: { not: null }, voidedAt: null, status: { notIn: ["RECEIVED", "DISCARDED", "DRAFT"] as any } };
+  const lockedLines = { challans: { where: { status: "LOCKED" as const, voidedAt: null }, select: { lines: { select: { qty: true } } } } };
+  const [fabric, trim] = await Promise.all([
+    db.fabricOrder.findMany({
+      where: notReceived,
+      select: { id: true, poNumber: true, qty: true, unit: true, expectedDate: true, supplier: { select: { name: true } }, fabric: { select: { name: true } }, ...lockedLines },
+      orderBy: { expectedDate: "asc" },
+    }),
+    db.trimOrder.findMany({
+      where: notReceived,
+      select: { id: true, poNumber: true, qty: true, unit: true, expectedDate: true, supplier: { select: { name: true } }, trimItem: { select: { name: true } }, ...lockedLines },
+      orderBy: { expectedDate: "asc" },
+    }),
+  ]);
+  const recvOf = (o: { challans: { lines: { qty: number }[] }[] }) => o.challans.reduce((a, c) => a + c.lines.reduce((b, l) => b + l.qty, 0), 0);
+  const rows: PendingPO[] = [];
+  for (const o of fabric) {
+    const received = recvOf(o);
+    rows.push({ id: o.id, kind: "fabric", poNumber: o.poNumber, supplier: o.supplier?.name ?? "—", item: o.fabric?.name ?? "—", ordered: o.qty, unit: String(o.unit), received, balance: o.qty - received, expectedDate: o.expectedDate, daysOverdue: daysOverdueOf(o.expectedDate, now) });
+  }
+  for (const o of trim) {
+    const received = recvOf(o);
+    rows.push({ id: o.id, kind: "trim", poNumber: o.poNumber, supplier: o.supplier?.name ?? "—", item: o.trimItem?.name ?? "—", ordered: o.qty, unit: o.unit ?? "pcs", received, balance: o.qty - received, expectedDate: o.expectedDate, daysOverdue: daysOverdueOf(o.expectedDate, now) });
+  }
+  return rows;
+}
+
+/**
+ * Change 40 Part H8.1 — challans that arrived with no PO (poPending) and are still unlinked.
+ * Without this list they are forgotten and their stock is untraceable to a purchase.
+ */
+export type PoPendingChallan = { id: number; challanNo: string | null; status: string; date: Date; supplier: string; supplierId: number | null; qty: number; kind: string | null };
+
+export async function getPoPendingChallans(): Promise<PoPendingChallan[]> {
+  const rows = await db.materialChallan.findMany({
+    where: { poPending: true, fabricOrderId: null, trimOrderId: null, voidedAt: null },
+    select: { id: true, challanNo: true, status: true, date: true, kind: true, supplierId: true, supplier: { select: { name: true } }, lines: { select: { qty: true } } },
+    orderBy: { date: "desc" },
+  });
+  return rows.map((c) => ({ id: c.id, challanNo: c.challanNo, status: c.status, date: c.date, supplier: c.supplier?.name ?? "—", supplierId: c.supplierId, qty: c.lines.reduce((a, l) => a + l.qty, 0), kind: c.kind }));
+}
+
+/**
+ * Change 40 Part H2.3 — the "Inward today" strip. THE reason the rolls field exists: the owner
+ * checks the day's physical roll count against the paper. Totals today's LOCKED inward challans.
+ */
+export type InwardToday = { challans: number; totalRolls: number; totalQty: number; byFabric: { name: string; rolls: number; qty: number }[] };
+
+export async function getInwardToday(now = new Date()): Promise<InwardToday> {
+  const start = new Date(now); start.setHours(0, 0, 0, 0);
+  const challans = await db.materialChallan.findMany({
+    where: { direction: "INWARD", status: "LOCKED", voidedAt: null, lockedAt: { gte: start } },
+    select: { id: true, lines: { select: { qty: true, rolls: true, fabric: { select: { name: true } } } } },
+  });
+  const byFabric = new Map<string, { rolls: number; qty: number }>();
+  let totalRolls = 0, totalQty = 0;
+  for (const c of challans) {
+    for (const l of c.lines) {
+      totalQty += l.qty; totalRolls += l.rolls ?? 0;
+      if (l.fabric) { const cur = byFabric.get(l.fabric.name) ?? { rolls: 0, qty: 0 }; byFabric.set(l.fabric.name, { rolls: cur.rolls + (l.rolls ?? 0), qty: cur.qty + l.qty }); }
+    }
+  }
+  return { challans: challans.length, totalRolls, totalQty, byFabric: [...byFabric.entries()].map(([name, v]) => ({ name, ...v })) };
+}
