@@ -328,6 +328,7 @@ export async function getTrimOrders() {
       lines: o.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty })),
       totalQty: o.qty, unit: o.unit ?? o.trimItem.unit ?? null, rate: o.rate, status: o.status as string,
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
+      voidedAt: o.voidedAt, // Change 40 C3 — struck-through in the list when voided
       poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
       challans, receivedOn: receivedOnOf(challans), receivedQty: receivedQtyOf(challans),
       // Change 38 Part H — the shade card / sample photos attached to this order.

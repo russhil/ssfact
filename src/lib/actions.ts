@@ -3745,15 +3745,15 @@ export async function voidChallan(input: { id: number }) {
   const now = new Date();
   await db.$transaction(async (tx) => {
     for (const l of c.lines) {
-      await postMaterialMovement(tx, {
-        direction: reverse,
-        qty: l.qty,
-        date: now,
-        note: `Void ${c.challanNo}`,
-        fabricId: l.fabricId ?? null,
-        colour: l.colour ?? null,
-        trimItemId: l.trimItemId ?? null,
-      });
+      const base = { qty: l.qty, date: now, note: `Void ${c.challanNo}`, fabricId: l.fabricId ?? null, colour: l.colour ?? null, trimItemId: l.trimItemId ?? null };
+      if (c.direction === "TRANSFER") {
+        // Change 40 L8 — a transfer posted OUT@from + IN@to; voiding reverses BOTH sides
+        // (IN@from + OUT@to), atomically, so neither firm is left unbalanced.
+        await postMaterialMovement(tx, { ...base, direction: "IN", buyerId: c.fromBuyerId });
+        await postMaterialMovement(tx, { ...base, direction: "OUT", buyerId: c.toBuyerId });
+      } else {
+        await postMaterialMovement(tx, { ...base, direction: reverse });
+      }
     }
     // Change 18 Part C: if this was the only locked challan holding the order open as
     // "received", the order goes back to ORDER_PLACED — a voided receipt is not a receipt.
