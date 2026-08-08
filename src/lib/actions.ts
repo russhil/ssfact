@@ -21,6 +21,20 @@ type BomDim = "COLOR" | "SIZE" | "FLAT";
 type Tx = Prisma.TransactionClient;
 
 /**
+ * Change 40 Part L6 — the firm-attribution guard, deploy-gated by design.
+ *
+ * The spec's build order flips this ON as the FINAL go-live step, AFTER (1) the two firm Buyers
+ * exist, (2) every user has a home firm, and (3) opening balances are entered — because until
+ * then legitimate movements (a legacy null-firm card issuing fabric, an all-firms hand
+ * adjustment) have no firm and a blanket throw would make the app unusable. All the main write
+ * paths already carry a firm (issue-to-card, inward-lock, transfer, opening). To enforce, set
+ * this to `true` at go-live: a movement that reaches the ledger with no resolvable firm then
+ * THROWS rather than silently landing in the all-firms total — "silently picking a firm corrupts
+ * both ledgers" (owner, L6). Left `false` so pre-go-live and legacy flows keep working.
+ */
+const ENFORCE_FIRM = false;
+
+/**
  * The single master-inventory ledger writer (Change 11, Part B). Both the job-card
  * fabric/trim issue path and the standalone materials challan post through this so the
  * master stock has one source of truth. IN → RECEIPT + increment, OUT → ISSUE + decrement.
@@ -57,6 +71,10 @@ export async function postMaterialMovement(
   const date = m.date ?? new Date();
   const delta = m.direction === "IN" ? { increment: m.qty } : { decrement: m.qty };
   const buyerId = m.buyerId ?? null;
+  // Change 40 L6 — the deploy-gated firm guard (see ENFORCE_FIRM). Off until go-live.
+  if (ENFORCE_FIRM && buyerId == null && (m.fabricId || m.trimItemId)) {
+    throw new Error("Stock movement has no firm — it cannot be posted without one (Change 40 Part L).");
+  }
 
   if (m.fabricId) {
     const colour = colorKey(m.colour);
@@ -4932,6 +4950,7 @@ export async function adjustFabricStock(input: {
   delta?: number;
   reason: AdjustReason;
   note?: string | null;
+  buyerId?: number | null; // Change 40 Part L — which firm's balance this correction hits
 }) {
   const user = await requireRole("ADMIN", "STAFF");
   if (input.newQty == null && input.delta == null) throw new Error("Give a counted quantity or a delta");
@@ -4953,6 +4972,7 @@ export async function adjustFabricStock(input: {
       date: new Date(),
       fabricId: input.fabricId,
       colour,
+      buyerId: input.buyerId ?? null,
       note: input.note ?? null,
       reason: input.reason,
     });
@@ -4994,6 +5014,7 @@ export async function adjustTrimStock(input: {
   delta?: number;
   reason: AdjustReason;
   note?: string | null;
+  buyerId?: number | null; // Change 40 Part L — which firm's balance this correction hits
 }) {
   const user = await requireRole("ADMIN", "STAFF");
   if (input.newQty == null && input.delta == null) throw new Error("Give a counted quantity or a delta");
@@ -5013,6 +5034,7 @@ export async function adjustTrimStock(input: {
       qty: Math.abs(delta),
       date: new Date(),
       trimItemId: input.trimItemId,
+      buyerId: input.buyerId ?? null,
       note: input.note ?? null,
       reason: input.reason,
     });
