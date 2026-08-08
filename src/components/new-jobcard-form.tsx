@@ -307,19 +307,15 @@ export function NewJobCardForm({
     () => setOpen(false)
   );
 
-  // per-colour cut quantities (for COLOUR-dimension trim explosion)
-  const cutByColour = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const r of combinedCells) if (r.qty > 0) { const k = colorKey(r.color); m.set(k, (m.get(k) ?? 0) + r.qty); }
-    return m;
-  }, [combinedCells]);
+  // Change 40 Part D — cutByColour removed; BOM no longer explodes per-colour (flat only).
   const trimById = useMemo(() => {
     const m = new Map<number, { name: string; currentStock: number }>();
     for (const g of picked?.trimMaster ?? []) for (const it of g.items) m.set(it.id, { name: it.name, currentStock: it.currentStock });
     return m;
   }, [picked]);
   function bomRequired(r: BomRow): number {
-    if (r.dimension === "COLOR" && r.color) return (r.perPieceQty || 0) * (cutByColour.get(colorKey(r.color)) ?? 0);
+    // Change 40 Part D — every BOM line is Flat: perPieceQty × total cutQty. The old COLOR
+    // branch (explode against one colour's cut) is gone; see explodeBom in actions.ts.
     return (r.perPieceQty || 0) * cutQty;
   }
   function presetRows(p: JobProductOption): BomRow[] {
@@ -823,7 +819,6 @@ export function NewJobCardForm({
                       <thead>
                         <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
                           <th className="px-2 py-2 font-semibold">Trim (from master)</th>
-                          <th className="px-2 py-2 font-semibold">Applies to</th>
                           <th className="px-2 py-2 font-semibold">Colour</th>
                           <th className="px-2 py-2 text-right font-semibold">Per pc</th>
                           <th className="px-2 py-2 text-right font-semibold">Required</th>
@@ -857,13 +852,7 @@ export function NewJobCardForm({
                                   ))}
                                 </select>
                               </td>
-                              <td className="px-2 py-1">
-                                <select value={r.dimension} onChange={(e) => setBomRow(i, { dimension: e.target.value as BomDim })} className="rounded-md border border-border bg-surface px-1 py-1 t-xs outline-none focus:border-primary">
-                                  <option value="FLAT">Flat</option>
-                                  <option value="COLOR">Colour</option>
-                                  <option value="SIZE">Size</option>
-                                </select>
-                              </td>
+                              {/* Change 40 Part D — "Applies to" removed; every line is Flat. */}
                               <td className="px-2 py-1">
                                 <input value={r.color} onChange={(e) => setBomRow(i, { color: e.target.value })} placeholder="—" className="w-20 rounded-md border border-border px-1.5 py-1 t-xs outline-none focus:border-primary" />
                               </td>

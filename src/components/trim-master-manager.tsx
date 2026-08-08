@@ -24,8 +24,6 @@ const CATEGORY_FIELDS: Record<string, ("size" | "material" | "color" | "weight" 
   POLYBAG: ["size", "weight", "material"],
   OTHER: [],
 };
-const DIMS = ["FLAT", "COLOR", "SIZE"];
-const DIM_LABEL: Record<string, string> = { COLOR: "colour", SIZE: "size", FLAT: "flat" };
 
 type Pick = { id: number; name: string };
 
@@ -181,11 +179,7 @@ export function TrimMasterManager({
             <Labelled label="Unit">
               <LookupSelect kind="UNIT" options={units} value={f.unit ?? ""} onChange={(v) => set("unit", v)} placeholder="Unit…" className="w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary" />
             </Labelled>
-            <Labelled label="Applies to">
-              <select value={f.dimension ?? "FLAT"} onChange={(e) => set("dimension", e.target.value)} className="w-full rounded-lg border border-border px-2.5 py-2 t-body outline-none focus:border-primary">
-                {DIMS.map((d) => <option key={d} value={d}>{DIM_LABEL[d]}</option>)}
-              </select>
-            </Labelled>
+            {/* Change 40 Part D — "Applies to" removed; a trim's BOM contribution is always Flat. */}
             <Labelled label="Per-piece avg"><In v={f.perPiece} on={(v) => set("perPiece", v)} type="number" /></Labelled>
             <Labelled label="Reorder level"><In v={f.reorder} on={(v) => set("reorder", v)} type="number" /></Labelled>
             <Labelled label="Opening stock"><In v={f.opening} on={(v) => set("opening", v)} type="number" /></Labelled>
@@ -272,7 +266,6 @@ export function TrimMasterManager({
 function TrimRow({ t, units, onSaved }: { t: TrimMasterRow; units: LookupRow[]; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [dimension, setDimension] = useState(t.dimension ?? "FLAT");
   const [perPiece, setPerPiece] = useState(t.perPieceAvg != null ? String(t.perPieceAvg) : "");
   const [reorder, setReorder] = useState(t.reorderLevel != null ? String(t.reorderLevel) : "");
   const [unit, setUnit] = useState(t.unit ?? "pcs");
@@ -283,7 +276,7 @@ function TrimRow({ t, units, onSaved }: { t: TrimMasterRow; units: LookupRow[]; 
     try {
       await updateTrim({
         id: t.id,
-        dimension: dimension || null,
+        dimension: "FLAT", // Change 40 Part D — collapse; only FLAT is written going forward
         perPieceAvg: perPiece.trim() === "" ? null : +perPiece,
         reorderLevel: reorder.trim() === "" ? null : +reorder,
         unit: unit || null,
@@ -326,11 +319,7 @@ function TrimRow({ t, units, onSaved }: { t: TrimMasterRow; units: LookupRow[]; 
         <tr className="border-b border-hairline bg-surface-2">
           <td colSpan={8} className="px-4 py-3">
             <div className="flex flex-wrap items-end gap-3">
-              <Labelled label="Applies to">
-                <select value={dimension} onChange={(e) => setDimension(e.target.value)} className="rounded-lg border border-border px-2.5 py-1.5 t-sm outline-none focus:border-primary">
-                  {DIMS.map((d) => <option key={d} value={d}>{DIM_LABEL[d]}</option>)}
-                </select>
-              </Labelled>
+              {/* Change 40 Part D — "Applies to" removed; every trim line is Flat. */}
               <Labelled label="Per-piece avg">
                 <input type="number" value={perPiece} onChange={(e) => setPerPiece(e.target.value)} placeholder="—" className="w-28 rounded-lg border border-border px-2.5 py-1.5 t-sm tnum outline-none focus:border-primary" />
               </Labelled>

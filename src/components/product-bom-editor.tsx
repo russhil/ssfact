@@ -10,7 +10,6 @@ import { Card, Badge, MobileCardList } from "@/components/ui";
 import { num } from "@/lib/format";
 import { Plus, X, Printer } from "lucide-react";
 
-type Dim = "FLAT" | "COLOR" | "SIZE";
 type Line = { id: number; material: string; color: string | null; dimension: string; perPieceQty: number | null; trimItemId: number | null; trim: { name: string; current: number } | null };
 type TrimOpt = { id: number; name: string; current: number };
 
@@ -26,7 +25,6 @@ export function ProductBomEditor({ productId, extId, lines, trims }: { productId
   const [busy, setBusy] = useState(false);
   const [nMaterial, setNMaterial] = useState("");
   const [nTrimId, setNTrimId] = useState<string>("");
-  const [nDim, setNDim] = useState<Dim>("FLAT");
   const [nColor, setNColor] = useState("");
   const [nQty, setNQty] = useState("");
 
@@ -36,8 +34,8 @@ export function ProductBomEditor({ productId, extId, lines, trims }: { productId
     if (!material) return;
     setBusy(true);
     try {
-      await upsertBomLine({ productId, trimItemId: trimId, material, color: nColor.trim() || null, dimension: nDim, perPieceQty: +nQty || 0 });
-      setNMaterial(""); setNTrimId(""); setNColor(""); setNQty(""); setNDim("FLAT");
+      await upsertBomLine({ productId, trimItemId: trimId, material, color: nColor.trim() || null, dimension: "FLAT", perPieceQty: +nQty || 0 });
+      setNMaterial(""); setNTrimId(""); setNColor(""); setNQty("");
       router.refresh();
     } catch (e) { alert("Could not add: " + (e as Error).message); } finally { setBusy(false); }
   }
@@ -68,7 +66,7 @@ export function ProductBomEditor({ productId, extId, lines, trims }: { productId
               <button onClick={() => del(l.id)} disabled={busy} className="text-faint hover:text-danger"><X size={14} /></button>
             </div>
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 t-sm text-t2">
-              <span className="capitalize">{(l.dimension ?? "FLAT").toLowerCase()}</span>
+              {/* Change 40 Part D — "applies to" collapsed to Flat; column dropped. */}
               <span>{l.color || "—"}</span>
               <span className="tnum">{l.perPieceQty != null ? `${num(l.perPieceQty, 3)}/pc` : "—/pc"}</span>
               {l.trim && <span className="tnum text-t3">{num(l.trim.current)} in store</span>}
@@ -82,7 +80,6 @@ export function ProductBomEditor({ productId, extId, lines, trims }: { productId
           <thead>
             <tr className="border-b border-border text-left t-micro uppercase tracking-wide text-faint">
               <th className="px-2 py-2 font-semibold">Particular</th>
-              <th className="px-2 py-2 font-semibold">Applies to</th>
               <th className="px-2 py-2 font-semibold">Colour</th>
               <th className="px-2 py-2 text-right font-semibold">Per pc</th>
               <th className="px-2 py-2 text-right font-semibold">In store</th>
@@ -93,14 +90,13 @@ export function ProductBomEditor({ productId, extId, lines, trims }: { productId
             {lines.map((l) => (
               <tr key={l.id} className="border-b border-hairline last:border-0">
                 <td className="px-2 py-1.5 font-semibold text-t1">{l.material}{l.trim && <Badge tone="ok" className="ml-1.5">linked</Badge>}</td>
-                <td className="px-2 py-1.5 capitalize text-t2">{(l.dimension ?? "FLAT").toLowerCase()}</td>
                 <td className="px-2 py-1.5 text-t2">{l.color || "—"}</td>
                 <td className="px-2 py-1.5 text-right tnum">{l.perPieceQty != null ? num(l.perPieceQty, 3) : "—"}</td>
                 <td className="px-2 py-1.5 text-right tnum text-t2">{l.trim ? num(l.trim.current) : "—"}</td>
                 <td className="px-2 py-1.5 text-right"><button onClick={() => del(l.id)} disabled={busy} className="text-faint hover:text-danger"><X size={13} /></button></td>
               </tr>
             ))}
-            {lines.length === 0 && <tr><td colSpan={6} className="px-2 py-4 text-center t-sm text-muted">No BOM lines</td></tr>}
+            {lines.length === 0 && <tr><td colSpan={5} className="px-2 py-4 text-center t-sm text-muted">No BOM lines</td></tr>}
           </tbody>
         </table>
       </div>
@@ -118,12 +114,7 @@ export function ProductBomEditor({ productId, extId, lines, trims }: { productId
           <span className="t-micro uppercase tracking-wide text-faint">Or material</span>
           <input value={nMaterial} onChange={(e) => setNMaterial(e.target.value)} placeholder="e.g. Drawcord" className={`${inp} w-36`} />
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="t-micro uppercase tracking-wide text-faint">Applies to</span>
-          <select value={nDim} onChange={(e) => setNDim(e.target.value as Dim)} className={inp}>
-            <option value="FLAT">Flat</option><option value="COLOR">Colour</option><option value="SIZE">Size</option>
-          </select>
-        </label>
+        {/* Change 40 Part D — "Applies to" control removed; every BOM line is Flat. */}
         <label className="flex flex-col gap-1">
           <span className="t-micro uppercase tracking-wide text-faint">Colour</span>
           <input value={nColor} onChange={(e) => setNColor(e.target.value)} placeholder="—" className={`${inp} w-24`} />
