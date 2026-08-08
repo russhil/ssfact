@@ -342,12 +342,13 @@ export type TrimOrderRow = Awaited<ReturnType<typeof getTrimOrders>>[number];
 export async function getTrimOrder(id: number) {
   const o = await db.trimOrder.findUnique({
     where: { id },
-    include: { trimItem: true, lines: true, challans: CHALLAN_LINK, ...PO_DOC_INCLUDE },
+    include: { trimItem: true, lines: { include: { trimItem: { select: { name: true } } } }, challans: CHALLAN_LINK, ...PO_DOC_INCLUDE },
   });
   if (!o) return null;
   return {
     id: o.id, trim: o.trimItem.name, unit: o.unit ?? o.trimItem.unit ?? null, rate: o.rate, remarks: o.remarks,
-    lines: o.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty })),
+    // Change 40 Part G — a line may name its own trim (multi-trim PO); fall back to the order's trim.
+    lines: o.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty, trimName: l.trimItem?.name ?? o.trimItem.name, rate: l.rate ?? o.rate })),
     totalQty: o.qty,
     status: o.status as string, expectedDate: o.expectedDate, orderDate: o.orderDate,
     poNumber: o.poNumber, poGeneratedAt: o.poGeneratedAt, sentAt: o.sentAt, poStage: poStageOf(o),

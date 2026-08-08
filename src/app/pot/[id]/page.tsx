@@ -30,9 +30,16 @@ export default async function TrimPOPage({ params }: { params: Promise<{ id: str
   const unit = (o.unit ?? "").toLowerCase();
   const hasRate = o.rate != null && o.rate > 0;
   const subtotal = hasRate ? o.totalQty * (o.rate as number) : 0;
-  // A flat order prints as a single row; a split order prints its colour/size lines.
+  // Change 40 Part G — a multi-trim PO groups by trim item (lead each row with the trim name);
+  // a single-trim order still prints its colour/size split; a flat order is one row.
+  const multiTrim = new Set(o.lines.map((l) => l.trimName)).size > 1;
   const rows = o.lines.length > 0
-    ? o.lines.map((l) => ({ label: [l.colour, l.size].filter(Boolean).join(" · ") || "—", qty: l.qty }))
+    ? o.lines.map((l) => ({
+        label: multiTrim
+          ? [l.trimName, [l.colour, l.size].filter(Boolean).join(" ")].filter(Boolean).join(" · ")
+          : [l.colour, l.size].filter(Boolean).join(" · ") || "—",
+        qty: l.qty,
+      }))
     : [{ label: o.trim, qty: o.totalQty }];
 
   const poNo = o.poNumber ?? "(draft — generate PO first)";

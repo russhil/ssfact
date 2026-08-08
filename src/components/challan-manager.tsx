@@ -46,6 +46,9 @@ export function ChallanManager({
   const [jobCardId, setJobCardId] = useState<number | 0>(initialJobCardId ?? 0);
   const [date, setDate] = useState("");
   const [note, setNote] = useState("");
+  // Change 40 I6 — explicit job-work type for the number code on an outward job-work challan
+  // (sublimation/printing/embroidery/laser); "" = a plain material challan (code from kind).
+  const [workType, setWorkType] = useState("");
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
   const [busy, setBusy] = useState(false);
 
@@ -135,6 +138,7 @@ export function ChallanManager({
         fabricOrderId,
         trimOrderId,
         poPending: isInward && poChoice === "PENDING",
+        workType: tab === "OUTWARD" && workType ? workType : null,
       });
       for (const l of filled) {
         await addChallanLine(id, {
@@ -220,6 +224,20 @@ export function ChallanManager({
           {needsJobCard && (
             <div className="mt-2.5 rounded-lg border border-warn/30 bg-warn-soft px-3 py-2 t-xs font-medium text-warn">
               No job card attached to this challan.
+            </div>
+          )}
+
+          {/* Change 40 I6 — job-work type on an outward challan, for the 3-letter number code. */}
+          {tab === "OUTWARD" && (
+            <div className="mt-2.5">
+              <label className="mb-1.5 block t-xs font-semibold text-t1">Job-work type <span className="font-normal text-faint">(optional)</span></label>
+              <select value={workType} onChange={(e) => setWorkType(e.target.value)} className={`${inp} w-full`}>
+                <option value="">Plain material (code from lines)</option>
+                <option value="SUBLIMATION">Sublimation (SUB)</option>
+                <option value="PRINT">Printing (PRI)</option>
+                <option value="EMBROIDERY">Embroidery (EMB)</option>
+                <option value="LASER">Laser (LAS)</option>
+              </select>
             </div>
           )}
 
