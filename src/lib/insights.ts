@@ -16,7 +16,9 @@ export type PendingTrim = {
 export async function getPendingTrims(): Promise<PendingTrim[]> {
   const jobs = await db.jobCard.findMany({
     where: { ...POSTED, trimsPending: true },
-    include: { jobLines: { include: { trimItem: true } } },
+    // Change 40 L7 — carry the card's firm + each trim's per-firm balances so a firm card's
+    // shortfall is measured against ITS OWN firm's stock, not the all-firms total.
+    include: { jobLines: { include: { trimItem: { include: { firmStocks: true } } } } },
   });
   const byTrim = new Map<number, PendingTrim>();
   for (const j of jobs) {
@@ -24,7 +26,9 @@ export async function getPendingTrims(): Promise<PendingTrim[]> {
       if (!l.trimItemId || !l.trimItem) continue;
       const need = (l.requiredQty ?? l.totalQty ?? 0) - (l.issuedQty ?? 0);
       if (need <= 0) continue;
-      const stock = l.trimItem.currentStock;
+      const stock = j.buyerId
+        ? l.trimItem.firmStocks.find((s) => s.buyerId === j.buyerId)?.currentStock ?? 0
+        : l.trimItem.currentStock;
       if (need <= stock && (l.requiredQty ?? 0) <= stock) continue; // covered → skip
       const g =
         byTrim.get(l.trimItemId) ??
@@ -47,7 +51,8 @@ export async function getReadyCards(): Promise<ReadyCard[]> {
   const jobs = await db.jobCard.findMany({
     // ACTIVE = posted and not closed (the only non-DRAFT, non-CLOSED status). Pre-stitch only.
     where: { status: "ACTIVE", stage: { in: ["FABRIC_AWAITED", "CUTTING"] } },
-    include: { jobLines: { include: { trimItem: true } }, product: { select: { name: true } } },
+    // Change 40 L7 — firm-scope trim coverage the same way getPendingTrims does.
+    include: { jobLines: { include: { trimItem: { include: { firmStocks: true } } } }, product: { select: { name: true } } },
   });
   const out: ReadyCard[] = [];
   for (const j of jobs) {
@@ -56,7 +61,9 @@ export async function getReadyCards(): Promise<ReadyCard[]> {
     const allCovered = trimLines.every((l) => {
       const need = (l.requiredQty ?? l.totalQty ?? 0) - (l.issuedQty ?? 0);
       if (need <= 0) return true; // already issued
-      const stock = l.trimItem!.currentStock;
+      const stock = j.buyerId
+        ? l.trimItem!.firmStocks.find((s) => s.buyerId === j.buyerId)?.currentStock ?? 0
+        : l.trimItem!.currentStock;
       return need <= stock && (l.requiredQty ?? 0) <= stock; // covered by store stock
     });
     if (allCovered) out.push({ id: j.id, siNo: j.siNo, productName: j.product?.name ?? j.customItem ?? "—", cutQty: j.cutQty });
