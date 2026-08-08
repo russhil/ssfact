@@ -79,7 +79,7 @@ export default async function TrimPOPage({ params }: { params: Promise<{ id: str
       </div>
 
       {/* Change 25 Part G.3 — both parties in full */}
-      <PoParties supplier={o.supplier} buyer={o.buyer} shipTo={o.shipTo} />
+      <PoParties supplier={o.supplier} buyer={o.buyer} shipTo={o.shipTo} issuedBy={o.preparedBy?.name ?? null} />
 
       <div className="mt-3 text-[12px]">
         <span className="text-faint">Trim </span>
@@ -108,18 +108,19 @@ export default async function TrimPOPage({ params }: { params: Promise<{ id: str
           <tr className="border-t border-ink font-bold">
             <td className="px-2 py-1.5">Total</td>
             <td className="px-2 py-1.5 text-right tnum">{num(o.totalQty)}</td>
+            {/* Change 40 B2.3 — drop the duplicated money; Subtotal below carries it. */}
             {hasRate && <td className="px-2 py-1.5"></td>}
-            {hasRate && <td className="px-2 py-1.5 text-right tnum">{inr(subtotal)}</td>}
+            {hasRate && <td className="px-2 py-1.5"></td>}
           </tr>
           {/* Change 25 Part K.2 */}
-          {hasRate && <PoTotals subtotal={subtotal} gstRate={o.gstRate} colSpan={3} />}
+          {hasRate && <PoTotals subtotal={subtotal} gstRate={o.gstRate} colSpan={3} supplierGst={o.supplier?.gstNo ?? null} buyerGst={o.buyer?.gstNo ?? null} />}
         </tbody>
       </table>
 
       {/* Change 25 Part J */}
       {o.remarks && <p className="mt-4 text-[11px] text-slate-600">Remarks: {o.remarks}</p>}
 
-      <PoSignatory signatory={o.signatory} preparedBy={o.preparedBy} />
+      <PoSignatory signatory={o.signatory} />
 
       {/* Change 25 Part H.2 — sample photo against the trim order. */}
       <div className="no-print mt-6 border-t border-slate-200 pt-4">
