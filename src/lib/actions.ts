@@ -3614,11 +3614,18 @@ export async function lockChallan(input: { id: number }) {
   const user = await requireRole("ADMIN", "STAFF");
   const c = await db.materialChallan.findUnique({
     where: { id: input.id },
-    include: { lines: true, supplier: { select: { name: true } }, vendor: { select: { name: true } } },
+    include: {
+      lines: true, supplier: { select: { name: true } }, vendor: { select: { name: true } },
+      // Change 40 Part L — the firm this stock belongs to: the linked PO's firm, or (for an
+      // outward against a card) the card's firm. Null on a P.O.-pending / firmless challan,
+      // which posts to the all-firms total only until it is linked.
+      fabricOrder: { select: { buyerId: true } }, trimOrder: { select: { buyerId: true } }, jobCard: { select: { buyerId: true } },
+    },
   });
   if (!c) throw new Error("Challan not found");
   if (c.status === "LOCKED") return { challanNo: c.challanNo }; // idempotent
   if (c.lines.length === 0) throw new Error("Add at least one line before locking");
+  const challanBuyerId = c.fabricOrder?.buyerId ?? c.trimOrder?.buyerId ?? c.jobCard?.buyerId ?? null;
 
   const year = new Date().getFullYear();
   // Change 25 Part D: a purchase return keeps its own CH-RET- series so a debit note is never
@@ -3654,6 +3661,7 @@ export async function lockChallan(input: { id: number }) {
         qty: l.qty,
         date: now,
         note: `Challan ${challanNo}`,
+        buyerId: challanBuyerId, // Change 40 Part L — firm-attribute the movement
         fabricId: l.fabricId ?? null,
         colour: l.colour ?? null,
         // ⚠️ jobCardId is DELIBERATELY omitted, even when this challan is raised against a
@@ -3737,11 +3745,16 @@ export async function voidChallan(input: { id: number }) {
   const user = await requireRole("ADMIN", "STAFF");
   const c = await db.materialChallan.findUnique({
     where: { id: input.id },
-    include: { lines: true, supplier: { select: { name: true } }, vendor: { select: { name: true } } },
+    include: {
+      lines: true, supplier: { select: { name: true } }, vendor: { select: { name: true } },
+      fabricOrder: { select: { buyerId: true } }, trimOrder: { select: { buyerId: true } }, jobCard: { select: { buyerId: true } },
+    },
   });
   if (!c) throw new Error("Challan not found");
   if (c.status !== "LOCKED" || c.voidedAt) return { ok: true, already: true as const };
   const reverse = c.direction === "INWARD" ? "OUT" : "IN"; // reverse of the original post
+  // Change 40 Part L — reverse against the SAME firm the original movement hit.
+  const challanBuyerId = c.fabricOrder?.buyerId ?? c.trimOrder?.buyerId ?? c.jobCard?.buyerId ?? null;
   const now = new Date();
   await db.$transaction(async (tx) => {
     for (const l of c.lines) {
@@ -3752,7 +3765,7 @@ export async function voidChallan(input: { id: number }) {
         await postMaterialMovement(tx, { ...base, direction: "IN", buyerId: c.fromBuyerId });
         await postMaterialMovement(tx, { ...base, direction: "OUT", buyerId: c.toBuyerId });
       } else {
-        await postMaterialMovement(tx, { ...base, direction: reverse });
+        await postMaterialMovement(tx, { ...base, direction: reverse, buyerId: challanBuyerId });
       }
     }
     // Change 18 Part C: if this was the only locked challan holding the order open as
