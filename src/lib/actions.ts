@@ -14,6 +14,7 @@ import { getLowStockAlerts } from "@/lib/insights";
 import { getJobQuality } from "@/lib/quality";
 import { withIdempotency } from "@/lib/idempotency";
 import { getMasterRefs, refsMessage, type MasterKind } from "@/lib/master-refs";
+import { getOpenOrdersForSupplier } from "@/lib/masters";
 import { revalidatePath } from "next/cache";
 
 type BomDim = "COLOR" | "SIZE" | "FLAT";
@@ -3205,6 +3206,47 @@ export async function linkChallanToOrder(input: {
   return { ok: true };
 }
 
+/** Change 40 H3 — client-callable wrapper so the challan screen loads a supplier's open POs. */
+export async function openOrdersForSupplier(supplierId: number, kind: "fabric" | "trim" | "both" = "both") {
+  await requireRole("ADMIN", "STAFF");
+  if (!supplierId) return [];
+  return getOpenOrdersForSupplier(supplierId, kind);
+}
+
+/**
+ * Change 40 H3.2 — the STRUCTURE of a PO's lines for "Fill lines from PO": fabric/trim, colour,
+ * unit and rate — the things the PO genuinely knows. `orderedQty` rides along as a target only;
+ * the store types the RECEIVED qty (H2.1/H4). Rolls and width are never filled here.
+ */
+export async function orderLinesForFill(kind: "fabric" | "trim", orderId: number) {
+  await requireRole("ADMIN", "STAFF");
+  if (kind === "fabric") {
+    const o = await db.fabricOrder.findUnique({ where: { id: orderId }, include: { lines: true } });
+    if (!o) return [];
+    const rows = o.lines.length
+      ? o.lines.map((l) => ({ colour: colorKey(l.colour), orderedQty: l.qty }))
+      : o.color ? [{ colour: colorKey(o.color), orderedQty: o.qty }] : [];
+    return rows.filter((r) => r.orderedQty > 0).map((r) => ({
+      kind: "fabric" as const, refId: o.fabricId, colour: r.colour, unit: String(o.unit), rate: o.rate ?? null, orderedQty: r.orderedQty,
+    }));
+  }
+  const o = await db.trimOrder.findUnique({ where: { id: orderId }, include: { lines: true, trimItem: { select: { unit: true } } } });
+  if (!o) return [];
+  const unit = o.unit ?? o.trimItem.unit ?? "";
+  // Change 40 G — a multi-trim PO fills one line per distinct trim SKU; a legacy single-item
+  // order falls back to its own trimItem.
+  const byItem = new Map<number, { qty: number; rate: number | null }>();
+  for (const l of o.lines) {
+    const id = l.trimItemId ?? o.trimItemId;
+    const cur = byItem.get(id) ?? { qty: 0, rate: l.rate ?? o.rate ?? null };
+    byItem.set(id, { qty: cur.qty + l.qty, rate: cur.rate });
+  }
+  if (byItem.size === 0) byItem.set(o.trimItemId, { qty: o.qty, rate: o.rate ?? null });
+  return [...byItem.entries()].map(([refId, v]) => ({
+    kind: "trim" as const, refId, colour: "", unit, rate: v.rate, orderedQty: v.qty,
+  }));
+}
+
 /**
  * Change 39 Part D2 — raise a "cutting challan" from one lay: an OUTWARD draft challan whose
  * lines are the lay's colour × size cut goods (pieces), derived — never re-typed. Cut-goods
@@ -3282,7 +3324,7 @@ async function assertDraft(challanId: number) {
 
 export async function addChallanLine(
   challanId: number,
-  input: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null; lotNo?: string | null; shadeRef?: string | null; }
+  input: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null; lotNo?: string | null; shadeRef?: string | null; rolls?: number | null; widthInch?: number | null; }
 ) {
   await requireRole("ADMIN", "STAFF");
   await assertDraft(challanId);
@@ -3303,6 +3345,9 @@ export async function addChallanLine(
       // actually enter the system.
       lotNo: input.lotNo?.trim() || null,
       shadeRef: input.shadeRef?.trim() || null,
+      // Change 40 H2 — two independent physical counts, FABRIC ONLY (never derived).
+      rolls: input.fabricId ? (input.rolls ?? null) : null,
+      widthInch: input.fabricId ? (input.widthInch ?? null) : null,
     },
   });
   await recomputeChallanKind(challanId);
