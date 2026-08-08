@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getJob, getJobMatrix, getJobTrimIssues, getJobFabricPosted, getJobFabricStock } from "@/lib/jobs";
+import { getJob, getJobMatrix, getJobTrimIssues, getJobFabricPosted, getJobFabricStock, getJobFabricStockElsewhere } from "@/lib/jobs";
 import { getJobCardChallans } from "@/lib/masters";
 import { getJobQuality, getJobInspections, getJobReworks, getDefectTypes } from "@/lib/quality";
 import { getJobYield } from "@/lib/yield";
@@ -21,6 +21,8 @@ import { JobCardActions } from "@/components/job-card-actions";
 import { LayerActions } from "@/components/layer-actions";
 import { LayerFabricTable } from "@/components/job-card/layer-grid";
 import { FinishingPanel } from "@/components/finishing-panel";
+import { PressPanel } from "@/components/press-panel";
+import { getJobPress } from "@/lib/press";
 import { JobTrimChallanButton } from "@/components/job-trim-challan-button";
 import { num, inr, fmtDate, pct } from "@/lib/format";
 import { STAGE_LABEL, stageTone, normStage, SIZE_ORDER, orderSizes } from "@/lib/job-labels";
@@ -41,6 +43,8 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   // Change 38 Part E — read the shared per-colour stock fresh on every load, so a card
   // saved elsewhere shows up here.
   const fabricStock = j ? await getJobFabricStock(j.id) : new Map<string, number>();
+  // Change 40 L7 — the same fabric-colours at OTHER firms, shown as a non-consumable hint.
+  const fabricElsewhere = j ? await getJobFabricStockElsewhere(j.id) : new Map<string, { firm: string; qty: number }[]>();
   if (!j) notFound();
 
   const canEdit = u?.role === "ADMIN" || u?.role === "STAFF";
@@ -48,6 +52,8 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
   const masterList = canEdit
     ? await db.cuttingMaster.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { name: true } })
     : [];
+  // Change 40 Part K — this card's in-house pressing documents + selectable layers.
+  const jobPress = canEdit ? await getJobPress(j.id) : null;
   // Change 20: this card's finishing job-work (optional — a card may have none).
   const finishingJobs = await db.finishingJob.findMany({
     where: { jobCardId: j.id },
@@ -224,6 +230,8 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
               <Badge tone={stageTone(stage)}>{STAGE_LABEL[stage]}</Badge>
             )}
             {!j.product && <Badge tone="warn">Made-to-order</Badge>}
+            {/* Change 40 Part L2 — the firm this card belongs to (consumes only its stock). */}
+            {j.buyer?.name && <Badge tone="default">{j.buyer.name}</Badge>}
             {/* Change 39 Part F — frozen once material has issued against the card. */}
             {locked && <Badge tone="warn">Locked — material issued</Badge>}
           </div>
@@ -486,6 +494,7 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                     const per = j.layers.map((l) => layerUsedFor(l, c));
                     const cardTotal = per.reduce((a: number, v) => a + (v ?? 0), 0);
                     const left = summaryFabricId != null ? fabricStock.get(`${summaryFabricId}|${colorKey(c)}`) : undefined;
+                    const elsewhere = summaryFabricId != null ? fabricElsewhere.get(`${summaryFabricId}|${colorKey(c)}`) : undefined;
                     return (
                       <tr key={c || "—"} className="border-b border-hairline last:border-0">
                         <td className="px-2 py-1.5 font-semibold text-t1">{c || "—"}</td>
@@ -495,6 +504,14 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                         <td className="border-l border-hairline px-2 py-1.5 text-right font-bold tnum">{num(cardTotal, 2)}</td>
                         <td className={`px-2 py-1.5 text-right font-semibold tnum ${left != null && left < 0 ? "text-danger" : "text-t1"}`}>
                           {left != null ? num(left, 2) : "—"}
+                          {/* Change 40 L7 — other firms' stock is visible, NOT consumable; one tap
+                              to the transfer screen to bring it over. */}
+                          {elsewhere && elsewhere.length > 0 && (
+                            <div className="t-micro font-normal text-faint" title="Visible, not consumable — raise a transfer to use it">
+                              {elsewhere.map((e) => `${num(e.qty, 0)} at ${e.firm}`).join(" · ")}{" "}
+                              <Link href="/challans" className="text-primary-ink hover:underline">request transfer →</Link>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -670,6 +687,9 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
           billNo: f.billNo, note: f.note,
         }))}
       />
+
+      {/* Change 40 Part K — in-house pressing (moves no stock). */}
+      {canEdit && jobPress && <PressPanel jobCardId={j.id} press={jobPress} />}
 
       {/* Change 17 Part C: challans raised against this job card */}
       {canEdit && (

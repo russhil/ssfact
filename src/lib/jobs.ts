@@ -197,6 +197,8 @@ export async function getJob(slug: string, scope?: JobScope) {
     product: { include: { fabric: true } },
     vendor: true,
     cuttingMaster: true,
+    // Change 40 L2 — the firm this card belongs to, shown as a badge.
+    buyer: { select: { name: true } },
     // Change 39 G2 — who first raised the card, shown as "Prepared by".
     createdBy: { select: { displayName: true } },
     dispatches: {
@@ -255,16 +257,45 @@ export async function getJob(slug: string, scope?: JobScope) {
 export async function getJobFabricStock(jobCardId: number) {
   const [lines, job] = await Promise.all([
     db.jobFabricLine.findMany({ where: { jobCardId }, select: { fabricId: true } }),
-    db.jobCard.findUnique({ where: { id: jobCardId }, select: { product: { select: { fabricId: true } } } }),
+    db.jobCard.findUnique({ where: { id: jobCardId }, select: { buyerId: true, product: { select: { fabricId: true } } } }),
   ]);
   const fabricIds = [...new Set([...lines.map((l) => l.fabricId), job?.product?.fabricId].filter((x): x is number => x != null))];
   if (fabricIds.length === 0) return new Map<string, number>();
   const rows = await db.fabricColor.findMany({
     where: { fabricId: { in: fabricIds } },
-    select: { fabricId: true, color: true, currentStock: true },
+    // Change 40 L7 — a card consumes only its OWN firm's stock. Read the firm's balance when the
+    // card has a firm; a legacy (null-firm) card reads the all-firms total, so nothing changes for it.
+    select: { fabricId: true, color: true, currentStock: true, ...(job?.buyerId ? { firmStocks: { where: { buyerId: job.buyerId }, select: { currentStock: true } } } : {}) },
   });
   // Keyed on (fabricId, colour), never colour alone — two fabrics can share a colour name.
-  return new Map(rows.map((r) => [`${r.fabricId}|${colorKey(r.color)}`, r.currentStock]));
+  return new Map(rows.map((r) => {
+    const firmQty = (r as { firmStocks?: { currentStock: number }[] }).firmStocks?.[0]?.currentStock;
+    return [`${r.fabricId}|${colorKey(r.color)}`, job?.buyerId ? firmQty ?? 0 : r.currentStock];
+  }));
+}
+
+/**
+ * Change 40 L7 — the SAME fabric-colours' balances at OTHER firms, for the non-consumable cross-firm
+ * hint ("1,200 m at Jahangir Puri"). Empty for a legacy card with no firm. Keyed like above.
+ */
+export async function getJobFabricStockElsewhere(jobCardId: number): Promise<Map<string, { firm: string; qty: number }[]>> {
+  const [lines, job] = await Promise.all([
+    db.jobFabricLine.findMany({ where: { jobCardId }, select: { fabricId: true } }),
+    db.jobCard.findUnique({ where: { id: jobCardId }, select: { buyerId: true, product: { select: { fabricId: true } } } }),
+  ]);
+  if (!job?.buyerId) return new Map();
+  const fabricIds = [...new Set([...lines.map((l) => l.fabricId), job.product?.fabricId].filter((x): x is number => x != null))];
+  if (fabricIds.length === 0) return new Map();
+  const rows = await db.fabricColor.findMany({
+    where: { fabricId: { in: fabricIds } },
+    select: { fabricId: true, color: true, firmStocks: { where: { buyerId: { not: job.buyerId }, currentStock: { gt: 0 } }, select: { currentStock: true, buyer: { select: { name: true } } } } },
+  });
+  const out = new Map<string, { firm: string; qty: number }[]>();
+  for (const r of rows) {
+    const hits = r.firmStocks.map((s) => ({ firm: s.buyer?.name ?? "—", qty: s.currentStock })).filter((h) => h.qty > 0);
+    if (hits.length) out.set(`${r.fabricId}|${colorKey(r.color)}`, hits);
+  }
+  return out;
 }
 
 /**

@@ -59,6 +59,7 @@ enum MovementType {
 enum DispatchReason {
   ORDER
   SALE
+  STOCK // Change 40 Part J — moved to the warehouse as stock, not against an order
   OTHER
 }
 
@@ -66,6 +67,13 @@ enum DispatchReason {
 enum ChallanDirection {
   INWARD // from a Supplier -> our master stock (adds)
   OUTWARD // to a Vendor -> from our master stock (subtracts)
+  TRANSFER // Change 40 Part L — firm → firm move; posts a linked OUT+IN pair
+}
+
+// Change 40 Part K — in-house pressing document direction (in/out are separate series).
+enum PressDirection {
+  OUT
+  IN
 }
 
 enum ChallanStatus {
@@ -207,6 +215,7 @@ model Vendor {
   reworks           Rework[]
   samples           Sample[]
   finishingJobs     FinishingJob[] // Change 20: print/emb/wash job-work given to this vendor
+  pressChallans     PressChallan[] // Change 40 Part K: in-house pressing docs for this vendor's goods
 }
 
 // Change 36 Part 1 — the party ledger. APPEND-ONLY and one-directional per row.
@@ -300,6 +309,9 @@ model FabricColor {
   reorderLevel Float?
   fabric       Fabric @relation(fields: [fabricId], references: [id], onDelete: Cascade)
   fabricId     Int
+  // Change 40 Part L — per-firm balances. The scalar above stays as the all-firms total
+  // (invariant: currentStock == Σ firmStocks.currentStock).
+  firmStocks   FabricColorStock[]
 
   // Change 25 Part A — audit stamps. `updatedAt` carries @default(now()) as well as
   // @updatedAt so the migration can backfill existing rows (SQLite rebuilds the table
@@ -414,6 +426,13 @@ model JobCard {
   productionOrder   ProductionOrder? @relation(fields: [productionOrderId], references: [id], onDelete: SetNull)
   productionOrderId Int?
 
+  // Change 40 Part L — the firm (own factory) this card belongs to. A card consumes only
+  // its own firm's stock. Nullable for legacy cards; required in the UI, defaulted from the
+  // logged-in user's home firm. Not editable once edit-locked (a card's firm is what its
+  // stock was drawn from).
+  buyer   Buyer? @relation("JobCardFirm", fields: [buyerId], references: [id], onDelete: SetNull)
+  buyerId Int?
+
   // Change 39 Part F — audit stamp for the first time this card froze (material posted
   // against it). NOT the source of truth for "is it locked now" — that stays derived.
   editLockedAt  DateTime?
@@ -431,6 +450,7 @@ model JobCard {
   stitchAssignments StitchAssignment[]
   materialChallans  MaterialChallan[]  @relation("JobCardChallans") // Change 17 Part C
   finishingJobs     FinishingJob[] // Change 20: print/emb/wash given out per layer
+  pressChallans     PressChallan[] // Change 40 Part K: in-house pressing docs on this card
   inspections       Inspection[]
   reworks           Rework[]
 
@@ -444,6 +464,7 @@ model JobCard {
 
   @@index([vendorId])
   @@index([productId])
+  @@index([buyerId])
 }
 
 // A single lay (Change 10, Part B). A production run is cut in several layers, each
@@ -488,6 +509,9 @@ model CuttingLayer {
   layerLength Float?
 
   cells         CuttingLayerCell[]
+  // Change 40 Part K — press-outward documents this lay is attached to. A lay may sit on only
+  // ONE live (non-void) outward per (card, vendor); enforced in the action, not the schema.
+  pressChallans PressChallan[]        @relation("PressLayers")
   // Change 39 Part D2 — cutting-challan lines emitted from this lay (colour × size cut goods).
   challanLines  MaterialChallanLine[]
   // Change 37: fabric issued/used per COLOUR on this lay. When these rows exist they are
@@ -724,8 +748,13 @@ model StockMovement {
   fabricId  Int
   jobCard   JobCard?     @relation(fields: [jobCardId], references: [id])
   jobCardId Int?
+  // Change 40 Part L — the firm this movement belongs to. Null on legacy rows (unattributed
+  // history); required for every new movement written by postMaterialMovement.
+  buyer     Buyer?       @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  buyerId   Int?
 
   @@index([fabricId])
+  @@index([buyerId])
 }
 
 model User {
@@ -747,6 +776,11 @@ model User {
   // above their name in the PO's authorised-signatory block. One image per user,
   // so a plain URL rather than an ImageAsset gallery.
   signatureUrl String?
+
+  // Change 40 Part L — this user's home firm. Every create form (job card, challan, stock
+  // adjustment, press challan) defaults to it. STAFF are locked to it; ADMIN sees all firms.
+  buyer   Buyer? @relation("UserFirm", fields: [buyerId], references: [id], onDelete: SetNull)
+  buyerId Int?
 
   // Change 25 Part I — POs this person raised (their authorised signature).
   fabricOrdersPlaced FabricOrder[] @relation("FabricOrderPlacedBy")
@@ -777,8 +811,10 @@ model User {
   fabricColorsUpdated FabricColor[]      @relation("FabricColorUpdatedBy")
   trimItemsCreated    TrimItem[]         @relation("TrimItemCreatedBy")
   trimItemsUpdated    TrimItem[]         @relation("TrimItemUpdatedBy")
+  pressChallansCreated PressChallan[]    @relation("PressCreatedBy") // Change 40 Part K
 
   @@index([role])
+  @@index([buyerId])
 }
 
 // Change 25 Part A — append-only accountability log. Written inside the same
@@ -1156,6 +1192,12 @@ model TrimItem {
   images        ImageAsset[]
   challanLines  MaterialChallanLine[]
   orders        TrimOrder[] // Change 18 Part B
+  orderLines    TrimOrderLine[] // Change 40 Part G — multi-trim PO lines pointing here
+  // Change 40 Part F — sourcing history (many suppliers, each with its own rate + provenance),
+  // mirroring FabricSupplier. supplierId/ratePerUnit above stay as the default/base price.
+  supplierRates TrimItemSupplier[]
+  // Change 40 Part L — per-firm balances (currentStock stays the all-firms total).
+  firmStocks    TrimItemStock[]
 
   // Change 25 Part A — audit stamps.
   createdAt   DateTime @default(now())
@@ -1192,6 +1234,7 @@ model Supplier {
   // that used to live under a free-text name.
   trimOrders       TrimOrder[]
   fabricSuppliers  FabricSupplier[]
+  trimItemSuppliers TrimItemSupplier[] // Change 40 Part F — trim sourcing-rate rows for this supplier
   // Change 25 Part G.0
   contacts         Contact[]
 
@@ -1238,10 +1281,23 @@ model Buyer {
   buyerAddress   String? // main / registered address
   billingAddress String? // the second address — where the bill goes
   active         Boolean                @default(true)
+  // Change 40 Part L — true for our own firm-factories that actually hold stock (Ravan Riti,
+  // Jahangir Puri), false for a Buyer row that is only a billing party. Every firm picker in
+  // Change 40 lists holdsStock:true rows only.
+  holdsStock     Boolean                @default(false)
   contacts       Contact[]
   deliveryAddrs  BuyerDeliveryAddress[]
   fabricOrders   FabricOrder[]
   trimOrders     TrimOrder[]
+  // Change 40 Part L — firm attribution back-relations.
+  jobCards          JobCard[]          @relation("JobCardFirm")
+  users             User[]             @relation("UserFirm")
+  stockMovements    StockMovement[]
+  trimMovements     TrimMovement[]
+  fabricColorStocks FabricColorStock[]
+  trimItemStocks    TrimItemStock[]
+  transfersFrom     MaterialChallan[]  @relation("ChallanFromFirm")
+  transfersTo       MaterialChallan[]  @relation("ChallanToFirm")
 }
 
 /**
@@ -1347,6 +1403,12 @@ model FabricOrder {
   // Change 25 Part K.2 — GST %, stored so a reprint is identical.
   gstRate           Float?
 
+  // Change 40 Part C — a cancelled PO. The row is retained (house rule: never delete); it
+  // renders struck-through and is excluded from every roll-up and the Part H PO picker.
+  // Blocked if a locked inward challan already points at it (goods physically arrived).
+  voidedAt   DateTime?
+  voidReason String?
+
   // Change 25 Part A — audit stamps.
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now()) @updatedAt
@@ -1405,6 +1467,9 @@ model TrimOrder {
   // Change 38 Part F — see FabricOrder.signatoryName.
   signatoryName     String?
   gstRate           Float?
+  // Change 40 Part C — mirror of FabricOrder void fields.
+  voidedAt   DateTime?
+  voidReason String?
   // Change 25 Part H.2 — sample photos against a trim order.
   images            ImageAsset[]
 
@@ -1430,8 +1495,16 @@ model TrimOrderLine {
   colour      String?
   size        String?
   qty         Float
+  // Change 40 Part G — which trim SKU this line is for (a trim PO may now hold several trims).
+  // Nullable so legacy colour/size split lines of TrimOrder.trimItem still read correctly.
+  trimItem    TrimItem? @relation(fields: [trimItemId], references: [id], onDelete: SetNull)
+  trimItemId  Int?
+  // Change 40 Part G — per-line rate; different trims on one PO have different prices.
+  // Rate resolution order: line rate → order rate → trim base price (Part F).
+  rate        Float?
 
   @@index([trimOrderId])
+  @@index([trimItemId])
 }
 
 model TrimMovement {
@@ -1448,8 +1521,12 @@ model TrimMovement {
   reason     String?
   trimItem   TrimItem     @relation(fields: [trimItemId], references: [id])
   trimItemId Int
+  // Change 40 Part L — the firm this movement belongs to (null on legacy rows).
+  buyer      Buyer?       @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  buyerId    Int?
 
   @@index([trimItemId])
+  @@index([buyerId])
 }
 
 // Generic image gallery — nullable FKs let one table serve every entity, many per entity.
@@ -1482,6 +1559,9 @@ model ImageAsset {
   // model — that would fork the ImageUploader/attachImages/removeImage pipeline.
   sample            Sample?          @relation(fields: [sampleId], references: [id], onDelete: Cascade)
   sampleId          Int?
+  // Change 40 Part K — 8th nullable owner: the hand-filled press sheet photographed on return.
+  pressChallan      PressChallan?    @relation(fields: [pressChallanId], references: [id], onDelete: Cascade)
+  pressChallanId    Int?
 
   @@index([trimItemId])
   @@index([fabricId])
@@ -1489,6 +1569,7 @@ model ImageAsset {
   @@index([productId])
   @@index([trimOrderId])
   @@index([materialChallanId])
+  @@index([pressChallanId])
 }
 
 model ProductionOrder {
@@ -1543,6 +1624,20 @@ model MaterialChallan {
   note          String?
   lockedAt      DateTime?
   voidedAt      DateTime?
+  // Change 40 Part H5 — an inward challan that arrived with no purchase order (urgent buy).
+  // The PO can be attached later via linkChallanToOrder, which clears this flag.
+  poPending     Boolean               @default(false)
+  // Change 40 Part I6 — explicit job-work type (SUB/PRI/EMB/LAS/…) for the 3-letter number
+  // code. Cannot be derived from lines (a service is not a material), so it is user-chosen.
+  // Resolution for the code is: workType ?? derived kind. null for a plain material challan.
+  workType      FinishingProcess?
+  // Change 40 Part L8 — a firm→firm TRANSFER challan carries both firms. On lock it posts a
+  // linked OUT@from + IN@to pair through postMaterialMovement; transferPair links the two rows.
+  fromBuyer     Buyer?                @relation("ChallanFromFirm", fields: [fromBuyerId], references: [id], onDelete: SetNull)
+  fromBuyerId   Int?
+  toBuyer       Buyer?                @relation("ChallanToFirm", fields: [toBuyerId], references: [id], onDelete: SetNull)
+  toBuyerId     Int?
+  transferPair  Int?
   // Change 39 Part G — authorised signatory (firm/buyer contact name snapshot). Never the
   // login user; the printed challan falls back to the firm name when this is unset.
   signatoryName String?
@@ -1596,6 +1691,14 @@ model MaterialChallanLine {
   unit String? // MTR / KG / PCS / SET
   rate Float? // optional ₹/unit
   note String?
+
+  // Change 40 Part H2 — two independent physical counts, FABRIC LINES ONLY, both start BLANK
+  // and are never derived from each other or from the master:
+  //   rolls    = pieces/rolls physically counted at the gate (no carton count for trims)
+  //   widthInch = measured width in inches (never defaulted from Fabric.rollWidth — the point
+  //               is to catch a discrepancy). Feeds display-only sanity checks; never stock.
+  rolls     Int?
+  widthInch Float?
 
   // Change 39 Part D2 — a cut-goods line: the cutting layer this handover came from and the
   // size bucket (colour already exists above). A line carrying cuttingLayerId and neither
@@ -1684,4 +1787,115 @@ model FinishingJobLine {
   qtyBack Float        @default(0)
 
   @@index([jobId])
+}
+
+// ── Change 40 Part F — trim sourcing history ─────────────────────────────────
+// Mirrors FabricSupplier: many suppliers per trim, each with its own rate and the PO it was
+// quoted on. TrimItem.supplierId / .ratePerUnit stay as the default supplier / base price.
+model TrimItemSupplier {
+  id         Int       @id @default(autoincrement())
+  trimItem   TrimItem  @relation(fields: [trimItemId], references: [id], onDelete: Cascade)
+  trimItemId Int
+  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierId Int?
+  name       String? // legacy free-text supplier name, mirroring FabricSupplier.name
+  rate       Float?
+  poNumber   String? // provenance: the PO this rate was quoted on
+  sourcedAt  DateTime?
+
+  @@index([trimItemId])
+  @@index([supplierId])
+}
+
+// ── Change 40 Part L5 — per-firm stock balances ──────────────────────────────
+// The legacy FabricColor.currentStock / TrimItem.currentStock scalars stay as the all-firms
+// total. postMaterialMovement writes the firm row here AND the legacy total in one transaction.
+// Invariant: item.currentStock == Σ firmStocks.currentStock.
+model FabricColorStock {
+  id            Int         @id @default(autoincrement())
+  fabricColor   FabricColor @relation(fields: [fabricColorId], references: [id], onDelete: Cascade)
+  fabricColorId Int
+  buyer         Buyer       @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  buyerId       Int
+  currentStock  Float       @default(0)
+  openingStock  Float       @default(0)
+
+  @@unique([fabricColorId, buyerId])
+  @@index([buyerId])
+}
+
+model TrimItemStock {
+  id           Int      @id @default(autoincrement())
+  trimItem     TrimItem @relation(fields: [trimItemId], references: [id], onDelete: Cascade)
+  trimItemId   Int
+  buyer        Buyer    @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  buyerId      Int
+  currentStock Float    @default(0)
+  openingStock Float    @default(0)
+  reorderLevel Float? // per-firm trigger; null = use the master's reorderLevel
+
+  @@unique([trimItemId, buyerId])
+  @@index([buyerId])
+}
+
+// ── Change 40 Part K — in-house pressing document ────────────────────────────
+// ★ A press challan MOVES NO STOCK, EVER. It never touches FabricColor.currentStock,
+// TrimItem.currentStock or JobCard.dispatchedQty. It is a tracking document only — the paper
+// the pressing department fills by hand. Deliberately NOT built on FinishingJob (owner ruling
+// K12): FinishingJob carries vendor rates/bills; this carries no money at all.
+//
+// The vendor field means the STITCHING vendor whose goods these are (the source), because
+// pressing is an in-house department, not an outside contractor.
+model PressChallan {
+  id        Int            @id @default(autoincrement())
+  docNo     String?        @unique // PR-OUT-2026-001 / PR-IN-2026-001 (in/out are separate counters)
+  direction PressDirection
+  date      DateTime       @default(now())
+  jobCard   JobCard        @relation(fields: [jobCardId], references: [id], onDelete: Cascade)
+  jobCardId Int
+  vendor    Vendor         @relation(fields: [vendorId], references: [id])
+  vendorId  Int // the STITCHING vendor whose goods these are
+  qty       Float // typed total — pieces actually moving
+  note      String?
+  voidedAt  DateTime?
+  voidReason String?
+
+  // An inward answers exactly one outward (pressing comes back in trips → many INs per OUT).
+  pressOut   PressChallan?  @relation("PressPair", fields: [pressOutId], references: [id], onDelete: SetNull)
+  pressOutId Int?
+  pressIns   PressChallan[] @relation("PressPair")
+
+  // Change 40 K8 — a supplementary top-up raised against already-consumed layers (the one
+  // sanctioned exception to K7's layer-exclusivity). Self-FK, null for a normal outward.
+  supplementaryOf   PressChallan?  @relation("PressSupplementary", fields: [supplementaryOfId], references: [id], onDelete: SetNull)
+  supplementaryOfId Int?
+  supplementaries   PressChallan[] @relation("PressSupplementary")
+
+  // The layers this document consumes (OUT only). A layer may sit on only ONE live outward
+  // per (card, vendor) — enforced in the action; voiding an outward releases its layers.
+  layers CuttingLayer[]     @relation("PressLayers")
+  // Frozen size×colour snapshot taken at create (K5) — printed thereafter so a reprint is
+  // identical even after a layer is edited.
+  lines  PressChallanLine[]
+  images ImageAsset[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  createdBy   User?    @relation("PressCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById Int?
+
+  @@index([jobCardId])
+  @@index([vendorId])
+  @@index([pressOutId])
+}
+
+model PressChallanLine {
+  id        Int          @id @default(autoincrement())
+  challan   PressChallan @relation(fields: [challanId], references: [id], onDelete: Cascade)
+  challanId Int
+  colour    String
+  size      String
+  qty       Float
+
+  @@index([challanId])
 }

@@ -139,6 +139,10 @@ export type TrimMasterRow = {
   status: string; current: number; opening: number;
   // Change 17: master single-source fields (Part D) + reorder trigger (Part H).
   dimension: string | null; perPieceAvg: number | null; reorderLevel: number | null;
+  // Change 40 Part E — the fields the edit form was missing, so Rate/Supplier and the specs
+  // can finally be filled on an existing trim (1,040 were imported without a rate).
+  supplierId: number | null;
+  size: string | null; material: string | null; weight: string | null; shape: string | null; color: string | null; remarks: string | null;
 };
 
 export async function getTrimMaster(): Promise<TrimMasterRow[]> {
@@ -150,6 +154,8 @@ export async function getTrimMaster(): Promise<TrimMasterRow[]> {
     dimension: (t as { dimension?: string | null }).dimension ?? null,
     perPieceAvg: (t as { perPieceAvg?: number | null }).perPieceAvg ?? null,
     reorderLevel: (t as { reorderLevel?: number | null }).reorderLevel ?? null,
+    supplierId: t.supplierId ?? null,
+    size: t.size ?? null, material: t.material ?? null, weight: t.weight ?? null, shape: t.shape ?? null, color: t.color ?? null, remarks: t.remarks ?? null,
   }));
 }
 
@@ -201,6 +207,7 @@ export async function getFabricOrders() {
       remarks: o.remarks,
       lines, totalQty, colourCount: lines.length, unit: o.unit, rate: o.rate, status: o.status as string,
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
+      voidedAt: o.voidedAt, // Change 40 C3
       poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
       challans, receivedOn: receivedOnOf(challans), receivedQty: receivedQtyOf(challans),
       // Change 38 Part H — the shade card / sample photos attached to this order.
@@ -322,6 +329,7 @@ export async function getTrimOrders() {
       lines: o.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty })),
       totalQty: o.qty, unit: o.unit ?? o.trimItem.unit ?? null, rate: o.rate, status: o.status as string,
       expectedDate: o.expectedDate, receivedDate: o.receivedDate,
+      voidedAt: o.voidedAt, // Change 40 C3 — struck-through in the list when voided
       poNumber: o.poNumber, poStage: poStageOf(o), sentAt: o.sentAt,
       challans, receivedOn: receivedOnOf(challans), receivedQty: receivedQtyOf(challans),
       // Change 38 Part H — the shade card / sample photos attached to this order.
@@ -334,12 +342,13 @@ export type TrimOrderRow = Awaited<ReturnType<typeof getTrimOrders>>[number];
 export async function getTrimOrder(id: number) {
   const o = await db.trimOrder.findUnique({
     where: { id },
-    include: { trimItem: true, lines: true, challans: CHALLAN_LINK, ...PO_DOC_INCLUDE },
+    include: { trimItem: true, lines: { include: { trimItem: { select: { name: true } } } }, challans: CHALLAN_LINK, ...PO_DOC_INCLUDE },
   });
   if (!o) return null;
   return {
     id: o.id, trim: o.trimItem.name, unit: o.unit ?? o.trimItem.unit ?? null, rate: o.rate, remarks: o.remarks,
-    lines: o.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty })),
+    // Change 40 Part G — a line may name its own trim (multi-trim PO); fall back to the order's trim.
+    lines: o.lines.map((l) => ({ colour: l.colour, size: l.size, qty: l.qty, trimName: l.trimItem?.name ?? o.trimItem.name, rate: l.rate ?? o.rate })),
     totalQty: o.qty,
     status: o.status as string, expectedDate: o.expectedDate, orderDate: o.orderDate,
     poNumber: o.poNumber, poGeneratedAt: o.poGeneratedAt, sentAt: o.sentAt, poStage: poStageOf(o),
@@ -352,10 +361,11 @@ export async function getTrimOrder(id: number) {
 export async function getTrimPickList() {
   const rows = await db.trimItem.findMany({
     where: { status: "ACTIVE" },
-    select: { id: true, name: true, unit: true, currentStock: true, ratePerUnit: true },
+    select: { id: true, name: true, unit: true, currentStock: true, ratePerUnit: true, supplierId: true },
     orderBy: { name: "asc" },
   });
-  return rows.map((t) => ({ id: t.id, name: t.name, unit: t.unit, stock: t.currentStock, rate: t.ratePerUnit }));
+  // Change 40 Part F — supplierId rides along so picking a trim on an order prefills its supplier.
+  return rows.map((t) => ({ id: t.id, name: t.name, unit: t.unit, stock: t.currentStock, rate: t.ratePerUnit, supplierId: t.supplierId ?? null }));
 }
 export type TrimPick = Awaited<ReturnType<typeof getTrimPickList>>[number];
 
@@ -776,4 +786,178 @@ export async function getDraftOrders() {
     fabric: fabric.map((o) => ({ id: o.id, name: o.fabric?.name ?? "—", supplier: o.supplier?.name ?? null, qty: o.qty })),
     trim: trim.map((o) => ({ id: o.id, name: o.trimItem?.name ?? "—", supplier: o.supplier?.name ?? null, qty: o.qty })),
   };
+}
+
+/**
+ * Change 40 Part H3 — the open purchase orders for one supplier, for the inward-challan PO
+ * picker. Supplier-filtered so the list is a handful, not hundreds. The LABEL is the feature:
+ * a store person who did not raise the PO must be able to match the goods in front of him to a
+ * line on screen without asking anyone — PO number, item name (first + "+n more" for a
+ * multi-trim PO), total qty + unit, expected date, and a partly-received chip. Drafts are
+ * included (owner confirmed), labelled "Draft #id". Fully-received, voided and discarded are
+ * excluded; pass includeAll to show everything.
+ */
+export type OpenOrderOption = {
+  id: number;
+  kind: "fabric" | "trim";
+  poNumber: string | null;
+  itemName: string;
+  qty: number;
+  unit: string;
+  expectedDate: Date | null;
+  isDraft: boolean;
+  partlyReceived: boolean;
+  label: string;
+};
+
+export async function getOpenOrdersForSupplier(
+  supplierId: number,
+  kind: "fabric" | "trim" | "both" = "both",
+  includeAll = false,
+): Promise<OpenOrderOption[]> {
+  const openStatus = includeAll ? {} : { status: { notIn: ["RECEIVED", "DISCARDED"] as any } };
+  const base = { supplierId, voidedAt: null, ...openStatus };
+  const out: OpenOrderOption[] = [];
+
+  if (kind === "fabric" || kind === "both") {
+    const rows = await db.fabricOrder.findMany({
+      where: base,
+      select: {
+        id: true, poNumber: true, qty: true, unit: true, expectedDate: true, status: true,
+        fabric: { select: { name: true } },
+        challans: { where: { status: "LOCKED", voidedAt: null }, select: { id: true } },
+      },
+      orderBy: { id: "desc" },
+    });
+    for (const o of rows) {
+      const isDraft = o.status === "DRAFT";
+      const itemName = o.fabric?.name ?? "—";
+      out.push({
+        id: o.id, kind: "fabric", poNumber: o.poNumber, itemName, qty: o.qty, unit: String(o.unit),
+        expectedDate: o.expectedDate, isDraft, partlyReceived: o.challans.length > 0,
+        label: orderLabel(o.poNumber, isDraft, o.id, itemName, o.qty, String(o.unit), o.expectedDate),
+      });
+    }
+  }
+
+  if (kind === "trim" || kind === "both") {
+    const rows = await db.trimOrder.findMany({
+      where: base,
+      select: {
+        id: true, poNumber: true, qty: true, unit: true, expectedDate: true, status: true,
+        trimItem: { select: { name: true } },
+        lines: { select: { trimItemId: true } },
+        challans: { where: { status: "LOCKED", voidedAt: null }, select: { id: true } },
+      },
+      orderBy: { id: "desc" },
+    });
+    for (const o of rows) {
+      const isDraft = o.status === "DRAFT";
+      // multi-trim PO (Part G): first item + "+n more" for the extra distinct SKUs
+      const distinct = new Set(o.lines.map((l) => l.trimItemId).filter((x): x is number => x != null));
+      const extra = Math.max(0, distinct.size - 1);
+      const itemName = (o.trimItem?.name ?? "—") + (extra > 0 ? ` +${extra} more` : "");
+      out.push({
+        id: o.id, kind: "trim", poNumber: o.poNumber, itemName, qty: o.qty, unit: o.unit ?? "pcs",
+        expectedDate: o.expectedDate, isDraft, partlyReceived: o.challans.length > 0,
+        label: orderLabel(o.poNumber, isDraft, o.id, itemName, o.qty, o.unit ?? "pcs", o.expectedDate),
+      });
+    }
+  }
+
+  return out;
+}
+
+function orderLabel(
+  poNumber: string | null, isDraft: boolean, id: number, itemName: string,
+  qty: number, unit: string, expectedDate: Date | null,
+): string {
+  const handle = poNumber ?? (isDraft ? `Draft #${id}` : `#${id}`);
+  const q = `${qty.toLocaleString("en-IN")} ${unit}`;
+  const exp = expectedDate ? ` · exp ${expectedDate.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}` : "";
+  const draft = isDraft ? " [DRAFT]" : "";
+  return `${handle} · ${itemName} · ${q}${exp}${draft}`;
+}
+
+/**
+ * Change 40 Part H8.2 — the "Pending POs" list the owner asked for by name: every order placed
+ * and not fully received. Received qty comes from LOCKED challans linked to the order — never
+ * from the order's own fields. Excludes drafts, voided and fully-received. Balance/overdue are
+ * derived, never stored.
+ */
+export type PendingPO = {
+  id: number; kind: "fabric" | "trim"; poNumber: string | null; supplier: string; item: string;
+  ordered: number; unit: string; received: number; balance: number; expectedDate: Date | null; daysOverdue: number;
+};
+
+function daysOverdueOf(expected: Date | null, now: Date): number {
+  if (!expected) return 0;
+  const d = Math.floor((now.getTime() - new Date(expected).getTime()) / 86_400_000);
+  return d > 0 ? d : 0;
+}
+
+export async function getPendingPOs(now = new Date()): Promise<PendingPO[]> {
+  const notReceived = { poNumber: { not: null }, voidedAt: null, status: { notIn: ["RECEIVED", "DISCARDED", "DRAFT"] as any } };
+  const lockedLines = { challans: { where: { status: "LOCKED" as const, voidedAt: null }, select: { lines: { select: { qty: true } } } } };
+  const [fabric, trim] = await Promise.all([
+    db.fabricOrder.findMany({
+      where: notReceived,
+      select: { id: true, poNumber: true, qty: true, unit: true, expectedDate: true, supplier: { select: { name: true } }, fabric: { select: { name: true } }, ...lockedLines },
+      orderBy: { expectedDate: "asc" },
+    }),
+    db.trimOrder.findMany({
+      where: notReceived,
+      select: { id: true, poNumber: true, qty: true, unit: true, expectedDate: true, supplier: { select: { name: true } }, trimItem: { select: { name: true } }, ...lockedLines },
+      orderBy: { expectedDate: "asc" },
+    }),
+  ]);
+  const recvOf = (o: { challans: { lines: { qty: number }[] }[] }) => o.challans.reduce((a, c) => a + c.lines.reduce((b, l) => b + l.qty, 0), 0);
+  const rows: PendingPO[] = [];
+  for (const o of fabric) {
+    const received = recvOf(o);
+    rows.push({ id: o.id, kind: "fabric", poNumber: o.poNumber, supplier: o.supplier?.name ?? "—", item: o.fabric?.name ?? "—", ordered: o.qty, unit: String(o.unit), received, balance: o.qty - received, expectedDate: o.expectedDate, daysOverdue: daysOverdueOf(o.expectedDate, now) });
+  }
+  for (const o of trim) {
+    const received = recvOf(o);
+    rows.push({ id: o.id, kind: "trim", poNumber: o.poNumber, supplier: o.supplier?.name ?? "—", item: o.trimItem?.name ?? "—", ordered: o.qty, unit: o.unit ?? "pcs", received, balance: o.qty - received, expectedDate: o.expectedDate, daysOverdue: daysOverdueOf(o.expectedDate, now) });
+  }
+  return rows;
+}
+
+/**
+ * Change 40 Part H8.1 — challans that arrived with no PO (poPending) and are still unlinked.
+ * Without this list they are forgotten and their stock is untraceable to a purchase.
+ */
+export type PoPendingChallan = { id: number; challanNo: string | null; status: string; date: Date; supplier: string; supplierId: number | null; qty: number; kind: string | null };
+
+export async function getPoPendingChallans(): Promise<PoPendingChallan[]> {
+  const rows = await db.materialChallan.findMany({
+    where: { poPending: true, fabricOrderId: null, trimOrderId: null, voidedAt: null },
+    select: { id: true, challanNo: true, status: true, date: true, kind: true, supplierId: true, supplier: { select: { name: true } }, lines: { select: { qty: true } } },
+    orderBy: { date: "desc" },
+  });
+  return rows.map((c) => ({ id: c.id, challanNo: c.challanNo, status: c.status, date: c.date, supplier: c.supplier?.name ?? "—", supplierId: c.supplierId, qty: c.lines.reduce((a, l) => a + l.qty, 0), kind: c.kind }));
+}
+
+/**
+ * Change 40 Part H2.3 — the "Inward today" strip. THE reason the rolls field exists: the owner
+ * checks the day's physical roll count against the paper. Totals today's LOCKED inward challans.
+ */
+export type InwardToday = { challans: number; totalRolls: number; totalQty: number; byFabric: { name: string; rolls: number; qty: number }[] };
+
+export async function getInwardToday(now = new Date()): Promise<InwardToday> {
+  const start = new Date(now); start.setHours(0, 0, 0, 0);
+  const challans = await db.materialChallan.findMany({
+    where: { direction: "INWARD", status: "LOCKED", voidedAt: null, lockedAt: { gte: start } },
+    select: { id: true, lines: { select: { qty: true, rolls: true, fabric: { select: { name: true } } } } },
+  });
+  const byFabric = new Map<string, { rolls: number; qty: number }>();
+  let totalRolls = 0, totalQty = 0;
+  for (const c of challans) {
+    for (const l of c.lines) {
+      totalQty += l.qty; totalRolls += l.rolls ?? 0;
+      if (l.fabric) { const cur = byFabric.get(l.fabric.name) ?? { rolls: 0, qty: 0 }; byFabric.set(l.fabric.name, { rolls: cur.rolls + (l.rolls ?? 0), qty: cur.qty + l.qty }); }
+    }
+  }
+  return { challans: challans.length, totalRolls, totalQty, byFabric: [...byFabric.entries()].map(([name, v]) => ({ name, ...v })) };
 }

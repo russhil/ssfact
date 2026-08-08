@@ -71,7 +71,7 @@ export default async function POPage({ params }: { params: Promise<{ id: string 
       </div>
 
       {/* Change 25 Part G.3 — both parties in full */}
-      <PoParties supplier={o.supplier} buyer={o.buyer} shipTo={o.shipTo} />
+      <PoParties supplier={o.supplier} buyer={o.buyer} shipTo={o.shipTo} issuedBy={o.preparedBy?.name ?? null} />
 
       <div className="mt-3 text-[12px]">
         <span className="text-faint">Fabric </span>
@@ -100,18 +100,20 @@ export default async function POPage({ params }: { params: Promise<{ id: string 
           <tr className="border-t border-ink font-bold">
             <td className="px-2 py-1.5">Total</td>
             <td className="px-2 py-1.5 text-right tnum">{num(o.totalQty)}</td>
+            {/* Change 40 B2.3 — the qty total stays; the money is dropped here (it printed the
+                same figure as Subtotal directly below, reading as a duplication bug). */}
             {hasRate && <td className="px-2 py-1.5"></td>}
-            {hasRate && <td className="px-2 py-1.5 text-right tnum">{inr(subtotal)}</td>}
+            {hasRate && <td className="px-2 py-1.5"></td>}
           </tr>
           {/* Change 25 Part K.2 — only meaningful once the order carries a rate. */}
-          {hasRate && <PoTotals subtotal={subtotal} gstRate={o.gstRate} colSpan={3} />}
+          {hasRate && <PoTotals subtotal={subtotal} gstRate={o.gstRate} colSpan={3} supplierGst={o.supplier?.gstNo ?? null} buyerGst={o.buyer?.gstNo ?? null} />}
         </tbody>
       </table>
 
       {/* Change 25 Part J — the remark column existed and was stored; it just never printed. */}
       {o.remarks && <p className="mt-4 text-[11px] text-slate-600">Remarks: {o.remarks}</p>}
 
-      <PoSignatory signatory={o.signatory} preparedBy={o.preparedBy} />
+      <PoSignatory signatory={o.signatory} />
 
       {/* Change 25 Part H.1 — the shade card the supplier sent, attached against the
           order it belongs to. Pure UI: attachImages already mapped fabricOrder. */}

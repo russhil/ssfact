@@ -384,6 +384,16 @@ body {
 
 /* ---------- print: documents are always paper ---------- */
 @media print {
-  body { background: #fff !important; }
+  /* Change 40 A1 — layout.tsx sets html.h-full (height:100%). In print, height:100% on
+     <html> resolves to exactly ONE page box and clamps the document to a single page,
+     clipping everything past it. height:auto lets the print engine paginate. Global, so
+     it fixes every doc route (/po, /pot, /challan-doc, /dispatch-doc, /bom-doc, /challan,
+     /press-doc) at once. */
+  html, body {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
   .no-print { display: none !important; }
 }

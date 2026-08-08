@@ -42,11 +42,13 @@ export type FabricStock = {
   colors: FabricColorStock[]; // per-colour balances (empty for legacy colourless fabrics)
 };
 
-export async function getFabricStock(): Promise<FabricStock[]> {
+export async function getFabricStock(buyerId?: number | null): Promise<FabricStock[]> {
   const fabrics = await db.fabric.findMany({
     include: {
-      movements: true,
-      colors: { orderBy: { color: "asc" } },
+      movements: buyerId ? { where: { buyerId } } : true,
+      // Change 40 L9 — when a firm is chosen, read that firm's per-colour balance; otherwise the
+      // all-firms total scalar. `firmStocks` is loaded filtered to the firm only when scoping.
+      colors: { orderBy: { color: "asc" }, ...(buyerId ? { include: { firmStocks: { where: { buyerId } } } } : {}) },
       suppliers: { orderBy: { name: "asc" } },
     },
     orderBy: { name: "asc" },
@@ -57,14 +59,17 @@ export async function getFabricStock(): Promise<FabricStock[]> {
       const received = f.movements.filter((m) => m.type === "RECEIPT").reduce((a, m) => a + m.qty, 0);
 
       const colors: FabricColorStock[] = f.colors.map((c) => {
-        const usedPct = c.openingStock > 0 ? (c.openingStock - c.currentStock) / c.openingStock : 0;
+        const firm = buyerId ? (c as { firmStocks?: { currentStock: number; openingStock: number }[] }).firmStocks?.[0] : undefined;
+        const current = buyerId ? firm?.currentStock ?? 0 : c.currentStock;
+        const opening = buyerId ? firm?.openingStock ?? 0 : c.openingStock;
+        const usedPct = opening > 0 ? (opening - current) / opening : 0;
         return {
           id: c.id,
           color: c.color,
-          opening: c.openingStock,
-          current: c.currentStock,
+          opening,
+          current,
           usedPct,
-          status: stockStatus(c.currentStock, usedPct),
+          status: stockStatus(current, usedPct),
           reorderLevel: c.reorderLevel,
         };
       });

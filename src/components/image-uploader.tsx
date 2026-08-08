@@ -81,6 +81,14 @@ export function ImageUploader({
             </div>
           ))}
 
+          {/* Change 40 A4.3 — optimistic tile during the upload round-trip, so a slow save
+              no longer reads as "the picture doesn't show". */}
+          {busy && (
+            <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-dashed border-border bg-surface-2">
+              <Loader2 size={18} className="animate-spin text-primary" />
+            </div>
+          )}
+
           <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-border t-micro font-medium text-t2 hover:bg-surface-2 disabled:opacity-40">
             <ImagePlus size={18} /> Add
           </button>

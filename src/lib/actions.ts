@@ -14,10 +14,25 @@ import { getLowStockAlerts } from "@/lib/insights";
 import { getJobQuality } from "@/lib/quality";
 import { withIdempotency } from "@/lib/idempotency";
 import { getMasterRefs, refsMessage, type MasterKind } from "@/lib/master-refs";
+import { getOpenOrdersForSupplier } from "@/lib/masters";
 import { revalidatePath } from "next/cache";
 
 type BomDim = "COLOR" | "SIZE" | "FLAT";
 type Tx = Prisma.TransactionClient;
+
+/**
+ * Change 40 Part L6 — the firm-attribution guard, deploy-gated by design.
+ *
+ * The spec's build order flips this ON as the FINAL go-live step, AFTER (1) the two firm Buyers
+ * exist, (2) every user has a home firm, and (3) opening balances are entered — because until
+ * then legitimate movements (a legacy null-firm card issuing fabric, an all-firms hand
+ * adjustment) have no firm and a blanket throw would make the app unusable. All the main write
+ * paths already carry a firm (issue-to-card, inward-lock, transfer, opening). To enforce, set
+ * this to `true` at go-live: a movement that reaches the ledger with no resolvable firm then
+ * THROWS rather than silently landing in the all-firms total — "silently picking a firm corrupts
+ * both ledgers" (owner, L6). Left `false` so pre-go-live and legacy flows keep working.
+ */
+const ENFORCE_FIRM = false;
 
 /**
  * The single master-inventory ledger writer (Change 11, Part B). Both the job-card
@@ -42,29 +57,57 @@ export async function postMaterialMovement(
     rate?: number | null;
     // Change 22 Part E: why this movement happened, on a hand stock adjustment.
     reason?: string | null;
+    // Change 40 Part L — the firm this movement belongs to. Null on legacy/unattributed
+    // paths, which write ONLY the all-firms total (currentStock) and no per-firm row, so
+    // pre-firm behaviour is byte-for-byte unchanged. When present, the firm's child stock
+    // row is upserted with the SAME delta, keeping the invariant
+    // currentStock == Σ firmStocks.currentStock true. (The strict "throw when unresolvable"
+    // guard is enabled once every caller + opening balances are wired — see Part L9/L10.)
+    buyerId?: number | null;
   }
 ): Promise<void> {
   if (!m.qty || m.qty <= 0) return;
   const type = m.direction === "IN" ? "RECEIPT" : "ISSUE";
   const date = m.date ?? new Date();
   const delta = m.direction === "IN" ? { increment: m.qty } : { decrement: m.qty };
+  const buyerId = m.buyerId ?? null;
+  // Change 40 L6 — the deploy-gated firm guard (see ENFORCE_FIRM). Off until go-live.
+  if (ENFORCE_FIRM && buyerId == null && (m.fabricId || m.trimItemId)) {
+    throw new Error("Stock movement has no firm — it cannot be posted without one (Change 40 Part L).");
+  }
 
   if (m.fabricId) {
     const colour = colorKey(m.colour);
     await tx.stockMovement.create({
-      data: { type, qty: m.qty, date, fabricId: m.fabricId, jobCardId: m.jobCardId ?? null, color: colour, note: m.note ?? null, reason: m.reason ?? null } as any,
+      data: { type, qty: m.qty, date, fabricId: m.fabricId, jobCardId: m.jobCardId ?? null, color: colour, note: m.note ?? null, reason: m.reason ?? null, buyerId } as any,
     });
     const fc = await tx.fabricColor.upsert({
       where: { fabricId_color: { fabricId: m.fabricId, color: colour } },
       create: { fabricId: m.fabricId, color: colour, openingStock: 0, currentStock: 0 },
       update: {},
     });
+    // all-firms total (unchanged behaviour)
     await tx.fabricColor.update({ where: { id: fc.id }, data: { currentStock: delta } });
+    // per-firm balance
+    if (buyerId != null) {
+      await tx.fabricColorStock.upsert({
+        where: { fabricColorId_buyerId: { fabricColorId: fc.id, buyerId } },
+        create: { fabricColorId: fc.id, buyerId, openingStock: 0, currentStock: m.direction === "IN" ? m.qty : -m.qty },
+        update: { currentStock: delta },
+      });
+    }
   } else if (m.trimItemId) {
     await tx.trimMovement.create({
-      data: { type, qty: m.qty, date, trimItemId: m.trimItemId, vendor: m.vendor ?? null, invoice: m.invoice ?? null, rate: m.rate ?? null, note: m.note ?? null, reason: m.reason ?? null } as any,
+      data: { type, qty: m.qty, date, trimItemId: m.trimItemId, vendor: m.vendor ?? null, invoice: m.invoice ?? null, rate: m.rate ?? null, note: m.note ?? null, reason: m.reason ?? null, buyerId } as any,
     });
     await tx.trimItem.update({ where: { id: m.trimItemId }, data: { currentStock: delta } });
+    if (buyerId != null) {
+      await tx.trimItemStock.upsert({
+        where: { trimItemId_buyerId: { trimItemId: m.trimItemId, buyerId } },
+        create: { trimItemId: m.trimItemId, buyerId, openingStock: 0, currentStock: m.direction === "IN" ? m.qty : -m.qty },
+        update: { currentStock: delta },
+      });
+    }
   }
 }
 
@@ -93,8 +136,14 @@ export async function postMaterialMovement(
  */
 async function reconcileJobFabricColour(
   tx: Tx,
-  a: { fabricId: number; jobCardId: number; siNo: string; colour: string; used: number; reason: string }
+  a: { fabricId: number; jobCardId: number; siNo: string; colour: string; used: number; reason: string; buyerId?: number | null }
 ): Promise<number> {
+  // Change 40 Part L — the netting is keyed on (fabricId, jobCardId, colour). jobCardId is in
+  // that key and a card belongs to exactly one firm, so the groupBy is ALREADY single-firm and
+  // cannot net one firm's over-cut against another's. What must carry the firm is the posted
+  // delta below (a.buyerId = the card's firm), so it lands in the right FabricColorStock row.
+  // We deliberately do NOT add buyerId to the groupBy where: an active card that gets a firm
+  // after having pre-firm (null) movements would otherwise have those excluded and net wrong.
   const key = colorKey(a.colour);
   const agg = await tx.stockMovement.groupBy({
     by: ["type"],
@@ -120,6 +169,7 @@ async function reconcileJobFabricColour(
     fabricId: a.fabricId,
     colour: key,
     jobCardId: a.jobCardId,
+    buyerId: a.buyerId ?? null,
     note: `${delta > 0 ? a.reason : "Return"} ${a.siNo} · ${key || "—"}`,
   });
   return delta;
@@ -242,6 +292,9 @@ export type NewJobInput = {
   productionOrderId?: number | null;
   // Change 39 Part G1 — authorised signatory (firm contact name; never the login user).
   signatoryName?: string | null;
+  // Change 40 Part L2 — the firm (own factory) this card belongs to; it consumes only this
+  // firm's stock. Required in the UI, defaulted from the logged-in user's home firm.
+  buyerId?: number | null;
   vendorName: string;
   cuttingMaster?: string;
   // legacy single-grid entry (kept for back-compat); new cards send `layers` instead
@@ -265,18 +318,24 @@ export type NewJobInput = {
   plannedEtd?: string;
 };
 
-// Total trim need = perPieceQty × cutQty, except a COLOUR line tied to one garment
-// colour, which explodes only against that colour's cut quantity.
+// Change 40 Part D — trim need is ALWAYS perPieceQty × total cutQty (every piece).
+//
+// The old COLOR branch (explode only against one colour's cut) is deleted, not repaired.
+// In this factory the colour is baked into the trim's NAME (`120 CM NADA PLANE BLACK` vs
+// `…NAVY` are different trim items), so scoping a BOM line by colour was redundant — and it
+// carried two silent bugs the collapse removes for good: (1) a COLOR line with an empty
+// colour box fell through to Flat with no warning (a silent 10× over/under-explosion), and
+// (2) a colour-scoped line that didn't cover every cut colour silently under-ordered. Neither
+// can exist once there is no colour scoping. The `dimension` column stays in the schema
+// (house rule: never delete) and only FLAT is written going forward — do NOT reintroduce the
+// option. `color`/`cutByColour` are kept in the signature so callers need no change.
 function explodeBom(
-  dimension: BomDim,
-  color: string | null | undefined,
+  _dimension: BomDim,
+  _color: string | null | undefined,
   perPieceQty: number,
   cutQty: number,
-  cutByColour: Map<string, { qty: number }>
+  _cutByColour: Map<string, { qty: number }>
 ): number {
-  if (dimension === "COLOR" && color) {
-    return perPieceQty * (cutByColour.get(colorKey(color))?.qty ?? 0);
-  }
   return perPieceQty * cutQty;
 }
 
@@ -534,6 +593,7 @@ async function writeJobCard(input: NewJobInput, opts: { post: boolean; existingI
         customMrp: product ? null : customMrp,
         productionOrderId: input.productionOrderId ?? null, // Change 39 Part C
         signatoryName: input.signatoryName?.trim() || null, // Change 39 Part G1
+        buyerId: input.buyerId ?? null, // Change 40 Part L2 — the card's firm
         vendorId: vendor.id,
         cuttingMasterId,
         // Layers are the source of truth for new cards; legacy grids still write SizeBreakup.
@@ -893,6 +953,7 @@ export async function recordFabricActuals(input: FabricActualsInput) {
         colour: key,
         used: l.qtyUsed ?? 0,
         reason: "Actuals true-up",
+        buyerId: job.buyerId, // Change 40 L — the card's firm
       });
       if (delta > 0) totalIssued += delta;
       else if (delta < 0) {
@@ -1061,7 +1122,7 @@ export async function addDispatch(input: {
   challan?: string;
   note?: string;
   arrangedBy?: string | null;
-  reason?: "ORDER" | "SALE" | "OTHER";
+  reason?: "ORDER" | "SALE" | "STOCK" | "OTHER"; // Change 40 Part J — STOCK = moved to warehouse
   // Change 14 Part B: size×colour line breakup + the layers dispatched against (same vendor).
   lines?: { colour?: string | null; size: string; qty: number }[];
   layerIds?: number[];
@@ -1275,6 +1336,7 @@ export async function addCuttingLayer(input: {
           await reconcileJobFabricColour(tx, {
             fabricId, jobCardId: job.id, siNo: job.siNo, colour: col,
             used: target, reason: `Layer ${layerNo}`,
+            buyerId: job.buyerId, // Change 40 L — the card's firm
           });
         } else {
           await postMaterialMovement(tx, {
@@ -1284,6 +1346,7 @@ export async function addCuttingLayer(input: {
             fabricId,
             colour: col,
             jobCardId: job.id,
+            buyerId: job.buyerId, // Change 40 L
             note: `Layer ${layerNo} issue`,
           });
         }
@@ -2211,6 +2274,22 @@ export async function createFabricOrder(input: {
   return { id: order.id };
 }
 
+// ── Change 40 Part C — a PO is editable at EVERY stage by ADMIN or its creator ──────────
+// Owner: "We can change it after we have generated the PO because we can resend it on
+// WhatsApp… A PO is not that corporate of a thing." The old hard blocks (locked once a PO
+// number existed, and once received) are replaced by this one check. The line-rewrite fear
+// the old receivedDate guard protected against is moot under Change 18/40: an order NEVER
+// moves stock — only the inward challan does — so editing the order document is safe. The PO
+// number is never regenerated on edit, and every post-PO edit is audit-logged by the caller.
+function canEditOrder(user: SessionPayload, order: { placedById: number | null }): boolean {
+  return user.role === "ADMIN" || (order.placedById != null && user.userId === order.placedById);
+}
+async function orderEditorName(placedById: number | null): Promise<string> {
+  if (placedById == null) return "its creator";
+  const u = await db.user.findUnique({ where: { id: placedById }, select: { displayName: true } });
+  return u?.displayName ?? "its creator";
+}
+
 export async function updateFabricOrder(input: {
   id: number; supplierId?: number | null; expectedDate?: string | null; rate?: number | null;
   gsm?: number | null; unit?: "KG" | "MTR"; lines?: { colour: string; qty: number }[];
@@ -2218,13 +2297,10 @@ export async function updateFabricOrder(input: {
   // so a remark could be set on creation and then never corrected.
   remarks?: string | null;
 }) {
-  await requireRole("ADMIN", "STAFF");
-  const o = await db.fabricOrder.findUnique({ where: { id: input.id }, select: { poNumber: true, receivedDate: true } });
+  const user = await requireRole("ADMIN", "STAFF");
+  const o = await db.fabricOrder.findUnique({ where: { id: input.id }, select: { poNumber: true, placedById: true } });
   if (!o) throw new Error("Order not found");
-  if (o.poNumber) throw new Error("Order is locked — PO already generated");
-  // Rewriting the lines of an already-received order would move the goods out from
-  // under a locked challan that has already posted them to stock.
-  if (o.receivedDate) throw new Error("Order is already received — it can no longer be edited");
+  if (!canEditOrder(user, o)) throw new Error(`Only ${await orderEditorName(o.placedById)} or an admin can edit this order.`);
   await db.$transaction(async (tx) => {
     if (input.lines) {
       const lines = input.lines.map((l) => ({ colour: colorKey(l.colour), qty: l.qty })).filter((l) => l.colour && l.qty > 0);
@@ -2243,20 +2319,30 @@ export async function updateFabricOrder(input: {
         ...(input.remarks !== undefined ? { remarks: input.remarks } : {}),
       },
     });
+    // Change 40 Part C — the freedom is fine; the silence is not. Log every edit made after
+    // the PO number exists (old→new lives in `meta`), using the Change 25 audit pattern.
+    if (o.poNumber) {
+      await logAudit(tx, user, {
+        action: "editFabricOrder", entity: "FabricOrder", entityId: String(input.id),
+        entityLabel: o.poNumber, summary: `Edited ${o.poNumber} after PO generation`,
+        meta: { input },
+      });
+    }
   });
   revalidatePath("/fabric-orders");
   return { ok: true };
 }
 
 export async function deleteFabricOrder(input: { id: number }) {
-  await requireRole("ADMIN", "STAFF");
+  const user = await requireRole("ADMIN", "STAFF");
   const o = await db.fabricOrder.findUnique({
     where: { id: input.id },
-    select: { poNumber: true, receivedDate: true },
+    select: { poNumber: true, placedById: true },
   });
   if (!o) throw new Error("Order not found");
-  if (o.poNumber) throw new Error("Order is locked — PO already generated");
-  if (o.receivedDate) throw new Error("Order is already received — it can no longer be deleted");
+  if (!canEditOrder(user, o)) throw new Error(`Only ${await orderEditorName(o.placedById)} or an admin can delete this order.`);
+  // Change 40 Part C — a generated PO is retained and VOIDED, never deleted (house rule).
+  if (o.poNumber) throw new Error("A generated PO can't be deleted — void it instead");
   // MaterialChallan.fabricOrderId is onDelete: SetNull, so deleting an order that has a
   // challan against it succeeds silently and strips the receipt of its "For PO-…"
   // provenance. Refuse instead — the challan must be voided first.
@@ -2265,6 +2351,31 @@ export async function deleteFabricOrder(input: { id: number }) {
   });
   if (challans > 0) throw new Error("Challans are logged against this order — void them first");
   await db.fabricOrder.delete({ where: { id: input.id } });
+  revalidatePath("/fabric-orders");
+  return { ok: true };
+}
+
+/**
+ * Change 40 Part C3 — cancel a wrong PO. The row is retained (struck-through in the list,
+ * out of every roll-up); blocked if a locked inward challan already points at it (the goods
+ * physically arrived → raise a purchase return instead). Mirrors MaterialChallan.voidedAt.
+ */
+export async function voidFabricOrder(input: { id: number; reason?: string | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const o = await db.fabricOrder.findUnique({ where: { id: input.id }, select: { poNumber: true, placedById: true, voidedAt: true } });
+  if (!o) throw new Error("Order not found");
+  if (!canEditOrder(user, o)) throw new Error(`Only ${await orderEditorName(o.placedById)} or an admin can void this order.`);
+  if (o.voidedAt) return { ok: true }; // idempotent
+  const locked = await db.materialChallan.count({ where: { fabricOrderId: input.id, status: "LOCKED", voidedAt: null } });
+  if (locked > 0) throw new Error("Goods were received against this PO — raise a purchase return instead of voiding it");
+  await db.$transaction(async (tx) => {
+    await tx.fabricOrder.update({ where: { id: input.id }, data: { voidedAt: new Date(), voidReason: input.reason ?? null } });
+    await logAudit(tx, user, {
+      action: "voidFabricOrder", entity: "FabricOrder", entityId: String(input.id),
+      entityLabel: o.poNumber ?? `#${input.id}`,
+      summary: `Voided ${o.poNumber ?? `fabric order #${input.id}`}${input.reason ? ` — ${input.reason}` : ""}`,
+    });
+  });
   revalidatePath("/fabric-orders");
   return { ok: true };
 }
@@ -2435,12 +2546,18 @@ export async function markPOSent(input: { id: number }) {
 // inward challan against it (draftChallanFromTrimOrder). A plain qty order is valid; the
 // optional lines[] split is for trims ordered colour- or size-wise.
 
-type TrimOrderLineInput = { colour?: string | null; size?: string | null; qty: number };
+// Change 40 Part G — a trim PO line may now name its own trim SKU + rate (a trim PO can hold
+// many different trims). Legacy colour/size split lines simply carry trimItemId = null.
+type TrimOrderLineInput = { colour?: string | null; size?: string | null; qty: number; trimItemId?: number | null; rate?: number | null };
 
 const cleanTrimLines = (lines?: TrimOrderLineInput[] | null) =>
   (lines ?? [])
-    .map((l) => ({ colour: l.colour?.trim() || null, size: l.size?.trim() || null, qty: l.qty }))
+    .map((l) => ({ colour: l.colour?.trim() || null, size: l.size?.trim() || null, qty: l.qty, trimItemId: l.trimItemId ?? null, rate: l.rate ?? null }))
     .filter((l) => l.qty > 0);
+
+/** Change 40 G — the order's primary/legacy item is the first line's trim, or the passed one. */
+const firstLineTrimItem = (lines: { trimItemId: number | null }[], fallback: number) =>
+  lines.find((l) => l.trimItemId != null)?.trimItemId ?? fallback;
 
 export async function createTrimOrder(input: {
   trimItemId: number;
@@ -2467,7 +2584,9 @@ export async function createTrimOrder(input: {
   const trim = await db.trimItem.findUnique({ where: { id: input.trimItemId }, select: { unit: true } });
   if (!trim) throw new Error("Trim not found");
   const data = {
-      trimItemId: input.trimItemId,
+      // Change 40 G — the order's legacy/primary item becomes the first line's trim on a
+      // multi-trim PO (keeps every existing read that joins TrimOrder.trimItem working).
+      trimItemId: firstLineTrimItem(lines, input.trimItemId),
       supplierId: input.supplierId ?? null,
       qty: total,
       unit: input.unit ?? trim.unit ?? null,
@@ -2508,11 +2627,10 @@ export async function updateTrimOrder(input: {
   remarks?: string | null;
   lines?: TrimOrderLineInput[];
 }) {
-  await requireRole("ADMIN", "STAFF");
-  const o = await db.trimOrder.findUnique({ where: { id: input.id }, select: { poNumber: true, receivedDate: true } });
+  const user = await requireRole("ADMIN", "STAFF");
+  const o = await db.trimOrder.findUnique({ where: { id: input.id }, select: { poNumber: true, placedById: true } });
   if (!o) throw new Error("Order not found");
-  if (o.poNumber) throw new Error("Order is locked — PO already generated");
-  if (o.receivedDate) throw new Error("Order is already received — it can no longer be edited");
+  if (!canEditOrder(user, o)) throw new Error(`Only ${await orderEditorName(o.placedById)} or an admin can edit this order.`);
   await db.$transaction(async (tx) => {
     if (input.lines) {
       const lines = cleanTrimLines(input.lines);
@@ -2521,7 +2639,8 @@ export async function updateTrimOrder(input: {
         await tx.trimOrderLine.createMany({ data: lines.map((l) => ({ ...l, trimOrderId: input.id })) });
         await tx.trimOrder.update({
           where: { id: input.id },
-          data: { qty: lines.reduce((a, l) => a + l.qty, 0) },
+          // Change 40 G — keep the total AND the primary item in sync with the lines.
+          data: { qty: lines.reduce((a, l) => a + l.qty, 0), trimItemId: lines.find((l) => l.trimItemId != null)?.trimItemId ?? undefined },
         });
       }
     }
@@ -2538,20 +2657,27 @@ export async function updateTrimOrder(input: {
           : {}),
       },
     });
+    if (o.poNumber) {
+      await logAudit(tx, user, {
+        action: "editTrimOrder", entity: "TrimOrder", entityId: String(input.id),
+        entityLabel: o.poNumber, summary: `Edited ${o.poNumber} after PO generation`,
+        meta: { input },
+      });
+    }
   });
   revalidatePath("/trim-orders");
   return { ok: true };
 }
 
 export async function deleteTrimOrder(input: { id: number }) {
-  await requireRole("ADMIN", "STAFF");
+  const user = await requireRole("ADMIN", "STAFF");
   const o = await db.trimOrder.findUnique({
     where: { id: input.id },
-    select: { poNumber: true, receivedDate: true },
+    select: { poNumber: true, placedById: true },
   });
   if (!o) throw new Error("Order not found");
-  if (o.poNumber) throw new Error("Order is locked — PO already generated");
-  if (o.receivedDate) throw new Error("Order is already received — it can no longer be deleted");
+  if (!canEditOrder(user, o)) throw new Error(`Only ${await orderEditorName(o.placedById)} or an admin can delete this order.`);
+  if (o.poNumber) throw new Error("A generated PO can't be deleted — void it instead");
   // Mirrors deleteFabricOrder: MaterialChallan.trimOrderId is onDelete: SetNull.
   const challans = await db.materialChallan.count({
     where: { trimOrderId: input.id, voidedAt: null },
@@ -2562,13 +2688,37 @@ export async function deleteTrimOrder(input: { id: number }) {
   return { ok: true };
 }
 
+/** Change 40 Part C3 — cancel a wrong trim PO. Mirror of voidFabricOrder. */
+export async function voidTrimOrder(input: { id: number; reason?: string | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const o = await db.trimOrder.findUnique({ where: { id: input.id }, select: { poNumber: true, placedById: true, voidedAt: true } });
+  if (!o) throw new Error("Order not found");
+  if (!canEditOrder(user, o)) throw new Error(`Only ${await orderEditorName(o.placedById)} or an admin can void this order.`);
+  if (o.voidedAt) return { ok: true };
+  const locked = await db.materialChallan.count({ where: { trimOrderId: input.id, status: "LOCKED", voidedAt: null } });
+  if (locked > 0) throw new Error("Goods were received against this PO — raise a purchase return instead of voiding it");
+  await db.$transaction(async (tx) => {
+    await tx.trimOrder.update({ where: { id: input.id }, data: { voidedAt: new Date(), voidReason: input.reason ?? null } });
+    await logAudit(tx, user, {
+      action: "voidTrimOrder", entity: "TrimOrder", entityId: String(input.id),
+      entityLabel: o.poNumber ?? `#${input.id}`,
+      summary: `Voided ${o.poNumber ?? `trim order #${input.id}`}${input.reason ? ` — ${input.reason}` : ""}`,
+    });
+  });
+  revalidatePath("/trim-orders");
+  return { ok: true };
+}
+
 /**
  * Assign POT-YYYY-NNN (yearly sequence), lock the order. Idempotent.
  * Trims get their own series so trim and fabric PO numbers never collide.
  */
 export async function generateTrimPO(input: { id: number } & PoIssueInput) {
   const user = await requireRole("ADMIN", "STAFF");
-  const o = await db.trimOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
+  const o = await db.trimOrder.findUnique({
+    where: { id: input.id },
+    select: { poNumber: true, trimItemId: true, supplierId: true, rate: true, lines: { select: { trimItemId: true, rate: true } } },
+  });
   if (!o) throw new Error("Order not found");
   if (o.poNumber) return { poNumber: o.poNumber }; // idempotent
   const year = new Date().getFullYear();
@@ -2595,6 +2745,17 @@ export async function generateTrimPO(input: { id: number } & PoIssueInput) {
         updatedById: user.userId,
       },
     });
+    // Change 40 Part F2 — stamp the rate into the trim's sourcing history with this PO's
+    // provenance (mirrors what fabric already does), so a rate becomes a traceable "last paid".
+    // Per trim item on the PO (Part G-ready: one row per distinct SKU + its resolved rate).
+    const byItem = new Map<number, number | null>();
+    for (const l of o.lines) if (l.trimItemId != null) byItem.set(l.trimItemId, l.rate ?? o.rate ?? null);
+    if (byItem.size === 0) byItem.set(o.trimItemId, o.rate ?? null);
+    for (const [trimItemId, rate] of byItem) {
+      await tx.trimItemSupplier.create({
+        data: { trimItemId, supplierId: o.supplierId ?? null, rate, poNumber, sourcedAt: new Date() },
+      });
+    }
     await logAudit(tx, user, {
       action: "generateTrimPO",
       entity: "TrimOrder",
@@ -2940,6 +3101,53 @@ async function recomputeChallanKind(challanId: number) {
   await db.materialChallan.update({ where: { id: challanId }, data: { kind: deriveChallanKind(lines) as any } });
 }
 
+// ── Change 40 Part I — 3-letter document type codes ──────────────────────────
+// The code sits between the direction and the year (CH-OUT-SUB-2026-014) so the direction
+// still reads at a glance, while the COUNTER stays keyed on the direction (CH-IN-/CH-OUT-/
+// CH-RET-) — one unbroken series per direction spanning every type. workType is explicit and
+// wins; otherwise the code derives from the lines (kind, or CUT for a cut-goods handover).
+const WORKTYPE_CODE: Record<string, string> = {
+  PRINT: "PRI", EMBROIDERY: "EMB", WASH: "WSH", SUBLIMATION: "SUB", LASER: "LAS", OTHER: "OTH",
+};
+
+function challanTypeCode(c: {
+  returnOfChallanId?: number | null;
+  workType?: string | null;
+  lines: { fabricId?: number | null; trimItemId?: number | null; cuttingLayerId?: number | null }[];
+}): string {
+  if (c.returnOfChallanId) return "RET";
+  if (c.workType) return WORKTYPE_CODE[c.workType] ?? "OTH";
+  const kind = deriveChallanKind(c.lines);
+  if (kind === "FABRIC") return "FAB";
+  if (kind === "TRIM") return "TRI";
+  if (kind === "COMBINED") return "MIX";
+  // no material lines but cut-goods present → a cutting handover (Change 39 D2)
+  if (c.lines.some((l) => l.cuttingLayerId != null)) return "CUT";
+  return "OTH";
+}
+
+/**
+ * Change 40 Part I4 — next number in a direction's series. The type code now sits INSIDE the
+ * number but OUTSIDE the counting key, so the old `slice(prefix.length)` parsed garbage from
+ * the middle and would silently reissue duplicates. Parse the TRAILING digits instead. Kept
+ * as a shared helper so lockChallan and createFinishingJob (I7) draw from the same outward
+ * counter — the FinishingJob docNos are scanned too, or the two models would collide.
+ */
+async function nextChallanSeq(
+  tx: Tx,
+  counterPrefix: string,
+  alsoScanFinishing: boolean
+): Promise<number> {
+  const trailing = /-(\d+)$/;
+  const mc = await tx.materialChallan.findMany({ where: { challanNo: { startsWith: counterPrefix } }, select: { challanNo: true } });
+  let max = mc.reduce((m, e) => { const h = trailing.exec(e.challanNo ?? ""); return Math.max(m, h ? parseInt(h[1], 10) : 0); }, 0);
+  if (alsoScanFinishing) {
+    const fj = await tx.finishingJob.findMany({ where: { docNo: { startsWith: counterPrefix } }, select: { docNo: true } });
+    max = fj.reduce((m, e) => { const h = trailing.exec(e.docNo ?? ""); return Math.max(m, h ? parseInt(h[1], 10) : 0); }, max);
+  }
+  return max + 1;
+}
+
 export async function createChallan(input: {
   direction: "INWARD" | "OUTWARD";
   supplierId?: number | null;
@@ -2947,10 +3155,25 @@ export async function createChallan(input: {
   jobCardId?: number | null; // Change 17 Part C: the "master head" this challan is raised against
   date?: string;
   note?: string | null;
+  // Change 40 Part H — an inward challan may arrive already knowing its PO (path B), or with
+  // none yet (path C → poPending, link later via linkChallanToOrder).
+  fabricOrderId?: number | null;
+  trimOrderId?: number | null;
+  poPending?: boolean;
+  workType?: string | null; // Change 40 I6 — explicit job-work type for the number code
 }) {
   const user = await requireRole("ADMIN", "STAFF");
   if (input.direction === "INWARD" && !input.supplierId) throw new Error("Inward challan needs a supplier");
   if (input.direction === "OUTWARD" && !input.vendorId) throw new Error("Outward challan needs a vendor");
+  // Change 40 H6 — a linked PO's supplier must match the challan's supplier.
+  if (input.direction === "INWARD" && input.fabricOrderId) {
+    const o = await db.fabricOrder.findUnique({ where: { id: input.fabricOrderId }, select: { supplierId: true } });
+    if (o && o.supplierId != null && o.supplierId !== input.supplierId) throw new Error("This PO belongs to a different supplier");
+  }
+  if (input.direction === "INWARD" && input.trimOrderId) {
+    const o = await db.trimOrder.findUnique({ where: { id: input.trimOrderId }, select: { supplierId: true } });
+    if (o && o.supplierId != null && o.supplierId !== input.supplierId) throw new Error("This PO belongs to a different supplier");
+  }
   // Job-card requirement by kind is a UI warning only (spec Part C) — never blocked here.
   const c = await db.materialChallan.create({
     data: {
@@ -2958,6 +3181,10 @@ export async function createChallan(input: {
       supplierId: input.direction === "INWARD" ? input.supplierId ?? null : null,
       vendorId: input.direction === "OUTWARD" ? input.vendorId ?? null : null,
       jobCardId: input.jobCardId ?? null,
+      fabricOrderId: input.direction === "INWARD" ? input.fabricOrderId ?? null : null,
+      trimOrderId: input.direction === "INWARD" ? input.trimOrderId ?? null : null,
+      poPending: input.direction === "INWARD" ? !!input.poPending && !input.fabricOrderId && !input.trimOrderId : false,
+      workType: (input.workType as any) ?? null,
       date: input.date ? new Date(input.date) : new Date(),
       note: input.note ?? null,
       createdById: user.userId, // Change 39 G2 — prepared-by
@@ -2965,6 +3192,291 @@ export async function createChallan(input: {
   });
   revalidatePath("/challans");
   return { id: c.id };
+}
+
+/**
+ * Change 40 Part H6 — attach a PO to an EXISTING challan (path B: goods arrived before the
+ * paperwork was linked). There was no action that could do this: start from the challan and
+ * the link could never be made, not even later. In one transaction it sets the FK, clears
+ * poPending, fires the shared received-marking rule if the challan is already LOCKED, rejects a
+ * supplier mismatch, and audit-logs. Quantity mismatch is shown by the UI, never blocked here
+ * (H6.2 — "the system should just show the difference").
+ */
+export async function linkChallanToOrder(input: {
+  challanId: number;
+  fabricOrderId?: number | null;
+  trimOrderId?: number | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const c = await db.materialChallan.findUnique({
+    where: { id: input.challanId },
+    select: { id: true, direction: true, status: true, supplierId: true, challanNo: true },
+  });
+  if (!c) throw new Error("Challan not found");
+  if (c.direction !== "INWARD") throw new Error("Only an inward challan can be linked to a purchase order");
+  if (!input.fabricOrderId && !input.trimOrderId) throw new Error("Pick a purchase order to link");
+
+  let poLabel = "";
+  if (input.fabricOrderId) {
+    const o = await db.fabricOrder.findUnique({ where: { id: input.fabricOrderId }, select: { supplierId: true, poNumber: true } });
+    if (!o) throw new Error("Order not found");
+    if (o.supplierId != null && o.supplierId !== c.supplierId) throw new Error("This PO belongs to a different supplier");
+    poLabel = o.poNumber ?? `fabric order #${input.fabricOrderId}`;
+  }
+  if (input.trimOrderId) {
+    const o = await db.trimOrder.findUnique({ where: { id: input.trimOrderId }, select: { supplierId: true, poNumber: true } });
+    if (!o) throw new Error("Order not found");
+    if (o.supplierId != null && o.supplierId !== c.supplierId) throw new Error("This PO belongs to a different supplier");
+    poLabel = o.poNumber ?? `trim order #${input.trimOrderId}`;
+  }
+
+  const now = new Date();
+  await db.$transaction(async (tx) => {
+    await tx.materialChallan.update({
+      where: { id: c.id },
+      data: { fabricOrderId: input.fabricOrderId ?? null, trimOrderId: input.trimOrderId ?? null, poPending: false, updatedById: user.userId },
+    });
+    // If the challan already posted its stock (LOCKED), linking must fire the same received
+    // rule the lock path fires — otherwise the PO would never be marked received.
+    if (c.status === "LOCKED") {
+      await markOrdersReceived(tx, { fabricOrderId: input.fabricOrderId, trimOrderId: input.trimOrderId, now });
+    }
+    await logAudit(tx, user, {
+      action: "linkChallanToOrder", entity: "MaterialChallan", entityId: String(c.id),
+      entityLabel: c.challanNo ?? `#${c.id}`, summary: `Linked ${c.challanNo ?? `challan #${c.id}`} to ${poLabel}`,
+    });
+  });
+  revalidatePath("/challans");
+  revalidatePath(`/challan-doc/${c.id}`);
+  return { ok: true };
+}
+
+/**
+ * Change 40 F5 — the last rate actually PAID for a trim, from its sourcing history
+ * (TrimItemSupplier), for the "last paid ₹X on POT-…" line on the order form. More useful than
+ * the standard base price once there is history.
+ */
+export async function lastPaidForTrim(trimItemId: number): Promise<{ rate: number; poNumber: string | null } | null> {
+  await requireRole("ADMIN", "STAFF");
+  if (!trimItemId) return null;
+  const row = await db.trimItemSupplier.findFirst({
+    where: { trimItemId, rate: { not: null } },
+    orderBy: [{ sourcedAt: "desc" }, { id: "desc" }],
+    select: { rate: true, poNumber: true },
+  });
+  return row?.rate != null ? { rate: row.rate, poNumber: row.poNumber } : null;
+}
+
+/** Change 40 H3 — client-callable wrapper so the challan screen loads a supplier's open POs. */
+export async function openOrdersForSupplier(supplierId: number, kind: "fabric" | "trim" | "both" = "both") {
+  await requireRole("ADMIN", "STAFF");
+  if (!supplierId) return [];
+  return getOpenOrdersForSupplier(supplierId, kind);
+}
+
+/**
+ * Change 40 H3.2 — the STRUCTURE of a PO's lines for "Fill lines from PO": fabric/trim, colour,
+ * unit and rate — the things the PO genuinely knows. `orderedQty` rides along as a target only;
+ * the store types the RECEIVED qty (H2.1/H4). Rolls and width are never filled here.
+ */
+export async function orderLinesForFill(kind: "fabric" | "trim", orderId: number) {
+  await requireRole("ADMIN", "STAFF");
+  if (kind === "fabric") {
+    const o = await db.fabricOrder.findUnique({ where: { id: orderId }, include: { lines: true } });
+    if (!o) return [];
+    const rows = o.lines.length
+      ? o.lines.map((l) => ({ colour: colorKey(l.colour), orderedQty: l.qty }))
+      : o.color ? [{ colour: colorKey(o.color), orderedQty: o.qty }] : [];
+    return rows.filter((r) => r.orderedQty > 0).map((r) => ({
+      kind: "fabric" as const, refId: o.fabricId, colour: r.colour, unit: String(o.unit), rate: o.rate ?? null, orderedQty: r.orderedQty,
+    }));
+  }
+  const o = await db.trimOrder.findUnique({ where: { id: orderId }, include: { lines: true, trimItem: { select: { unit: true } } } });
+  if (!o) return [];
+  const unit = o.unit ?? o.trimItem.unit ?? "";
+  // Change 40 G — a multi-trim PO fills one line per distinct trim SKU; a legacy single-item
+  // order falls back to its own trimItem.
+  const byItem = new Map<number, { qty: number; rate: number | null }>();
+  for (const l of o.lines) {
+    const id = l.trimItemId ?? o.trimItemId;
+    const cur = byItem.get(id) ?? { qty: 0, rate: l.rate ?? o.rate ?? null };
+    byItem.set(id, { qty: cur.qty + l.qty, rate: cur.rate });
+  }
+  if (byItem.size === 0) byItem.set(o.trimItemId, { qty: o.qty, rate: o.rate ?? null });
+  return [...byItem.entries()].map(([refId, v]) => ({
+    kind: "trim" as const, refId, colour: "", unit, rate: v.rate, orderedQty: v.qty,
+  }));
+}
+
+/**
+ * Change 40 Part L8 — a firm → firm transfer. One TRANSFER challan; on post it moves stock as a
+ * linked pair through postMaterialMovement — an OUT at the source firm and an IN at the
+ * destination for every line, in one transaction (atomic: both or neither). The all-firms total
+ * (legacy currentStock) nets to zero across the pair; only the two firm balances change. Its
+ * number comes from the outward counter with the material code (Part I).
+ */
+export async function createTransferChallan(input: {
+  fromBuyerId: number; toBuyerId: number; date?: string; note?: string | null;
+  lines: { kind: "fabric" | "trim"; refId: number; colour?: string | null; qty: number; unit?: string | null; rate?: number | null }[];
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  if (!input.fromBuyerId || !input.toBuyerId) throw new Error("Pick both the source and destination firm");
+  if (input.fromBuyerId === input.toBuyerId) throw new Error("Source and destination firm must differ");
+  const lines = input.lines.filter((l) => l.refId && l.qty > 0);
+  if (!lines.length) throw new Error("Add at least one line to transfer");
+  const now = input.date ? new Date(input.date) : new Date();
+  const codeLines = lines.map((l) => ({ fabricId: l.kind === "fabric" ? l.refId : null, trimItemId: l.kind === "trim" ? l.refId : null }));
+  const code = challanTypeCode({ lines: codeLines });
+
+  const challanNo = await db.$transaction(async (tx) => {
+    const seq = String(await nextChallanSeq(tx, "CH-OUT-", true)).padStart(3, "0");
+    const no = `CH-OUT-${code}-${now.getFullYear()}-${seq}`;
+    const c = await tx.materialChallan.create({
+      data: {
+        direction: "TRANSFER", status: "LOCKED", challanNo: no, date: now, lockedAt: now,
+        fromBuyerId: input.fromBuyerId, toBuyerId: input.toBuyerId, note: input.note ?? null, createdById: user.userId,
+        kind: deriveChallanKind(codeLines) as any,
+        lines: {
+          create: lines.map((l) => ({
+            fabricId: l.kind === "fabric" ? l.refId : null,
+            colour: l.kind === "fabric" && l.colour ? colorKey(l.colour) : null,
+            trimItemId: l.kind === "trim" ? l.refId : null,
+            qty: l.qty, unit: l.unit ?? null, rate: l.rate ?? null,
+          })),
+        },
+      } as any,
+    });
+    for (const l of lines) {
+      const base = { qty: l.qty, date: now, fabricId: l.kind === "fabric" ? l.refId : null, colour: l.colour ?? null, trimItemId: l.kind === "trim" ? l.refId : null, note: `Transfer ${no}` };
+      await postMaterialMovement(tx, { ...base, direction: "OUT", buyerId: input.fromBuyerId });
+      await postMaterialMovement(tx, { ...base, direction: "IN", buyerId: input.toBuyerId });
+    }
+    await logAudit(tx, user, { action: "createTransferChallan", entity: "MaterialChallan", entityId: String(c.id), entityLabel: no, summary: `Transferred ${lines.length} line(s) between firms — ${no}` });
+    return no;
+  });
+  revalidatePath("/challans");
+  return { challanNo };
+}
+
+/**
+ * Change 40 Part L10 — opening stock, entered FIRM-WISE. Posts an OPENING movement per item for
+ * the chosen firm (the OPENING reason already exists). Legacy movements keep buyerId = null and
+ * are never rewritten; this count is what makes the per-firm balances correct going forward.
+ */
+export async function recordOpeningStock(input: {
+  buyerId: number;
+  fabric?: { fabricColorId: number; qty: number }[];
+  trim?: { trimItemId: number; qty: number }[];
+}) {
+  const user = await requireRole("ADMIN");
+  if (!input.buyerId) throw new Error("Pick a firm");
+  await db.$transaction(async (tx) => {
+    for (const f of input.fabric ?? []) {
+      if (!(f.qty > 0)) continue;
+      const fc = await tx.fabricColor.findUnique({ where: { id: f.fabricColorId }, select: { fabricId: true, color: true } });
+      if (!fc) continue;
+      await postMaterialMovement(tx, { direction: "IN", qty: f.qty, date: new Date(), fabricId: fc.fabricId, colour: fc.color, buyerId: input.buyerId, reason: "OPENING", note: "Opening stock" });
+    }
+    for (const t of input.trim ?? []) {
+      if (!(t.qty > 0)) continue;
+      await postMaterialMovement(tx, { direction: "IN", qty: t.qty, date: new Date(), trimItemId: t.trimItemId, buyerId: input.buyerId, reason: "OPENING", note: "Opening stock" });
+    }
+    await logAudit(tx, user, { action: "recordOpeningStock", entity: "Buyer", entityId: String(input.buyerId), entityLabel: `firm #${input.buyerId}`, summary: `Opening stock entered for firm #${input.buyerId}` });
+  });
+  revalidatePath("/inventory");
+  return { ok: true };
+}
+
+// ── Change 40 Part K — press challan (in-house pressing, moves NO stock) ──────
+//
+// A press challan is a tracking document only: it never touches FabricColor.currentStock,
+// TrimItem.currentStock or JobCard.dispatchedQty. PR-OUT and PR-IN count on separate series and
+// are NOT part of the CH- series. Built standalone (owner ruling K12 — not on FinishingJob).
+
+async function nextPressSeq(tx: Tx, direction: "OUT" | "IN"): Promise<number> {
+  const prefix = direction === "OUT" ? "PR-OUT-" : "PR-IN-";
+  const trailing = /-(\d+)$/;
+  const rows = await tx.pressChallan.findMany({ where: { docNo: { startsWith: prefix } }, select: { docNo: true } });
+  return rows.reduce((m, e) => { const h = trailing.exec(e.docNo ?? ""); return Math.max(m, h ? parseInt(h[1], 10) : 0); }, 0) + 1;
+}
+
+/**
+ * Log garments for pressing (K6/K7). Picks a vendor's layers on this card, freezes their pooled
+ * size×colour grid into PressChallanLine (K5 — a derived document is not a document), and mints a
+ * PR-OUT number. A layer may sit on only ONE live outward per (card, vendor); a supplementary
+ * top-up (K8) is the one sanctioned exception and must pass supplementaryOfId explicitly.
+ */
+export async function createPressOutward(input: {
+  jobCardId: number; vendorId: number; layerIds: number[]; qty: number; note?: string | null; supplementaryOfId?: number | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  if (!input.layerIds.length) throw new Error("Pick at least one layer");
+  if (!input.qty || input.qty <= 0) throw new Error("Enter the quantity being sent to press");
+  const layers = await db.cuttingLayer.findMany({
+    where: { id: { in: input.layerIds }, jobCardId: input.jobCardId, vendorId: input.vendorId },
+    include: { cells: true },
+  });
+  if (layers.length !== input.layerIds.length) throw new Error("Some layers don't belong to this vendor on this card");
+  // K7 exclusivity — unless this is a supplementary, none of these layers may already sit on a
+  // live (non-void) press outward for this card+vendor. Voiding an outward frees its layers
+  // automatically because that query filters voidedAt: null.
+  if (!input.supplementaryOfId) {
+    const clash = await db.pressChallan.findFirst({
+      where: { direction: "OUT", voidedAt: null, jobCardId: input.jobCardId, vendorId: input.vendorId, layers: { some: { id: { in: input.layerIds } } } },
+      select: { docNo: true },
+    });
+    if (clash) throw new Error(`Some of these layers are already on ${clash.docNo ?? "a live press outward"} — void it or raise a supplementary`);
+  }
+  // K5 — freeze the pooled grid at creation.
+  const cellMap = new Map<string, number>();
+  for (const l of layers) for (const c of l.cells) if (c.qty > 0) { const k = `${c.colour}|||${c.size}`; cellMap.set(k, (cellMap.get(k) ?? 0) + c.qty); }
+  const now = new Date();
+  const docNo = await db.$transaction(async (tx) => {
+    const seq = String(await nextPressSeq(tx, "OUT")).padStart(3, "0");
+    const no = `PR-OUT-${now.getFullYear()}-${seq}`;
+    await tx.pressChallan.create({
+      data: {
+        docNo: no, direction: "OUT", date: now, jobCardId: input.jobCardId, vendorId: input.vendorId,
+        qty: input.qty, note: input.note ?? null, createdById: user.userId, supplementaryOfId: input.supplementaryOfId ?? null,
+        layers: { connect: input.layerIds.map((id) => ({ id })) },
+        lines: { create: [...cellMap.entries()].map(([k, qty]) => { const [colour, size] = k.split("|||"); return { colour, size, qty }; }) },
+      },
+    });
+    return no;
+  });
+  revalidatePath(`/job-cards/${input.jobCardId}`);
+  return { docNo };
+}
+
+/** Log a return from pressing (K9) — one typed total answering an outward; no size entry. */
+export async function createPressInward(input: { pressOutId: number; qty: number; note?: string | null }) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const out = await db.pressChallan.findUnique({ where: { id: input.pressOutId }, select: { id: true, direction: true, jobCardId: true, vendorId: true, voidedAt: true } });
+  if (!out || out.direction !== "OUT") throw new Error("Pick a valid press outward to answer");
+  if (out.voidedAt) throw new Error("That outward was voided");
+  if (!input.qty || input.qty <= 0) throw new Error("Enter the quantity received back");
+  const now = new Date();
+  const docNo = await db.$transaction(async (tx) => {
+    const seq = String(await nextPressSeq(tx, "IN")).padStart(3, "0");
+    const no = `PR-IN-${now.getFullYear()}-${seq}`;
+    await tx.pressChallan.create({
+      data: { docNo: no, direction: "IN", date: now, jobCardId: out.jobCardId, vendorId: out.vendorId, qty: input.qty, note: input.note ?? null, pressOutId: out.id, createdById: user.userId },
+    });
+    return no;
+  });
+  revalidatePath(`/job-cards/${out.jobCardId}`);
+  return { docNo };
+}
+
+/** Void a press document (K7 — voiding an outward releases its layers back to selectable). */
+export async function voidPressChallan(input: { id: number; reason?: string | null }) {
+  await requireRole("ADMIN", "STAFF");
+  const c = await db.pressChallan.findUnique({ where: { id: input.id }, select: { id: true, jobCardId: true, voidedAt: true } });
+  if (!c) throw new Error("Press document not found");
+  if (c.voidedAt) return { ok: true };
+  await db.pressChallan.update({ where: { id: input.id }, data: { voidedAt: new Date(), voidReason: input.reason ?? null } });
+  revalidatePath(`/job-cards/${c.jobCardId}`);
+  return { ok: true };
 }
 
 /**
@@ -3044,7 +3556,7 @@ async function assertDraft(challanId: number) {
 
 export async function addChallanLine(
   challanId: number,
-  input: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null; lotNo?: string | null; shadeRef?: string | null; }
+  input: { fabricId?: number | null; colour?: string | null; trimItemId?: number | null; qty: number; unit?: string | null; rate?: number | null; note?: string | null; lotNo?: string | null; shadeRef?: string | null; rolls?: number | null; widthInch?: number | null; }
 ) {
   await requireRole("ADMIN", "STAFF");
   await assertDraft(challanId);
@@ -3065,6 +3577,9 @@ export async function addChallanLine(
       // actually enter the system.
       lotNo: input.lotNo?.trim() || null,
       shadeRef: input.shadeRef?.trim() || null,
+      // Change 40 H2 — two independent physical counts, FABRIC ONLY (never derived).
+      rolls: input.fabricId ? (input.rolls ?? null) : null,
+      widthInch: input.fabricId ? (input.widthInch ?? null) : null,
     },
   });
   await recomputeChallanKind(challanId);
@@ -3107,32 +3622,63 @@ export async function removeChallanLine(input: { id: number }) {
   return { ok: true };
 }
 
+/**
+ * Change 40 H6.1 — mark the purchase order(s) a challan points at as RECEIVED. This rule
+ * decides whether a PO counts as received, so it lives in ONE place and is called from both
+ * lockChallan and linkChallanToOrder (a challan can be locked first, then linked). receivedDate
+ * is preserved once set, so a multi-delivery PO keeps its first date. Voiding still reverts the
+ * PO to ORDER_PLACED in voidChallan — that half is unchanged.
+ */
+async function markOrdersReceived(
+  tx: Tx,
+  a: { fabricOrderId?: number | null; trimOrderId?: number | null; now: Date }
+): Promise<void> {
+  if (a.fabricOrderId) {
+    const o = await tx.fabricOrder.findUnique({ where: { id: a.fabricOrderId }, select: { receivedDate: true } });
+    if (o) await tx.fabricOrder.update({ where: { id: a.fabricOrderId }, data: { status: "RECEIVED", receivedDate: o.receivedDate ?? a.now } });
+  }
+  if (a.trimOrderId) {
+    const o = await tx.trimOrder.findUnique({ where: { id: a.trimOrderId }, select: { receivedDate: true } });
+    if (o) await tx.trimOrder.update({ where: { id: a.trimOrderId }, data: { status: "RECEIVED", receivedDate: o.receivedDate ?? a.now } });
+  }
+}
+
 /** Lock a challan: assign CH-IN/CH-OUT-YYYY-NNN and post every line to the shared ledger. Idempotent. */
 export async function lockChallan(input: { id: number }) {
   const user = await requireRole("ADMIN", "STAFF");
   const c = await db.materialChallan.findUnique({
     where: { id: input.id },
-    include: { lines: true, supplier: { select: { name: true } }, vendor: { select: { name: true } } },
+    include: {
+      lines: true, supplier: { select: { name: true } }, vendor: { select: { name: true } },
+      // Change 40 Part L — the firm this stock belongs to: the linked PO's firm, or (for an
+      // outward against a card) the card's firm. Null on a P.O.-pending / firmless challan,
+      // which posts to the all-firms total only until it is linked.
+      fabricOrder: { select: { buyerId: true } }, trimOrder: { select: { buyerId: true } }, jobCard: { select: { buyerId: true } },
+    },
   });
   if (!c) throw new Error("Challan not found");
   if (c.status === "LOCKED") return { challanNo: c.challanNo }; // idempotent
   if (c.lines.length === 0) throw new Error("Add at least one line before locking");
+  const challanBuyerId = c.fabricOrder?.buyerId ?? c.trimOrder?.buyerId ?? c.jobCard?.buyerId ?? null;
 
   const year = new Date().getFullYear();
-  // Change 25 Part D: a purchase return is outward, but it gets its own CH-RET-
-  // series so a debit note is never mistaken for an ordinary issue to a vendor.
-  const prefix = c.returnOfChallanId
-    ? `CH-RET-${year}-`
-    : c.direction === "INWARD"
-      ? `CH-IN-${year}-`
-      : `CH-OUT-${year}-`;
-  const existing = await db.materialChallan.findMany({ where: { challanNo: { startsWith: prefix } }, select: { challanNo: true } });
-  const maxN = existing.reduce((m, e) => Math.max(m, parseInt(e.challanNo!.slice(prefix.length), 10) || 0), 0);
-  const challanNo = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+  // Change 25 Part D: a purchase return keeps its own CH-RET- series so a debit note is never
+  // mistaken for an ordinary issue. Change 40 Part I: IN/OUT gain a 3-letter type code between
+  // the direction and the year (CH-OUT-SUB-2026-014); the counter still keys on the DIRECTION
+  // prefix, so one unbroken series spans every type. RET stays plain (RET is the distinction).
+  const isReturn = c.returnOfChallanId != null;
   const dir = c.direction === "INWARD" ? "IN" : "OUT";
+  const counterPrefix = isReturn ? `CH-RET-` : dir === "IN" ? `CH-IN-` : `CH-OUT-`;
+  const code = challanTypeCode(c);
   const now = new Date();
+  let challanNo = "";
 
   await db.$transaction(async (tx) => {
+    // Change 40 I4 — allocate inside the tx; trailing-digit parse; the outward counter also
+    // spans FinishingJob docNos (I7) so the two never collide. @unique on challanNo is the
+    // last-resort guard against a concurrent race.
+    const seq = String(await nextChallanSeq(tx, counterPrefix, counterPrefix === "CH-OUT-")).padStart(3, "0");
+    challanNo = isReturn ? `CH-RET-${year}-${seq}` : `CH-${dir}-${code}-${year}-${seq}`;
     await tx.materialChallan.update({
       where: { id: c.id },
       data: {
@@ -3149,6 +3695,7 @@ export async function lockChallan(input: { id: number }) {
         qty: l.qty,
         date: now,
         note: `Challan ${challanNo}`,
+        buyerId: challanBuyerId, // Change 40 Part L — firm-attribute the movement
         fabricId: l.fabricId ?? null,
         colour: l.colour ?? null,
         // ⚠️ jobCardId is DELIBERATELY omitted, even when this challan is raised against a
@@ -3159,26 +3706,9 @@ export async function lockChallan(input: { id: number }) {
         trimItemId: l.trimItemId ?? null,
       });
     }
-    // Change 18 Part C: locking the challan is what marks its purchase order received.
-    // receivedDate is preserved once set, so a multi-delivery PO keeps its first date.
-    if (c.fabricOrderId) {
-      const o = await tx.fabricOrder.findUnique({ where: { id: c.fabricOrderId }, select: { receivedDate: true } });
-      if (o) {
-        await tx.fabricOrder.update({
-          where: { id: c.fabricOrderId },
-          data: { status: "RECEIVED", receivedDate: o.receivedDate ?? now },
-        });
-      }
-    }
-    if (c.trimOrderId) {
-      const o = await tx.trimOrder.findUnique({ where: { id: c.trimOrderId }, select: { receivedDate: true } });
-      if (o) {
-        await tx.trimOrder.update({
-          where: { id: c.trimOrderId },
-          data: { status: "RECEIVED", receivedDate: o.receivedDate ?? now },
-        });
-      }
-    }
+    // Change 18 Part C / Change 40 H6.1: locking the challan is what marks its PO received.
+    // Extracted so linkChallanToOrder fires the exact same rule (see markOrdersReceived).
+    await markOrdersReceived(tx, { fabricOrderId: c.fabricOrderId, trimOrderId: c.trimOrderId, now });
     const counterparty = c.supplier?.name ?? c.vendor?.name ?? "—";
     await logAudit(tx, user, {
       action: "lockChallan",
@@ -3249,23 +3779,28 @@ export async function voidChallan(input: { id: number }) {
   const user = await requireRole("ADMIN", "STAFF");
   const c = await db.materialChallan.findUnique({
     where: { id: input.id },
-    include: { lines: true, supplier: { select: { name: true } }, vendor: { select: { name: true } } },
+    include: {
+      lines: true, supplier: { select: { name: true } }, vendor: { select: { name: true } },
+      fabricOrder: { select: { buyerId: true } }, trimOrder: { select: { buyerId: true } }, jobCard: { select: { buyerId: true } },
+    },
   });
   if (!c) throw new Error("Challan not found");
   if (c.status !== "LOCKED" || c.voidedAt) return { ok: true, already: true as const };
   const reverse = c.direction === "INWARD" ? "OUT" : "IN"; // reverse of the original post
+  // Change 40 Part L — reverse against the SAME firm the original movement hit.
+  const challanBuyerId = c.fabricOrder?.buyerId ?? c.trimOrder?.buyerId ?? c.jobCard?.buyerId ?? null;
   const now = new Date();
   await db.$transaction(async (tx) => {
     for (const l of c.lines) {
-      await postMaterialMovement(tx, {
-        direction: reverse,
-        qty: l.qty,
-        date: now,
-        note: `Void ${c.challanNo}`,
-        fabricId: l.fabricId ?? null,
-        colour: l.colour ?? null,
-        trimItemId: l.trimItemId ?? null,
-      });
+      const base = { qty: l.qty, date: now, note: `Void ${c.challanNo}`, fabricId: l.fabricId ?? null, colour: l.colour ?? null, trimItemId: l.trimItemId ?? null };
+      if (c.direction === "TRANSFER") {
+        // Change 40 L8 — a transfer posted OUT@from + IN@to; voiding reverses BOTH sides
+        // (IN@from + OUT@to), atomically, so neither firm is left unbalanced.
+        await postMaterialMovement(tx, { ...base, direction: "IN", buyerId: c.fromBuyerId });
+        await postMaterialMovement(tx, { ...base, direction: "OUT", buyerId: c.toBuyerId });
+      } else {
+        await postMaterialMovement(tx, { ...base, direction: reverse, buyerId: challanBuyerId });
+      }
     }
     // Change 18 Part C: if this was the only locked challan holding the order open as
     // "received", the order goes back to ORDER_PLACED — a voided receipt is not a receipt.
@@ -3340,6 +3875,7 @@ async function createDraftInwardChallan(
     qty: number;
     unit?: string | null;
     rate?: number | null;
+    note?: string | null; // Change 40 H4 — carries the `ordered N` target for the blank qty
   }[]
 ): Promise<number> {
   const c = await tx.materialChallan.create({
@@ -3364,6 +3900,7 @@ async function createDraftInwardChallan(
         qty: l.qty,
         unit: l.unit ?? null,
         rate: l.rate ?? null,
+        note: l.note ?? null,
       },
     });
   }
@@ -3394,9 +3931,23 @@ export async function draftChallanFromFabricOrder(input: { id: number }) {
       : o.color
         ? [{ colour: colorKey(o.color), qty: o.qty }]
         : [];
+  // Change 40 H4 — ⚠️ live-bug fix. This used to set the received qty to r.qty (the ORDERED
+  // quantity). A box already holding the right-looking number is the box nobody edits, so a
+  // short delivery locked unedited credited stock with what was ORDERED, not what ARRIVED —
+  // a made-up number entering the ledger through the front door. Now the PO fills only the
+  // structure it genuinely knows (fabric/colour/unit/rate); qty starts BLANK (0) and the
+  // ordered figure rides along as a target in the note (`ordered 1,700 MTR`). Rolls and width
+  // are new nullable line fields and stay null (blank) here too.
   const lines = rows
-    .filter((r) => r.qty > 0)
-    .map((r) => ({ fabricId: o.fabricId, colour: r.colour, qty: r.qty, unit: String(o.unit), rate: o.rate }));
+    .filter((r) => r.qty > 0) // ordered-qty gate: one line per ordered colour…
+    .map((r) => ({
+      fabricId: o.fabricId,
+      colour: r.colour,
+      qty: 0, // …but the RECEIVED qty the store must type, not the ordered one
+      unit: String(o.unit),
+      rate: o.rate,
+      note: `ordered ${num(r.qty)}${o.unit ? ` ${o.unit}` : ""}`,
+    }));
   if (lines.length === 0) throw new Error("This order has no colour lines to receive");
 
   const id = await db.$transaction((tx) =>
@@ -3537,11 +4088,18 @@ export async function draftChallanFromTrimOrder(input: { id: number }) {
   if (open) return { id: open.id, already: true as const };
 
   const unit = o.unit ?? o.trimItem.unit ?? null;
-  // A split order receives line by line; a plain-qty order is one line.
-  const rows = o.lines.length > 0 ? o.lines.map((l) => l.qty) : [o.qty];
-  const lines = rows
-    .filter((q) => q > 0)
-    .map((q) => ({ trimItemId: o.trimItemId, qty: q, unit, rate: o.rate }));
+  // Change 40 G — ONE challan line per trim ITEM (not per colour), so a multi-trim PO drafts
+  // correctly. H4 — received qty starts BLANK (0); the ordered total is a target in the note.
+  const byItem = new Map<number, { qty: number; rate: number | null }>();
+  for (const l of o.lines) {
+    const id = l.trimItemId ?? o.trimItemId;
+    const cur = byItem.get(id) ?? { qty: 0, rate: l.rate ?? o.rate ?? null };
+    byItem.set(id, { qty: cur.qty + l.qty, rate: cur.rate });
+  }
+  if (byItem.size === 0) byItem.set(o.trimItemId, { qty: o.qty, rate: o.rate ?? null });
+  const lines = [...byItem.entries()]
+    .filter(([, v]) => v.qty > 0)
+    .map(([trimItemId, v]) => ({ trimItemId, qty: 0, unit, rate: v.rate, note: `ordered ${num(v.qty)}${unit ? ` ${unit}` : ""}` }));
   if (lines.length === 0) throw new Error("This order has nothing to receive");
 
   const id = await db.$transaction((tx) =>
@@ -4114,7 +4672,7 @@ export async function updateCuttingLayer(input: {
   const user = await requireRole("ADMIN", "STAFF");
   const layer = await db.cuttingLayer.findUnique({
     where: { id: input.id },
-    include: { cells: true, colours: true, jobCard: { select: { id: true, siNo: true, product: { select: { fabricId: true } } } } },
+    include: { cells: true, colours: true, jobCard: { select: { id: true, siNo: true, buyerId: true, product: { select: { fabricId: true } } } } },
   });
   if (!layer) throw new Error("Cutting layer not found");
   // Change 39 Part F — a card frozen after material issued cannot have its cells/ratio/fabric
@@ -4208,6 +4766,7 @@ export async function updateCuttingLayer(input: {
           await reconcileJobFabricColour(tx, {
             fabricId, jobCardId: layer.jobCardId, siNo: layer.jobCard.siNo,
             colour, used, reason: `Layer ${layer.layerNo}`,
+            buyerId: layer.jobCard.buyerId, // Change 40 L
           });
         }
       }
@@ -4255,7 +4814,7 @@ export async function removeCuttingLayer(input: { id: number }) {
       cells: true,
       colours: true,
       dispatches: { where: { voidedAt: null }, select: { id: true, dispatchNo: true } },
-      jobCard: { select: { id: true, siNo: true, estAvg: true, product: { select: { fabricId: true } } } },
+      jobCard: { select: { id: true, siNo: true, buyerId: true, estAvg: true, product: { select: { fabricId: true } } } },
     },
   });
   if (!layer) throw new Error("Cutting layer not found");
@@ -4333,6 +4892,7 @@ export async function removeCuttingLayer(input: { id: number }) {
         await reconcileJobFabricColour(tx, {
           fabricId, jobCardId: layer.jobCard.id, siNo: layer.jobCard.siNo,
           colour, used, reason: `Reverse layer ${layer.layerNo}`,
+          buyerId: layer.jobCard.buyerId, // Change 40 L
         });
       }
     }
@@ -4390,6 +4950,7 @@ export async function adjustFabricStock(input: {
   delta?: number;
   reason: AdjustReason;
   note?: string | null;
+  buyerId?: number | null; // Change 40 Part L — which firm's balance this correction hits
 }) {
   const user = await requireRole("ADMIN", "STAFF");
   if (input.newQty == null && input.delta == null) throw new Error("Give a counted quantity or a delta");
@@ -4411,6 +4972,7 @@ export async function adjustFabricStock(input: {
       date: new Date(),
       fabricId: input.fabricId,
       colour,
+      buyerId: input.buyerId ?? null,
       note: input.note ?? null,
       reason: input.reason,
     });
@@ -4452,6 +5014,7 @@ export async function adjustTrimStock(input: {
   delta?: number;
   reason: AdjustReason;
   note?: string | null;
+  buyerId?: number | null; // Change 40 Part L — which firm's balance this correction hits
 }) {
   const user = await requireRole("ADMIN", "STAFF");
   if (input.newQty == null && input.delta == null) throw new Error("Give a counted quantity or a delta");
@@ -4471,6 +5034,7 @@ export async function adjustTrimStock(input: {
       qty: Math.abs(delta),
       date: new Date(),
       trimItemId: input.trimItemId,
+      buyerId: input.buyerId ?? null,
       note: input.note ?? null,
       reason: input.reason,
     });
@@ -4548,18 +5112,16 @@ export async function createFinishingJob(input: {
     const vendor = await tx.vendor.findUnique({ where: { name: input.vendorName.trim() } });
     if (!vendor) throw new Error(`No vendor named "${input.vendorName}" — add the vendor first`);
 
-    // Same series idiom as addDispatch (DC-) and lockChallan (CH-). Do not invent a new one.
+    // Change 40 I7 — finishing job-work no longer mints its own JW- series; it draws from the
+    // shared OUTWARD counter so "one universal series for all" holds. The number carries the
+    // process's own 3-letter code (SUB/PRI/EMB/LAS/WSH/OTH). Existing JW- rows stay as history;
+    // nextChallanSeq scans both MaterialChallan.challanNo and FinishingJob.docNo under CH-OUT-,
+    // so the two models never collide. (The FinishingJob model is kept — it holds vendor rate
+    // and bill tracking a MaterialChallan does not — only its numbering changes.)
     const year = new Date().getFullYear();
-    const prefix = `JW-${year}-`;
-    const existing = await tx.finishingJob.findMany({
-      where: { docNo: { startsWith: prefix } },
-      select: { docNo: true },
-    });
-    const maxN = existing.reduce(
-      (m, e) => Math.max(m, parseInt((e.docNo ?? "").slice(prefix.length), 10) || 0),
-      0
-    );
-    const docNo = `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+    const code = WORKTYPE_CODE[input.process] ?? "OTH";
+    const seq = String(await nextChallanSeq(tx, "CH-OUT-", true)).padStart(3, "0");
+    const docNo = `CH-OUT-${code}-${year}-${seq}`;
 
     return tx.finishingJob.create({
       data: {

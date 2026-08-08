@@ -99,30 +99,41 @@ export default async function DispatchDocPage({ params }: { params: Promise<{ id
         ))}
       </div>
 
-      <h2 className="mt-5 mb-1.5 text-[12px] font-bold uppercase tracking-wide">{isSale ? "Size (defective / sale)" : "Colour × Size"}</h2>
-      <table className="w-full border border-ink text-center text-[12px]">
-        <thead>
-          <tr className="border-b border-ink font-bold">
-            {!isSale && <th className="border-r border-ink px-2 py-1.5 text-left">Colour</th>}
-            {sizes.map((s) => <th key={s} className="border-r border-ink px-2 py-1.5">{s}</th>)}
-            <th className="px-2 py-1.5">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {colours.map((c) => (
-            <tr key={c || "—"} className="border-b border-ink/30">
-              {!isSale && <td className="border-r border-ink px-2 py-1.5 text-left font-semibold">{c || "—"}</td>}
-              {sizes.map((s) => <td key={s} className="border-r border-ink/30 px-2 py-1.5 tnum">{cell(c, s) || ""}</td>)}
-              <td className="px-2 py-1.5 font-bold tnum">{num(sizes.reduce((a, s) => a + cell(c, s), 0))}</td>
-            </tr>
-          ))}
-          <tr className="border-t border-ink font-bold">
-            {!isSale && <td className="border-r border-ink px-2 py-1.5 text-left">Total</td>}
-            {sizes.map((s) => <td key={s} className="border-r border-ink/30 px-2 py-1.5 tnum">{num(colTotal(s))}</td>)}
-            <td className="px-2 py-1.5 tnum">{num(ev.qty)}</td>
-          </tr>
-        </tbody>
-      </table>
+      {/* Change 40 J5 — total-only dispatches carry no lines, so the colour×size grid
+          disappears and a single total prints instead. The matrix is kept behind this guard so
+          HISTORICAL dispatches (which have lines) still print their grid. */}
+      {ev.lines.length > 0 ? (
+        <>
+          <h2 className="mt-5 mb-1.5 text-[12px] font-bold uppercase tracking-wide">{isSale ? "Size (defective / sale)" : "Colour × Size"}</h2>
+          <table className="w-full border border-ink text-center text-[12px]">
+            <thead>
+              <tr className="border-b border-ink font-bold">
+                {!isSale && <th className="border-r border-ink px-2 py-1.5 text-left">Colour</th>}
+                {sizes.map((s) => <th key={s} className="border-r border-ink px-2 py-1.5">{s}</th>)}
+                <th className="px-2 py-1.5">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {colours.map((c) => (
+                <tr key={c || "—"} className="border-b border-ink/30">
+                  {!isSale && <td className="border-r border-ink px-2 py-1.5 text-left font-semibold">{c || "—"}</td>}
+                  {sizes.map((s) => <td key={s} className="border-r border-ink/30 px-2 py-1.5 tnum">{cell(c, s) || ""}</td>)}
+                  <td className="px-2 py-1.5 font-bold tnum">{num(sizes.reduce((a, s) => a + cell(c, s), 0))}</td>
+                </tr>
+              ))}
+              <tr className="border-t border-ink font-bold">
+                {!isSale && <td className="border-r border-ink px-2 py-1.5 text-left">Total</td>}
+                {sizes.map((s) => <td key={s} className="border-r border-ink/30 px-2 py-1.5 tnum">{num(colTotal(s))}</td>)}
+                <td className="px-2 py-1.5 tnum">{num(ev.qty)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </>
+      ) : (
+        <div className="mt-5 border border-ink px-3 py-2.5 text-[13px] font-bold">
+          Total dispatched: <span className="tnum">{num(ev.qty)} pcs</span>
+        </div>
+      )}
 
       <div className="mt-10 grid grid-cols-3 gap-6 text-center text-[11px]">
         {["Dispatched by", "Checked by", "Received by"].map((s) => (

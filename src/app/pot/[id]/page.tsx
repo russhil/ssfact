@@ -30,9 +30,16 @@ export default async function TrimPOPage({ params }: { params: Promise<{ id: str
   const unit = (o.unit ?? "").toLowerCase();
   const hasRate = o.rate != null && o.rate > 0;
   const subtotal = hasRate ? o.totalQty * (o.rate as number) : 0;
-  // A flat order prints as a single row; a split order prints its colour/size lines.
+  // Change 40 Part G — a multi-trim PO groups by trim item (lead each row with the trim name);
+  // a single-trim order still prints its colour/size split; a flat order is one row.
+  const multiTrim = new Set(o.lines.map((l) => l.trimName)).size > 1;
   const rows = o.lines.length > 0
-    ? o.lines.map((l) => ({ label: [l.colour, l.size].filter(Boolean).join(" · ") || "—", qty: l.qty }))
+    ? o.lines.map((l) => ({
+        label: multiTrim
+          ? [l.trimName, [l.colour, l.size].filter(Boolean).join(" ")].filter(Boolean).join(" · ")
+          : [l.colour, l.size].filter(Boolean).join(" · ") || "—",
+        qty: l.qty,
+      }))
     : [{ label: o.trim, qty: o.totalQty }];
 
   const poNo = o.poNumber ?? "(draft — generate PO first)";
@@ -79,7 +86,7 @@ export default async function TrimPOPage({ params }: { params: Promise<{ id: str
       </div>
 
       {/* Change 25 Part G.3 — both parties in full */}
-      <PoParties supplier={o.supplier} buyer={o.buyer} shipTo={o.shipTo} />
+      <PoParties supplier={o.supplier} buyer={o.buyer} shipTo={o.shipTo} issuedBy={o.preparedBy?.name ?? null} />
 
       <div className="mt-3 text-[12px]">
         <span className="text-faint">Trim </span>
@@ -108,18 +115,19 @@ export default async function TrimPOPage({ params }: { params: Promise<{ id: str
           <tr className="border-t border-ink font-bold">
             <td className="px-2 py-1.5">Total</td>
             <td className="px-2 py-1.5 text-right tnum">{num(o.totalQty)}</td>
+            {/* Change 40 B2.3 — drop the duplicated money; Subtotal below carries it. */}
             {hasRate && <td className="px-2 py-1.5"></td>}
-            {hasRate && <td className="px-2 py-1.5 text-right tnum">{inr(subtotal)}</td>}
+            {hasRate && <td className="px-2 py-1.5"></td>}
           </tr>
           {/* Change 25 Part K.2 */}
-          {hasRate && <PoTotals subtotal={subtotal} gstRate={o.gstRate} colSpan={3} />}
+          {hasRate && <PoTotals subtotal={subtotal} gstRate={o.gstRate} colSpan={3} supplierGst={o.supplier?.gstNo ?? null} buyerGst={o.buyer?.gstNo ?? null} />}
         </tbody>
       </table>
 
       {/* Change 25 Part J */}
       {o.remarks && <p className="mt-4 text-[11px] text-slate-600">Remarks: {o.remarks}</p>}
 
-      <PoSignatory signatory={o.signatory} preparedBy={o.preparedBy} />
+      <PoSignatory signatory={o.signatory} />
 
       {/* Change 25 Part H.2 — sample photo against the trim order. */}
       <div className="no-print mt-6 border-t border-slate-200 pt-4">

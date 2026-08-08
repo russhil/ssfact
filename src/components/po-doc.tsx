@@ -1,4 +1,4 @@
-import { inr, num } from "@/lib/format";
+import { inr, num, amountInWords, gstStateCode, gstStateName } from "@/lib/format";
 
 /**
  * Change 25 — the blocks both PO documents share.
@@ -32,9 +32,32 @@ export type DocImage = { id: number; url: string; thumbUrl: string | null; capti
 
 /** The print CSS + page wrapper, previously copy-pasted into all six doc routes. */
 export function DocShell({ children }: { children: React.ReactNode }) {
+  // Change 40 A2 — the exported PDF was carrying browser chrome in its corners: a
+  // timestamp, the tab title, "1/1", and the live URL (which handed a supplier the
+  // production address + internal row id). Those are drawn by the browser only because
+  // window.print() runs with a non-zero @page margin; setting `@page { margin: 0 }`
+  // leaves most browsers nowhere to draw them, so they are omitted. The 14mm page margin
+  // moves into the frame padding so the layout is unchanged.
+  //   ⚠️ Browser-dependent — verify on the export device. iOS Safari exposes no
+  //   headers/footers toggle, so this is the only lever there.
+  // Change 40 A3 — with the browser's "1/1" gone there is no page number at all, so we
+  // print our own via @page margin-box counters. NOTE: Chromium/WebKit do not render
+  // @page margin-box content, so "Page X of N" shows only in engines that do (Firefox /
+  // print-CSS-compliant). Left in as the standards-correct approach; flagged for device
+  // verification per the spec.
   return (
-    <div className="doc-light mx-auto max-w-[800px] bg-white p-8 text-[12px] text-ink">
-      <style>{`@media print { .no-print { display: none !important; } body { background: #fff; } } @page { margin: 14mm; }`}</style>
+    <div className="doc-light doc-print-frame mx-auto max-w-[800px] bg-white p-8 text-[12px] text-ink">
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: #fff; }
+          @page {
+            margin: 0;
+            @bottom-center { content: "Page " counter(page) " of " counter(pages); font-size: 9px; color: #64748b; }
+          }
+          .doc-print-frame { padding: 14mm !important; }
+        }
+      `}</style>
       {children}
     </div>
   );
@@ -55,10 +78,13 @@ export function PoParties({
   supplier,
   buyer,
   shipTo,
+  issuedBy = null,
 }: {
   supplier: DocParty | null;
   buyer: DocBuyer | null;
   shipTo: { label: string | null; address: string } | null;
+  /** Change 40 B1 — the creator's name, the ONLY person shown in the From block. */
+  issuedBy?: string | null;
 }) {
   return (
     <div className="mt-3 grid grid-cols-2 gap-4 text-[12px]">
@@ -67,6 +93,8 @@ export function PoParties({
         <div className="font-semibold">{supplier?.name ?? "—"}</div>
         {supplier?.address && <div className="text-slate-600">{supplier.address}</div>}
         {supplier?.phone && <div className="text-slate-600">{supplier.phone}</div>}
+        {/* Change 40 B2.6 — the supplier email was loaded but never printed. */}
+        {supplier?.email && <div className="text-slate-600">{supplier.email}</div>}
         {supplier?.gstNo && <div className="text-slate-600">GSTIN: {supplier.gstNo}</div>}
       </div>
       {buyer && (
@@ -76,24 +104,25 @@ export function PoParties({
           {buyer.address && <div className="text-slate-600">{buyer.address}</div>}
           {buyer.city && <div className="text-slate-600">{buyer.city}</div>}
           {buyer.gstNo && <div className="text-slate-600">GSTIN: {buyer.gstNo}</div>}
-          {buyer.contacts.length > 0 && (
-            <div className="text-slate-600">
-              {buyer.contacts.map((c) => (c.phone ? `${c.label} · ${c.phone}` : c.label)).join(", ")}
-            </div>
-          )}
+          {/* Change 40 B1 — the owner circled this: the old line printed the firm's whole staff
+              list + one stray phone. Replaced by the creator's name only — no role, no phone. */}
+          {issuedBy && <div className="text-slate-600">{issuedBy}</div>}
         </div>
       )}
       {(buyer?.billingAddress || shipTo) && (
         <>
           {buyer?.billingAddress && (
             <div>
-              <div className="text-faint">Bill to</div>
+              {/* Change 40 B2.2 — label the firm so "Bill to" under the supplier can't read as
+                  billing the supplier. */}
+              <div className="text-faint">Bill to{buyer?.name ? ` (${buyer.name})` : ""}</div>
               <div className="text-slate-600">{buyer.billingAddress}</div>
             </div>
           )}
           {shipTo && (
             <div>
-              <div className="text-faint">Ship to{shipTo.label ? ` (${shipTo.label})` : ""}</div>
+              {/* Change 40 B2.1 — drop the internal "(FACTORY)" address-key on the supplier's copy. */}
+              <div className="text-faint">Ship to</div>
               <div className="text-slate-600">{shipTo.address}</div>
             </div>
           )}
@@ -117,29 +146,60 @@ export function PoTotals({
   subtotal,
   gstRate,
   colSpan,
+  supplierGst = null,
+  buyerGst = null,
 }: {
   subtotal: number;
   gstRate: number | null;
   /** Leading columns to skip so the labels sit under the Amount column. */
   colSpan: number;
+  /** Change 40 B3 — the two GSTINs decide the tax split (inter- vs intra-state). */
+  supplierGst?: string | null;
+  buyerGst?: string | null;
 }) {
-  const gst = gstRate != null && gstRate > 0 ? Math.round(subtotal * gstRate) / 100 : null;
+  const rate = gstRate != null && gstRate > 0 ? gstRate : null;
+  const gst = rate != null ? Math.round(subtotal * rate) / 100 : null;
   const grand = subtotal + (gst ?? 0);
+
+  // Change 40 B3 — compare the first two GSTIN digits: same state → CGST + SGST at half each;
+  // different → IGST at the full rate; either GSTIN missing → the plain GST fallback.
+  const sState = gstStateCode(supplierGst);
+  const bState = gstStateCode(buyerGst);
+  const split = rate != null && sState && bState ? (sState === bState ? "INTRA" : "INTER") : "PLAIN";
+  const placeOfSupply = gstStateName(buyerGst);
+
+  const taxRows: React.ReactNode[] = [];
+  if (gst != null) {
+    if (split === "INTRA") {
+      const half = Math.round((gst / 2) * 100) / 100;
+      taxRows.push(
+        <tr key="cgst"><td className="px-2 py-1.5" colSpan={colSpan}>CGST @ {num(rate! / 2, 2)}%</td><td className="px-2 py-1.5 text-right tnum">{inr(half)}</td></tr>,
+        <tr key="sgst"><td className="px-2 py-1.5" colSpan={colSpan}>SGST @ {num(rate! / 2, 2)}%</td><td className="px-2 py-1.5 text-right tnum">{inr(gst - half)}</td></tr>,
+      );
+    } else if (split === "INTER") {
+      taxRows.push(<tr key="igst"><td className="px-2 py-1.5" colSpan={colSpan}>IGST @ {num(rate!, 2)}%</td><td className="px-2 py-1.5 text-right tnum">{inr(gst)}</td></tr>);
+    } else {
+      taxRows.push(<tr key="gst"><td className="px-2 py-1.5" colSpan={colSpan}>GST @ {num(rate!, 2)}%</td><td className="px-2 py-1.5 text-right tnum">{inr(gst)}</td></tr>);
+    }
+  }
+
   return (
     <>
       <tr className="border-t border-ink font-semibold">
         <td className="px-2 py-1.5" colSpan={colSpan}>Subtotal</td>
         <td className="px-2 py-1.5 text-right tnum">{inr(subtotal)}</td>
       </tr>
-      {gst != null && (
-        <tr>
-          <td className="px-2 py-1.5" colSpan={colSpan}>GST @ {num(gstRate, 2)}%</td>
-          <td className="px-2 py-1.5 text-right tnum">{inr(gst)}</td>
-        </tr>
-      )}
+      {taxRows}
       <tr className="border-t border-ink font-bold">
         <td className="px-2 py-1.5" colSpan={colSpan}>Grand Total</td>
         <td className="px-2 py-1.5 text-right tnum">{inr(grand)}</td>
+      </tr>
+      {/* Change 40 B4 — amount in words; B3 — place of supply beside the tax. */}
+      <tr>
+        <td className="px-2 py-1.5 text-[11px] text-slate-600" colSpan={colSpan + 1}>
+          {amountInWords(grand)}
+          {placeOfSupply && <span className="block">Place of supply: {placeOfSupply}</span>}
+        </td>
       </tr>
     </>
   );
@@ -157,33 +217,27 @@ export function PoTotals({
  */
 export function PoSignatory({
   signatory,
-  preparedBy = null,
 }: {
   signatory: { name: string; signatureUrl: string | null } | null;
-  /** Change 39 G2 — the staff who raised the PO (display only). */
-  preparedBy?: { name: string; at: Date | null } | null;
 }) {
   return (
-    <>
-      <div className="mt-10 flex justify-end text-[11px]">
-        <div className="w-56 text-center">
-          {signatory?.signatureUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={signatory.signatureUrl} alt="" className="mx-auto mb-1 h-12 object-contain" />
+    <div className="mt-10 flex justify-end text-[11px]">
+      <div className="w-56 text-center">
+        {signatory?.signatureUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={signatory.signatureUrl} alt="" className="mx-auto mb-1 h-12 object-contain" />
+        )}
+        <div className="border-t border-ink pt-1">
+          <div className="font-semibold">{signatory?.name ?? ""}</div>
+          <div className="text-slate-600">Authorised signatory</div>
+          {/* Change 40 B2.5 — a firm contact signatory has no signature image; say so rather
+              than printing a blank rule under "Authorised signatory". */}
+          {!signatory?.signatureUrl && signatory?.name && (
+            <div className="mt-0.5 text-[9px] text-slate-500">Digitally issued — no signature required</div>
           )}
-          <div className="border-t border-ink pt-1">
-            <div className="font-semibold">{signatory?.name ?? ""}</div>
-            <div className="text-slate-600">Authorised signatory</div>
-          </div>
         </div>
       </div>
-      {preparedBy && (
-        <div className="mt-4 text-[11px] text-slate-600">
-          Prepared by {preparedBy.name}
-          {preparedBy.at ? ` · ${new Date(preparedBy.at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}
-        </div>
-      )}
-    </>
+    </div>
   );
 }
 
@@ -227,10 +281,13 @@ export function DocAttachments({
       )}
 
       {images.map((im) => (
-        <div key={`page-${im.id}`} className="hidden break-before-page print:block">
+        // Change 40 A1 — break-inside-avoid keeps one image off a page seam; the frame now
+        // supplies the page margin (@page margin:0), so pad the block and cap the image at
+        // 230mm (usable A4 height after 14mm×2 margin) so a portrait photo cannot overflow.
+        <div key={`page-${im.id}`} className="hidden break-before-page break-inside-avoid p-[14mm] print:block">
           <div className="mb-2 text-[11px] font-semibold">{im.caption ?? label}</div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={im.url} alt="" className="max-h-[240mm] w-full object-contain" />
+          <img src={im.url} alt="" className="max-h-[230mm] w-full object-contain" />
         </div>
       ))}
     </>

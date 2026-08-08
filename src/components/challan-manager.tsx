@@ -2,10 +2,10 @@
 
 import { inputClass } from "@/components/ui";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { createChallan, addChallanLine, lockChallan, voidChallan } from "@/lib/actions";
+import { createChallan, addChallanLine, lockChallan, voidChallan, openOrdersForSupplier, orderLinesForFill } from "@/lib/actions";
 import { Card, Badge, MobileCardList, SortHeader, TableToolbar, useTableView, useConfirm, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
 import { X, Printer } from "lucide-react";
@@ -17,9 +17,12 @@ type ChallanRow = {
   counterparty: string; jobCardId: number | null; jobCardSiNo: string | null;
   note: string | null; lineCount: number; totalQty: number; totalValue: number | null;
 };
-type Line = { kind: "fabric" | "trim"; refId: number | 0; colour: string; qty: string; unit: string; rate: string; note: string };
+// Change 40 H2 — rolls + widthInch are two independent physical counts on FABRIC lines, both
+// starting BLANK; `ordered` is the PO target shown beside the (blank) qty after "Fill from PO".
+type Line = { kind: "fabric" | "trim"; refId: number | 0; colour: string; qty: string; unit: string; rate: string; note: string; rolls: string; widthInch: string; ordered: string };
+type OpenOrder = { id: number; kind: "fabric" | "trim"; poNumber: string | null; itemName: string; qty: number; unit: string; expectedDate: Date | null; isDraft: boolean; partlyReceived: boolean; label: string };
 
-const emptyLine = (): Line => ({ kind: "fabric", refId: 0, colour: "", qty: "", unit: "", rate: "", note: "" });
+const emptyLine = (): Line => ({ kind: "fabric", refId: 0, colour: "", qty: "", unit: "", rate: "", note: "", rolls: "", widthInch: "", ordered: "" });
 const inp = inputClass("sm");
 
 // Derive a challan's kind from the lines it holds (mirrors the server helper).
@@ -43,11 +46,58 @@ export function ChallanManager({
   const [jobCardId, setJobCardId] = useState<number | 0>(initialJobCardId ?? 0);
   const [date, setDate] = useState("");
   const [note, setNote] = useState("");
+  // Change 40 I6 — explicit job-work type for the number code on an outward job-work challan
+  // (sublimation/printing/embroidery/laser); "" = a plain material challan (code from kind).
+  const [workType, setWorkType] = useState("");
   const [lines, setLines] = useState<Line[]>([emptyLine()]);
   const [busy, setBusy] = useState(false);
 
+  // Change 40 Part H — the one inward control: Against PO ▾ / No PO yet. Empty + disabled until
+  // a supplier is chosen; picking one loads that supplier's open POs (that filter is what keeps
+  // the list to a handful). "No PO yet" (path C) marks the challan P.O.-pending to link later.
+  const [openOrders, setOpenOrders] = useState<OpenOrder[]>([]);
+  const [poChoice, setPoChoice] = useState<string>(""); // "" = none picked, "PENDING", or `${kind}:${id}`
+  const [loadingPos, setLoadingPos] = useState(false);
+
   const partyOptions = tab === "INWARD" ? suppliers : vendors;
   const jobLabel = (id: number) => jobCards.find((j) => j.id === id)?.label ?? "";
+
+  // Load the supplier's open orders whenever the inward supplier changes.
+  useEffect(() => {
+    if (tab !== "INWARD" || !counterparty) { setOpenOrders([]); setPoChoice(""); return; }
+    let live = true;
+    setLoadingPos(true);
+    openOrdersForSupplier(counterparty, "both")
+      .then((rows) => { if (live) setOpenOrders(rows as OpenOrder[]); })
+      .catch(() => { if (live) setOpenOrders([]); })
+      .finally(() => { if (live) setLoadingPos(false); });
+    return () => { live = false; };
+  }, [tab, counterparty]);
+
+  const pickedOrder = useMemo(() => {
+    if (!poChoice || poChoice === "PENDING") return null;
+    const [, idStr] = poChoice.split(":");
+    return openOrders.find((o) => String(o.id) === idStr && `${o.kind}:${o.id}` === poChoice) ?? null;
+  }, [poChoice, openOrders]);
+
+  async function fillFromPO() {
+    if (!pickedOrder) return;
+    setBusy(true);
+    try {
+      const rows = await orderLinesForFill(pickedOrder.kind, pickedOrder.id);
+      // Append the PO structure to any already-typed lines (never overwrite). Qty/rolls/width
+      // stay blank; the ordered figure rides along as a target.
+      const filled = lines.filter((l) => l.refId && +l.qty > 0);
+      const poLines: Line[] = rows.map((r) => ({
+        kind: r.kind, refId: r.refId, colour: r.colour, qty: "", unit: r.unit ?? "",
+        rate: r.rate != null ? String(r.rate) : "", note: "", rolls: "", widthInch: "",
+        ordered: `${num(r.orderedQty)}${r.unit ? ` ${r.unit}` : ""}`,
+      }));
+      setLines([...filled, ...poLines, emptyLine()]);
+    } catch (e) {
+      alert("Could not fill from PO: " + (e as Error).message);
+    } finally { setBusy(false); }
+  }
 
   function normalize(rows: Line[]): Line[] {
     const last = rows[rows.length - 1];
@@ -62,6 +112,10 @@ export function ChallanManager({
   const totalQty = filled.reduce((a, l) => a + +l.qty, 0);
   const anyRate = filled.some((l) => l.rate && +l.rate > 0);
   const totalValue = anyRate ? filled.reduce((a, l) => a + +l.qty * (+l.rate || 0), 0) : null;
+  // Change 40 H2.2 — display-only sanity check: metres ÷ rolls. Never stored, never fills qty.
+  const totalRolls = filled.reduce((a, l) => a + (l.kind === "fabric" ? +l.rolls || 0 : 0), 0);
+  const fabricQtyWithRolls = filled.reduce((a, l) => a + (l.kind === "fabric" && +l.rolls > 0 ? +l.qty : 0), 0);
+  const avgPerRoll = totalRolls > 0 ? fabricQtyWithRolls / totalRolls : null;
 
   // Live derived kind + the "attach a job card" warning (Change 17 Part C).
   const draftKind = kindOf(filled.some((l) => l.kind === "fabric"), filled.some((l) => l.kind === "trim"));
@@ -71,13 +125,20 @@ export function ChallanManager({
     if (!counterparty || filled.length === 0) return;
     setBusy(true);
     try {
+      const isInward = tab === "INWARD";
+      const fabricOrderId = isInward && pickedOrder?.kind === "fabric" ? pickedOrder.id : null;
+      const trimOrderId = isInward && pickedOrder?.kind === "trim" ? pickedOrder.id : null;
       const { id } = await createChallan({
         direction: tab,
-        supplierId: tab === "INWARD" ? counterparty : null,
+        supplierId: isInward ? counterparty : null,
         vendorId: tab === "OUTWARD" ? counterparty : null,
         jobCardId: jobCardId || null,
         date: date || undefined,
         note: note.trim() || null,
+        fabricOrderId,
+        trimOrderId,
+        poPending: isInward && poChoice === "PENDING",
+        workType: tab === "OUTWARD" && workType ? workType : null,
       });
       for (const l of filled) {
         await addChallanLine(id, {
@@ -88,6 +149,8 @@ export function ChallanManager({
           unit: l.unit || null,
           rate: l.rate ? +l.rate : null,
           note: l.note || null,
+          rolls: l.kind === "fabric" && l.rolls ? +l.rolls : null,
+          widthInch: l.kind === "fabric" && l.widthInch ? +l.widthInch : null,
         });
       }
       if (lockAfter) await lockChallan({ id });
@@ -164,6 +227,55 @@ export function ChallanManager({
             </div>
           )}
 
+          {/* Change 40 I6 — job-work type on an outward challan, for the 3-letter number code. */}
+          {tab === "OUTWARD" && (
+            <div className="mt-2.5">
+              <label className="mb-1.5 block t-xs font-semibold text-t1">Job-work type <span className="font-normal text-faint">(optional)</span></label>
+              <select value={workType} onChange={(e) => setWorkType(e.target.value)} className={`${inp} w-full`}>
+                <option value="">Plain material (code from lines)</option>
+                <option value="SUBLIMATION">Sublimation (SUB)</option>
+                <option value="PRINT">Printing (PRI)</option>
+                <option value="EMBROIDERY">Embroidery (EMB)</option>
+                <option value="LASER">Laser (LAS)</option>
+              </select>
+            </div>
+          )}
+
+          {/* Change 40 Part H — the single inward control. This is the ONLY place received qty is
+              ever typed; the PO screen's "Log inward" now redirects here. */}
+          {tab === "INWARD" && (
+            <div className="mt-2.5">
+              <label className="mb-1.5 block t-xs font-semibold text-t1">Against PO</label>
+              <select
+                value={poChoice}
+                disabled={!counterparty || loadingPos}
+                onChange={(e) => setPoChoice(e.target.value)}
+                className={`${inp} w-full`}
+              >
+                <option value="">{!counterparty ? "— pick a supplier first —" : loadingPos ? "loading POs…" : "— pick a PO —"}</option>
+                {counterparty > 0 && <option value="PENDING">No PO yet — mark P.O. pending, link later</option>}
+                {openOrders.map((o) => (
+                  <option key={`${o.kind}:${o.id}`} value={`${o.kind}:${o.id}`}>
+                    {o.label}{o.partlyReceived ? " · partly received" : ""}
+                  </option>
+                ))}
+              </select>
+              {pickedOrder && (
+                <button
+                  type="button"
+                  onClick={fillFromPO}
+                  disabled={busy}
+                  className="mt-2 rounded-md border border-border px-2.5 py-1 t-xs font-semibold text-t1 hover:bg-surface-2 disabled:opacity-40"
+                >
+                  Fill lines from PO <span className="font-normal text-faint">(structure only — you type the received qty)</span>
+                </button>
+              )}
+              {poChoice === "PENDING" && (
+                <p className="mt-1.5 t-micro text-faint">Stock still posts on lock; attach the PO later from the P.O.-pending list.</p>
+              )}
+            </div>
+          )}
+
           {/* phones: a stacked card per line — the wide inline table can't be typed into at 390px */}
           <div className="mt-4 flex flex-col gap-2 md:hidden">
             {lines.map((l, i) => (
@@ -195,7 +307,7 @@ export function ChallanManager({
                   <input list="challan-colours" value={l.colour} onChange={(e) => setLine(i, { colour: e.target.value })} placeholder="colour" className={`${inp} mt-2 w-full`} />
                 )}
                 <div className="mt-2 grid grid-cols-3 gap-2">
-                  <input type="number" inputMode="decimal" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="qty" className={`${inp} w-full text-right tnum`} />
+                  <input type="number" inputMode="decimal" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder={l.ordered ? `qty (ord ${l.ordered})` : "qty"} className={`${inp} w-full text-right tnum`} />
                   <select value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} className={`${inp} w-full`}>
                     <option value="">unit</option>
                     <option>MTR</option>
@@ -205,6 +317,14 @@ export function ChallanManager({
                   </select>
                   <input type="number" inputMode="decimal" value={l.rate} onChange={(e) => setLine(i, { rate: e.target.value })} placeholder="₹ rate" className={`${inp} w-full text-right tnum`} />
                 </div>
+                {l.kind === "fabric" && (
+                  // Change 40 H2 — rolls (physically counted) + measured width in inches, both blank.
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <input type="number" inputMode="numeric" value={l.rolls} onChange={(e) => setLine(i, { rolls: e.target.value })} placeholder="rolls (counted)" className={`${inp} w-full text-right tnum`} />
+                    <input type="number" inputMode="decimal" value={l.widthInch} onChange={(e) => setLine(i, { widthInch: e.target.value })} placeholder="width (inch)" className={`${inp} w-full text-right tnum`} />
+                  </div>
+                )}
+                {l.ordered && <p className="mt-1 t-micro text-faint">ordered {l.ordered}</p>}
               </div>
             ))}
           </div>
@@ -220,6 +340,8 @@ export function ChallanManager({
                   <th className="px-2 py-2 text-right font-semibold">Qty</th>
                   <th className="px-2 py-2 font-semibold">Unit</th>
                   <th className="px-2 py-2 text-right font-semibold">Rate</th>
+                  {tab === "INWARD" && <th className="px-2 py-2 text-right font-semibold">Rolls</th>}
+                  {tab === "INWARD" && <th className="px-2 py-2 text-right font-semibold">Width&quot;</th>}
                   <th className="px-2 py-2"></th>
                 </tr>
               </thead>
@@ -245,7 +367,10 @@ export function ChallanManager({
                         <span className="text-faint">—</span>
                       )}
                     </td>
-                    <td className="px-1 py-1"><input type="number" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder="0" className={`${inp} w-20 text-right tnum`} /></td>
+                    <td className="px-1 py-1">
+                      <input type="number" value={l.qty} onChange={(e) => setLine(i, { qty: e.target.value })} placeholder={l.ordered ? "0" : "0"} className={`${inp} w-20 text-right tnum`} />
+                      {l.ordered && <div className="mt-0.5 text-right t-micro text-faint">ord {l.ordered}</div>}
+                    </td>
                     <td className="px-1 py-1">
                       <select value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} className={inp}>
                         <option value="">—</option>
@@ -253,6 +378,12 @@ export function ChallanManager({
                       </select>
                     </td>
                     <td className="px-1 py-1"><input type="number" value={l.rate} onChange={(e) => setLine(i, { rate: e.target.value })} placeholder="₹" className={`${inp} w-16 text-right tnum`} /></td>
+                    {tab === "INWARD" && (
+                      <td className="px-1 py-1">{l.kind === "fabric" ? <input type="number" value={l.rolls} onChange={(e) => setLine(i, { rolls: e.target.value })} placeholder="—" className={`${inp} w-16 text-right tnum`} /> : <span className="text-faint">—</span>}</td>
+                    )}
+                    {tab === "INWARD" && (
+                      <td className="px-1 py-1">{l.kind === "fabric" ? <input type="number" value={l.widthInch} onChange={(e) => setLine(i, { widthInch: e.target.value })} placeholder="—" className={`${inp} w-16 text-right tnum`} /> : <span className="text-faint">—</span>}</td>
+                    )}
                     <td className="px-1 py-1 text-right"><button onClick={() => removeLine(i)} className="text-faint hover:text-danger"><X size={13} /></button></td>
                   </tr>
                 ))}
@@ -271,6 +402,8 @@ export function ChallanManager({
             {jobCardId > 0 && <div className="flex justify-between"><span className="text-muted">Job card</span><span className="font-semibold">{jobLabel(jobCardId)}</span></div>}
             <div className="flex justify-between"><span className="text-muted">Lines</span><span className="font-bold tnum">{filled.length}</span></div>
             <div className="flex justify-between"><span className="text-muted">Total qty</span><span className="font-bold tnum">{num(totalQty)}</span></div>
+            {tab === "INWARD" && totalRolls > 0 && <div className="flex justify-between"><span className="text-muted">Total rolls</span><span className="font-bold tnum">{totalRolls}</span></div>}
+            {avgPerRoll != null && <div className="flex justify-between"><span className="text-muted">Avg / roll</span><span className="tnum text-t2">≈ {num(avgPerRoll, 1)}</span></div>}
             {totalValue != null && <div className="flex justify-between"><span className="text-muted">Total value</span><span className="font-bold tnum">{inr(Math.round(totalValue))}</span></div>}
           </div>
           <div className="mt-4 flex flex-col gap-2">

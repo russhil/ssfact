@@ -5,7 +5,7 @@ import { inputClass } from "@/components/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createFabricOrder, updateFabricOrder, deleteFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick, voidChallan } from "@/lib/actions";
+import { createFabricOrder, updateFabricOrder, deleteFabricOrder, voidFabricOrder, draftChallanFromFabricOrder, generatePO, createColour, createFabricQuick, voidChallan } from "@/lib/actions";
 import { Card, Badge, MobileCardList, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr, fmtDate } from "@/lib/format";
 import { orderFlag } from "@/lib/order-flags";
@@ -22,6 +22,7 @@ type Order = {
   colourCount: number; unit: string; rate: number | null; status: string; expectedDate: Date | string | null;
   remarks: string | null;
   receivedDate: Date | string | null; poNumber: string | null; poStage: string;
+  voidedAt: Date | string | null; // Change 40 C3
   // Change 18 Part C: the inward challans this order was received on.
   challans: ChallanLink[];
   // Change 22 Part A: Σ locked challan line qty — what has actually arrived.
@@ -220,9 +221,19 @@ export function FabricOrderManager({
     await act(() => deleteFabricOrder({ id: o.id }));
   }
 
-  // Mirrors the server guards in deleteFabricOrder / updateFabricOrder.
-  const canEdit = (o: Order) => !o.poNumber && !o.receivedDate;
-  const canDelete = (o: Order) => canEdit(o) && o.challans.length === 0;
+  // Change 40 C3 — cancel a generated PO (retained, struck-through; server blocks it if a
+  // locked challan already points at it).
+  async function voidOrder(o: Order) {
+    const reason = prompt(`Void ${o.poNumber ?? "this order"}?\nReason (optional):`);
+    if (reason === null) return;
+    if (editingId === o.id) resetForm();
+    await act(() => voidFabricOrder({ id: o.id, reason: reason.trim() || null }));
+  }
+
+  // Change 40 C2 — editable at every stage (server enforces ADMIN-or-creator); voided is locked out.
+  const canEdit = (o: Order) => !o.voidedAt;
+  const canDelete = (o: Order) => !o.poNumber && !o.receivedDate && !o.voidedAt && o.challans.length === 0;
+  const canVoid = (o: Order) => !!o.poNumber && !o.voidedAt;
 
   async function act(fn: () => Promise<unknown>) {
     setBusy(true);
@@ -558,7 +569,7 @@ export function FabricOrderManager({
           </thead>
           <tbody>
             {view.rows.map((o) => (
-              <tr key={o.id} className={`border-b border-hairline last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""}`}>
+              <tr key={o.id} className={`border-b border-hairline last:border-0 align-top ${editingId === o.id ? "bg-primary-soft/50" : ""} ${o.voidedAt ? "opacity-55 line-through" : ""}`} title={o.voidedAt ? "Voided order" : undefined}>
                 <td className="px-4 py-2.5 font-semibold">
                   {o.fabric}
                   {/* Change 25 Part J */}
@@ -642,6 +653,7 @@ export function FabricOrderManager({
                     )}
                     {canEdit(o) && <button onClick={() => startEdit(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-t1 hover:bg-surface-2"><Pencil size={12} /> Edit</button>}
                     {canDelete(o) && <button onClick={() => remove(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-danger hover:bg-danger-soft"><Trash2 size={12} /> Delete</button>}
+                    {canVoid(o) && <button onClick={() => voidOrder(o)} disabled={busy} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 t-xs font-semibold text-danger hover:bg-danger-soft"><X size={12} /> Void</button>}
                   </div>
                 </td>
               </tr>
