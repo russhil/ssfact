@@ -504,10 +504,12 @@ export default async function JobDetail({ params }: { params: Promise<{ si: stri
                         <td className="border-l border-hairline px-2 py-1.5 text-right font-bold tnum">{num(cardTotal, 2)}</td>
                         <td className={`px-2 py-1.5 text-right font-semibold tnum ${left != null && left < 0 ? "text-danger" : "text-t1"}`}>
                           {left != null ? num(left, 2) : "—"}
-                          {/* Change 40 L7 — other firms' stock is visible, NOT consumable. */}
+                          {/* Change 40 L7 — other firms' stock is visible, NOT consumable; one tap
+                              to the transfer screen to bring it over. */}
                           {elsewhere && elsewhere.length > 0 && (
                             <div className="t-micro font-normal text-faint" title="Visible, not consumable — raise a transfer to use it">
-                              {elsewhere.map((e) => `${num(e.qty, 0)} at ${e.firm}`).join(" · ")} ⓘ
+                              {elsewhere.map((e) => `${num(e.qty, 0)} at ${e.firm}`).join(" · ")}{" "}
+                              <Link href="/challans" className="text-primary-ink hover:underline">request transfer →</Link>
                             </div>
                           )}
                         </td>
