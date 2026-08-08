@@ -37,7 +37,8 @@ type Order = {
   images: { id: number; url: string; thumbUrl: string | null; caption: string | null }[];
 };
 type Pick = { id: number; name: string };
-type TrimPick = { id: number; name: string; unit: string | null; stock: number; rate: number | null };
+// Change 40 Part F — the trim carries its default supplier + base price so picking it prefills both.
+type TrimPick = { id: number; name: string; unit: string | null; stock: number; rate: number | null; supplierId: number | null };
 
 // Change 38 Part G — sentinel for "Add new trim…", mirroring the fabric-order form.
 const ADD = "__add__";
@@ -83,8 +84,18 @@ export function TrimOrderManager({
   function pickTrim(v: string) {
     setTrimId(v);
     const t = trimList.find((x) => x.id === +v);
-    if (t?.unit) setUnit(t.unit);
+    if (!t) return;
+    // Change 40 F4 — prefill unit, the base price as the rate, and the trim's default supplier
+    // (all overridable — the supplier's actual quote always wins). Previously only unit carried.
+    if (t.unit) setUnit(t.unit);
+    if (t.rate != null) setRate(String(t.rate));
+    if (t.supplierId != null && !supplierId) setSupplierId(String(t.supplierId));
   }
+
+  // Change 40 F5 — live variance vs the base price. A warning, never a block (ADMINs raise POs).
+  const baseRate = trim?.rate ?? null;
+  const enteredRate = rate.trim() === "" ? null : +rate;
+  const variancePct = baseRate != null && baseRate > 0 && enteredRate != null ? ((enteredRate - baseRate) / baseRate) * 100 : null;
 
   async function confirmTrim() {
     if (!trimDraft.trim()) { setAddTrim(false); return; }
@@ -97,7 +108,7 @@ export function TrimOrderManager({
         supplierId: supplierId ? +supplierId : null,
         rate: rate ? +rate : null,
       });
-      const pick: TrimPick = { id: t.id, name: t.name, unit: t.unit ?? unit ?? null, stock: 0, rate: rate ? +rate : null };
+      const pick: TrimPick = { id: t.id, name: t.name, unit: t.unit ?? unit ?? null, stock: 0, rate: rate ? +rate : null, supplierId: supplierId ? +supplierId : null };
       setTrimList((p) => (p.some((x) => x.id === t.id) ? p : [...p, pick].sort((a, b) => a.name.localeCompare(b.name))));
       setTrimId(String(t.id));
       if (t.unit) setUnit(t.unit);
@@ -412,6 +423,12 @@ export function TrimOrderManager({
             </Labelled>
             <Labelled label="Rate (₹/unit, optional)">
               <input type="number" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="—" className={`${inp} text-right tnum`} />
+              {/* Change 40 F5 — variance vs base price; coloured only past ±10%, never blocks. */}
+              {baseRate != null && variancePct != null && (
+                <p className={`mt-1 t-micro ${Math.abs(variancePct) > 10 ? "font-semibold text-warn" : "text-faint"}`}>
+                  base ₹{num(baseRate, 2)} · {variancePct >= 0 ? "+" : ""}{num(variancePct, 1)}%
+                </p>
+              )}
             </Labelled>
             <Labelled label="Expected date">
               <input type="date" value={expected} onChange={(e) => setExpected(e.target.value)} className={inp} />

@@ -358,10 +358,11 @@ export async function getTrimOrder(id: number) {
 export async function getTrimPickList() {
   const rows = await db.trimItem.findMany({
     where: { status: "ACTIVE" },
-    select: { id: true, name: true, unit: true, currentStock: true, ratePerUnit: true },
+    select: { id: true, name: true, unit: true, currentStock: true, ratePerUnit: true, supplierId: true },
     orderBy: { name: "asc" },
   });
-  return rows.map((t) => ({ id: t.id, name: t.name, unit: t.unit, stock: t.currentStock, rate: t.ratePerUnit }));
+  // Change 40 Part F — supplierId rides along so picking a trim on an order prefills its supplier.
+  return rows.map((t) => ({ id: t.id, name: t.name, unit: t.unit, stock: t.currentStock, rate: t.ratePerUnit, supplierId: t.supplierId ?? null }));
 }
 export type TrimPick = Awaited<ReturnType<typeof getTrimPickList>>[number];
 

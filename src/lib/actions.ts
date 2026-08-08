@@ -2684,7 +2684,10 @@ export async function voidTrimOrder(input: { id: number; reason?: string | null 
  */
 export async function generateTrimPO(input: { id: number } & PoIssueInput) {
   const user = await requireRole("ADMIN", "STAFF");
-  const o = await db.trimOrder.findUnique({ where: { id: input.id }, select: { poNumber: true } });
+  const o = await db.trimOrder.findUnique({
+    where: { id: input.id },
+    select: { poNumber: true, trimItemId: true, supplierId: true, rate: true, lines: { select: { trimItemId: true, rate: true } } },
+  });
   if (!o) throw new Error("Order not found");
   if (o.poNumber) return { poNumber: o.poNumber }; // idempotent
   const year = new Date().getFullYear();
@@ -2711,6 +2714,17 @@ export async function generateTrimPO(input: { id: number } & PoIssueInput) {
         updatedById: user.userId,
       },
     });
+    // Change 40 Part F2 — stamp the rate into the trim's sourcing history with this PO's
+    // provenance (mirrors what fabric already does), so a rate becomes a traceable "last paid".
+    // Per trim item on the PO (Part G-ready: one row per distinct SKU + its resolved rate).
+    const byItem = new Map<number, number | null>();
+    for (const l of o.lines) if (l.trimItemId != null) byItem.set(l.trimItemId, l.rate ?? o.rate ?? null);
+    if (byItem.size === 0) byItem.set(o.trimItemId, o.rate ?? null);
+    for (const [trimItemId, rate] of byItem) {
+      await tx.trimItemSupplier.create({
+        data: { trimItemId, supplierId: o.supplierId ?? null, rate, poNumber, sourcedAt: new Date() },
+      });
+    }
     await logAudit(tx, user, {
       action: "generateTrimPO",
       entity: "TrimOrder",
