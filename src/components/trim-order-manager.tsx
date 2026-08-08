@@ -66,6 +66,10 @@ export function TrimOrderManager({
   const [remarks, setRemarks] = useState("");
   const [splitOpen, setSplitOpen] = useState(false);
   const [split, setSplit] = useState<SplitLine[]>([{ colour: "", size: "", qty: 0 }]);
+  // Change 40 Part G — a trim PO can hold several different trims (colour is baked into the
+  // trim's name, so the old colour-split is redundant). These are the EXTRA trims beyond the
+  // primary one picked above; each carries its own qty and rate.
+  const [moreTrims, setMoreTrims] = useState<{ trimItemId: number; qty: string; rate: string }[]>([]);
   const [busy, setBusy] = useState(false);
   // Change 20: the same form doubles as the edit form for an unlocked order.
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -139,7 +143,7 @@ export function TrimOrderManager({
   function resetForm() {
     setEditingId(null);
     setTrimId(""); setSupplierId(""); setExpected(""); setQty(""); setUnit(""); setRate(""); setRemarks("");
-    setSplitOpen(false); setSplit([{ colour: "", size: "", qty: 0 }]);
+    setSplitOpen(false); setSplit([{ colour: "", size: "", qty: 0 }]); setMoreTrims([]);
     setAttachId(null);
   }
 
@@ -151,17 +155,28 @@ export function TrimOrderManager({
   const splitPayload = () =>
     splitOpen ? filledSplit.map((l) => ({ colour: l.colour || null, size: l.size || null, qty: l.qty })) : [];
 
+  // Change 40 G — when extra trims are added, the PO becomes multi-item: line 1 is the primary
+  // trim, then one line per extra. Otherwise the legacy colour/size split payload stands.
+  const filledMore = moreTrims.filter((m) => m.trimItemId && +m.qty > 0);
+  const linesPayload = () =>
+    filledMore.length > 0
+      ? [
+          { trimItemId: +trimId, qty: +qty || 0, rate: rate ? +rate : null },
+          ...filledMore.map((m) => ({ trimItemId: m.trimItemId, qty: +m.qty, rate: m.rate ? +m.rate : null })),
+        ].filter((l) => l.trimItemId && l.qty > 0)
+      : splitPayload();
+
   /** Change 38 Part A — one payload for both the silent draft and the placed order. */
   function orderPayload() {
     return {
       trimItemId: +trimId,
       supplierId: supplierId ? +supplierId : null,
-      qty: effectiveQty,
+      qty: filledMore.length > 0 ? (+qty || 0) + filledMore.reduce((a, m) => a + +m.qty, 0) : effectiveQty,
       unit: unit || null,
       rate: rate ? +rate : null,
       expectedDate: expected || null,
       remarks: remarks.trim() || null,
-      lines: splitPayload(),
+      lines: linesPayload(),
     };
   }
 
@@ -458,6 +473,25 @@ export function TrimOrderManager({
                 <datalist id="trim-order-colours">{colours.map((c) => <option key={c} value={c} />)}</datalist>
               </div>
             )}
+          </div>
+
+          {/* Change 40 Part G — add more trims to the SAME PO (one PO, many trim SKUs). */}
+          <div className="mt-3 border-t border-hairline pt-3">
+            <div className="mb-1.5 t-xs font-semibold text-t1">More trims on this PO <span className="font-normal text-faint">(optional)</span></div>
+            {moreTrims.map((m, i) => (
+              <div key={i} className="mb-1.5 flex items-center gap-1.5">
+                <select value={m.trimItemId || ""} onChange={(e) => setMoreTrims((rows) => rows.map((r, idx) => idx === i ? { ...r, trimItemId: +e.target.value } : r))} className={`${inp} min-w-[160px]`}>
+                  <option value="">— pick trim —</option>
+                  {trimList.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                <input type="number" value={m.qty} onChange={(e) => setMoreTrims((rows) => rows.map((r, idx) => idx === i ? { ...r, qty: e.target.value } : r))} placeholder="qty" className={`${inp} w-24 text-right tnum`} />
+                <input type="number" value={m.rate} onChange={(e) => setMoreTrims((rows) => rows.map((r, idx) => idx === i ? { ...r, rate: e.target.value } : r))} placeholder="₹ rate" className={`${inp} w-20 text-right tnum`} />
+                <button onClick={() => setMoreTrims((rows) => rows.filter((_, idx) => idx !== i))} className="text-faint hover:text-danger"><X size={13} /></button>
+              </div>
+            ))}
+            <button onClick={() => setMoreTrims((rows) => [...rows, { trimItemId: 0, qty: "", rate: "" }])} className="inline-flex items-center gap-1 t-xs font-semibold text-primary-ink hover:underline">
+              <Plus size={12} /> Add another trim
+            </button>
           </div>
         </Card>
 

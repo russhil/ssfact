@@ -2524,12 +2524,18 @@ export async function markPOSent(input: { id: number }) {
 // inward challan against it (draftChallanFromTrimOrder). A plain qty order is valid; the
 // optional lines[] split is for trims ordered colour- or size-wise.
 
-type TrimOrderLineInput = { colour?: string | null; size?: string | null; qty: number };
+// Change 40 Part G — a trim PO line may now name its own trim SKU + rate (a trim PO can hold
+// many different trims). Legacy colour/size split lines simply carry trimItemId = null.
+type TrimOrderLineInput = { colour?: string | null; size?: string | null; qty: number; trimItemId?: number | null; rate?: number | null };
 
 const cleanTrimLines = (lines?: TrimOrderLineInput[] | null) =>
   (lines ?? [])
-    .map((l) => ({ colour: l.colour?.trim() || null, size: l.size?.trim() || null, qty: l.qty }))
+    .map((l) => ({ colour: l.colour?.trim() || null, size: l.size?.trim() || null, qty: l.qty, trimItemId: l.trimItemId ?? null, rate: l.rate ?? null }))
     .filter((l) => l.qty > 0);
+
+/** Change 40 G — the order's primary/legacy item is the first line's trim, or the passed one. */
+const firstLineTrimItem = (lines: { trimItemId: number | null }[], fallback: number) =>
+  lines.find((l) => l.trimItemId != null)?.trimItemId ?? fallback;
 
 export async function createTrimOrder(input: {
   trimItemId: number;
@@ -2556,7 +2562,9 @@ export async function createTrimOrder(input: {
   const trim = await db.trimItem.findUnique({ where: { id: input.trimItemId }, select: { unit: true } });
   if (!trim) throw new Error("Trim not found");
   const data = {
-      trimItemId: input.trimItemId,
+      // Change 40 G — the order's legacy/primary item becomes the first line's trim on a
+      // multi-trim PO (keeps every existing read that joins TrimOrder.trimItem working).
+      trimItemId: firstLineTrimItem(lines, input.trimItemId),
       supplierId: input.supplierId ?? null,
       qty: total,
       unit: input.unit ?? trim.unit ?? null,
@@ -2609,7 +2617,8 @@ export async function updateTrimOrder(input: {
         await tx.trimOrderLine.createMany({ data: lines.map((l) => ({ ...l, trimOrderId: input.id })) });
         await tx.trimOrder.update({
           where: { id: input.id },
-          data: { qty: lines.reduce((a, l) => a + l.qty, 0) },
+          // Change 40 G — keep the total AND the primary item in sync with the lines.
+          data: { qty: lines.reduce((a, l) => a + l.qty, 0), trimItemId: lines.find((l) => l.trimItemId != null)?.trimItemId ?? undefined },
         });
       }
     }
@@ -3949,12 +3958,18 @@ export async function draftChallanFromTrimOrder(input: { id: number }) {
   if (open) return { id: open.id, already: true as const };
 
   const unit = o.unit ?? o.trimItem.unit ?? null;
-  // Change 40 H4 — received qty starts BLANK (0); the ordered figure is a target in the note.
-  // (Part G will further split this per trim item once multi-trim POs land.)
-  const rows = o.lines.length > 0 ? o.lines.map((l) => l.qty) : [o.qty];
-  const lines = rows
-    .filter((q) => q > 0)
-    .map((q) => ({ trimItemId: o.trimItemId, qty: 0, unit, rate: o.rate, note: `ordered ${num(q)}${unit ? ` ${unit}` : ""}` }));
+  // Change 40 G — ONE challan line per trim ITEM (not per colour), so a multi-trim PO drafts
+  // correctly. H4 — received qty starts BLANK (0); the ordered total is a target in the note.
+  const byItem = new Map<number, { qty: number; rate: number | null }>();
+  for (const l of o.lines) {
+    const id = l.trimItemId ?? o.trimItemId;
+    const cur = byItem.get(id) ?? { qty: 0, rate: l.rate ?? o.rate ?? null };
+    byItem.set(id, { qty: cur.qty + l.qty, rate: cur.rate });
+  }
+  if (byItem.size === 0) byItem.set(o.trimItemId, { qty: o.qty, rate: o.rate ?? null });
+  const lines = [...byItem.entries()]
+    .filter(([, v]) => v.qty > 0)
+    .map(([trimItemId, v]) => ({ trimItemId, qty: 0, unit, rate: v.rate, note: `ordered ${num(v.qty)}${unit ? ` ${unit}` : ""}` }));
   if (lines.length === 0) throw new Error("This order has nothing to receive");
 
   const id = await db.$transaction((tx) =>
