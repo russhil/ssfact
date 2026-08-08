@@ -3233,6 +3233,22 @@ export async function linkChallanToOrder(input: {
   return { ok: true };
 }
 
+/**
+ * Change 40 F5 — the last rate actually PAID for a trim, from its sourcing history
+ * (TrimItemSupplier), for the "last paid ₹X on POT-…" line on the order form. More useful than
+ * the standard base price once there is history.
+ */
+export async function lastPaidForTrim(trimItemId: number): Promise<{ rate: number; poNumber: string | null } | null> {
+  await requireRole("ADMIN", "STAFF");
+  if (!trimItemId) return null;
+  const row = await db.trimItemSupplier.findFirst({
+    where: { trimItemId, rate: { not: null } },
+    orderBy: [{ sourcedAt: "desc" }, { id: "desc" }],
+    select: { rate: true, poNumber: true },
+  });
+  return row?.rate != null ? { rate: row.rate, poNumber: row.poNumber } : null;
+}
+
 /** Change 40 H3 — client-callable wrapper so the challan screen loads a supplier's open POs. */
 export async function openOrdersForSupplier(supplierId: number, kind: "fabric" | "trim" | "both" = "both") {
   await requireRole("ADMIN", "STAFF");

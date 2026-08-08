@@ -5,7 +5,7 @@ import { inputClass } from "@/components/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createTrimOrder, createTrimQuick, updateTrimOrder, deleteTrimOrder, voidTrimOrder, draftChallanFromTrimOrder, generateTrimPO, voidChallan } from "@/lib/actions";
+import { createTrimOrder, createTrimQuick, updateTrimOrder, deleteTrimOrder, voidTrimOrder, draftChallanFromTrimOrder, generateTrimPO, voidChallan, lastPaidForTrim } from "@/lib/actions";
 import { Card, Badge, MobileCardList, SortHeader, TableToolbar, useTableView, type CsvExport, type FilterDef } from "@/components/ui";
 import { num, inr } from "@/lib/format";
 import { orderFlag } from "@/lib/order-flags";
@@ -86,8 +86,11 @@ export function TrimOrderManager({
 
   const trim = useMemo(() => trimList.find((t) => t.id === +trimId), [trimList, trimId]);
 
+  const [lastPaid, setLastPaid] = useState<{ rate: number; poNumber: string | null } | null>(null);
+
   function pickTrim(v: string) {
     setTrimId(v);
+    setLastPaid(null);
     const t = trimList.find((x) => x.id === +v);
     if (!t) return;
     // Change 40 F4 — prefill unit, the base price as the rate, and the trim's default supplier
@@ -95,6 +98,8 @@ export function TrimOrderManager({
     if (t.unit) setUnit(t.unit);
     if (t.rate != null) setRate(String(t.rate));
     if (t.supplierId != null && !supplierId) setSupplierId(String(t.supplierId));
+    // Change 40 F5 — the last rate actually paid, more useful than the standard price.
+    lastPaidForTrim(+v).then(setLastPaid).catch(() => setLastPaid(null));
   }
 
   // Change 40 F5 — live variance vs the base price. A warning, never a block (ADMINs raise POs).
@@ -200,6 +205,19 @@ export function TrimOrderManager({
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftSig, editingId]);
+
+  // Change 40 C4 — an explicit "Save as draft" choice (the form also autosaves as you type).
+  async function saveAsDraft() {
+    if (!trimId) return;
+    setBusy(true);
+    try {
+      await createTrimOrder({ ...orderPayload(), draft: true, draftId: attachId });
+      resetForm();
+      router.refresh();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally { setBusy(false); }
+  }
 
   async function create() {
     if (!trimId || effectiveQty <= 0) return;
@@ -456,6 +474,8 @@ export function TrimOrderManager({
                   base ₹{num(baseRate, 2)} · {variancePct >= 0 ? "+" : ""}{num(variancePct, 1)}%
                 </p>
               )}
+              {/* Change 40 F5 — the last rate actually paid, from sourcing history. */}
+              {lastPaid && <p className="mt-0.5 t-micro text-faint">last paid ₹{num(lastPaid.rate, 2)}{lastPaid.poNumber ? ` on ${lastPaid.poNumber}` : ""}</p>}
             </Labelled>
             <Labelled label="Expected date">
               <input type="date" value={expected} onChange={(e) => setExpected(e.target.value)} className={inp} />
@@ -530,8 +550,14 @@ export function TrimOrderManager({
           </div>
           <button onClick={editingId ? save : create} disabled={busy || !trimId || effectiveQty <= 0}
             className="mt-4 w-full rounded-lg bg-t1 px-3 py-2.5 t-body font-bold text-surface transition hover:opacity-90 disabled:opacity-40">
-            {busy ? "Saving…" : editingId ? "Save changes" : "Create order"}
+            {busy ? "Saving…" : editingId ? "Save changes" : "Place order"}
           </button>
+          {/* Change 40 C4 — hold it as a draft instead of placing it now. */}
+          {!editingId && (
+            <button onClick={saveAsDraft} disabled={busy || !trimId} className="mt-2 w-full rounded-lg border border-border px-3 py-2 t-sm font-semibold text-t1 hover:bg-surface-2 disabled:opacity-40">
+              Save as draft
+            </button>
+          )}
 
           {/* Change 38 Part H — sample photos on the order itself. */}
           {attachId != null && (
