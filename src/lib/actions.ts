@@ -3324,6 +3324,35 @@ export async function createTransferChallan(input: {
   return { challanNo };
 }
 
+/**
+ * Change 40 Part L10 — opening stock, entered FIRM-WISE. Posts an OPENING movement per item for
+ * the chosen firm (the OPENING reason already exists). Legacy movements keep buyerId = null and
+ * are never rewritten; this count is what makes the per-firm balances correct going forward.
+ */
+export async function recordOpeningStock(input: {
+  buyerId: number;
+  fabric?: { fabricColorId: number; qty: number }[];
+  trim?: { trimItemId: number; qty: number }[];
+}) {
+  const user = await requireRole("ADMIN");
+  if (!input.buyerId) throw new Error("Pick a firm");
+  await db.$transaction(async (tx) => {
+    for (const f of input.fabric ?? []) {
+      if (!(f.qty > 0)) continue;
+      const fc = await tx.fabricColor.findUnique({ where: { id: f.fabricColorId }, select: { fabricId: true, color: true } });
+      if (!fc) continue;
+      await postMaterialMovement(tx, { direction: "IN", qty: f.qty, date: new Date(), fabricId: fc.fabricId, colour: fc.color, buyerId: input.buyerId, reason: "OPENING", note: "Opening stock" });
+    }
+    for (const t of input.trim ?? []) {
+      if (!(t.qty > 0)) continue;
+      await postMaterialMovement(tx, { direction: "IN", qty: t.qty, date: new Date(), trimItemId: t.trimItemId, buyerId: input.buyerId, reason: "OPENING", note: "Opening stock" });
+    }
+    await logAudit(tx, user, { action: "recordOpeningStock", entity: "Buyer", entityId: String(input.buyerId), entityLabel: `firm #${input.buyerId}`, summary: `Opening stock entered for firm #${input.buyerId}` });
+  });
+  revalidatePath("/inventory");
+  return { ok: true };
+}
+
 // ── Change 40 Part K — press challan (in-house pressing, moves NO stock) ──────
 //
 // A press challan is a tracking document only: it never touches FabricColor.currentStock,
