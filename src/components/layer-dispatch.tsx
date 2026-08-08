@@ -7,12 +7,8 @@ import { useRouter } from "next/navigation";
 import { addDispatch } from "@/lib/actions";
 import { num } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { SIZE_ORDER, orderSizes } from "@/lib/job-labels";
 
 const inp = inputClass("sm");
-// Change 26: a lay may cut sizes beyond the old hardcoded S–3XL list, so the SALE
-// fallback (used only when no layer is selected) spans the full size axis.
-const DEFAULT_SIZES = SIZE_ORDER;
 
 export type DispatchLayer = {
   id: number;
@@ -23,10 +19,19 @@ export type DispatchLayer = {
 };
 export type PriorDispatch = { id: number; qty: number; layerIds: number[] };
 
+const REASONS = ["ORDER", "SALE", "STOCK", "OTHER"] as const;
+
 /**
- * Change 14 Part B — dispatch finished garments against one or more cutting layers of the
- * SAME vendor, in a size×colour grid derived from what those layers cut. Sale = colour-less.
- * Legacy cards with no layers fall back to a single-qty dispatch.
+ * Change 40 Part J — dispatch simplified to totals.
+ *
+ * Owner's ruling: the unit of account is (job card × vendor), NOT the layer. A job card has one
+ * product, so every layer under a vendor is the same garment — pooling across a vendor's layers
+ * loses no information. So the screen is one row: job card → vendor (mandatory) → two read-only
+ * auto-fills (pooled pieces + how many layers) → one typed total → Order/Sale/Stock/Other.
+ *
+ * The size×colour grid and the layer picker are GONE (per the scope boundary, size-wise actuals
+ * live on a printed sheet, not in software). Over-dispatch is shown and NEVER blocked; the
+ * quality confirm survives. Historical dispatches keep their DispatchLines and still print.
  */
 export function LayerDispatch({
   jobCardId,
@@ -39,81 +44,41 @@ export function LayerDispatch({
   layers: DispatchLayer[];
   prior?: PriorDispatch[];
   defaultArrangedBy: string;
-  /**
-   * Change 36 Part 3 — this card's inspection position. The confirm CANNOT live on the
-   * server: addDispatch is a server action and cannot prompt, and throwing there would
-   * turn "warns" into "blocks", which the gate explicitly forbids. So it lives here.
-   */
   quality?: { status: "NONE" | "PASS" | "FAIL" | "PARTIAL" | "OPEN_REJECTS"; openRework: number };
 }) {
   const router = useRouter();
-  const [sale, setSale] = useState(false);
-  const [grid, setGrid] = useState<Record<string, string>>({}); // key `colour|||size` -> qty
-  const [saleGrid, setSaleGrid] = useState<Record<string, string>>({}); // size -> qty
+  const [qty, setQty] = useState("");
+  const [reason, setReason] = useState<(typeof REASONS)[number]>("ORDER");
   const [date, setDate] = useState("");
   const [challan, setChallan] = useState("");
   const [busy, setBusy] = useState(false);
-  const [lastDc, setLastDc] = useState<string | null>(null); // Change 17: last DC-YYYY-NNN issued
+  const [lastDc, setLastDc] = useState<string | null>(null);
 
-  // legacy fallback (no layers) — simple total qty + reason
-  const [legacyQty, setLegacyQty] = useState("");
-  const [legacyReason, setLegacyReason] = useState<"ORDER" | "SALE">("ORDER");
-
-  const key = (c: string, s: string) => `${c}|||${s}`;
-
-  // Change 17 Part I: card-driven — the table covers ALL layers of the card by default.
-  // If the card spans >1 stitching vendor, an optional filter narrows it to one vendor so
-  // per-vendor balances stay correct; a null-vendor layer only shows under "All".
   const vendorList = useMemo(
     () => [...new Set(layers.map((l) => l.vendor).filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b)),
     [layers]
   );
-  const multiVendor = vendorList.length > 1;
-  const [vendorFilter, setVendorFilter] = useState<string | null>(null);
+  // Vendor is mandatory; default to the only one when there is a single vendor on the card.
+  const [vendor, setVendor] = useState<string | null>(vendorList.length === 1 ? vendorList[0] : null);
 
-  const activeLayers = useMemo(
-    () => (vendorFilter ? layers.filter((l) => l.vendor === vendorFilter) : layers),
-    [layers, vendorFilter]
+  // The vendor's layers on this card, and the two auto-filled numbers.
+  const vendorLayers = useMemo(() => (vendor ? layers.filter((l) => l.vendor === vendor) : []), [layers, vendor]);
+  const vendorLayerIds = useMemo(() => vendorLayers.map((l) => l.id), [vendorLayers]);
+  const pooledPieces = useMemo(
+    () => vendorLayers.reduce((a, l) => a + l.cells.reduce((b, c) => b + (c.qty > 0 ? c.qty : 0), 0), 0),
+    [vendorLayers]
   );
-  const activeLayerIds = useMemo(() => activeLayers.map((l) => l.id), [activeLayers]);
-
-  // union of colours/sizes cut in the active layers, and pooled cut per cell
-  const { colours, sizes, cutCell, poolCut } = useMemo(() => {
-    const cutMap = new Map<string, number>();
-    const colSet = new Set<string>();
-    const sizeSet = new Set<string>();
-    let pool = 0;
-    for (const l of activeLayers)
-      for (const c of l.cells) {
-        if (c.qty <= 0) continue;
-        colSet.add(c.colour); sizeSet.add(c.size); pool += c.qty;
-        cutMap.set(key(c.colour, c.size), (cutMap.get(key(c.colour, c.size)) ?? 0) + c.qty);
-      }
-    return {
-      colours: [...colSet].sort((a, b) => a.localeCompare(b)),
-      sizes: [...sizeSet].sort(orderSizes),
-      cutCell: (c: string, s: string) => cutMap.get(key(c, s)) ?? 0,
-      poolCut: pool,
-    };
-  }, [activeLayers]);
-
-  const saleSizes = sizes.length ? sizes : DEFAULT_SIZES;
-
   const priorDispatched = useMemo(
-    () => prior.filter((e) => e.layerIds.some((id) => activeLayerIds.includes(id))).reduce((a, e) => a + e.qty, 0),
-    [prior, activeLayerIds]
+    () => prior.filter((e) => e.layerIds.some((id) => vendorLayerIds.includes(id))).reduce((a, e) => a + e.qty, 0),
+    [prior, vendorLayerIds]
   );
-  const enteringNow = useMemo(() => {
-    if (sale) return Object.values(saleGrid).reduce((a, v) => a + (+v || 0), 0);
-    return Object.values(grid).reduce((a, v) => a + (+v || 0), 0);
-  }, [grid, saleGrid, sale]);
-  const balance = poolCut - priorDispatched - enteringNow;
+  const entering = +qty || 0;
+  // Running balance may go negative/over — never clamp (spec). Purely informational.
+  const balance = pooledPieces - priorDispatched - entering;
 
-  /**
-   * Returns false when the operator backs out. Never blocks on its own — an
-   * un-inspected or failed card ships if they say so, and the confirm is the record
-   * that they were told.
-   */
+  const hasLayers = layers.length > 0;
+  const canSave = !busy && entering > 0 && (!hasLayers || !!vendor);
+
   function confirmQuality(): boolean {
     const q = quality;
     if (!q || q.status === "PASS") return true;
@@ -127,29 +92,22 @@ export function LayerDispatch({
 
   async function save() {
     if (!confirmQuality()) return;
+    if (entering === 0) return;
+    if (hasLayers && !vendor) { alert("Pick the vendor these goods are coming from."); return; }
     setBusy(true);
     try {
-      const lines = sale
-        ? saleSizes
-            .map((s) => ({ colour: null, size: s, qty: +saleGrid[s] || 0 }))
-            .filter((l) => l.qty !== 0)
-        : colours.flatMap((c) =>
-            sizes
-              .map((s) => ({ colour: c, size: s, qty: +grid[key(c, s)] || 0 }))
-              .filter((l) => l.qty !== 0)
-          );
-      if (!lines.length) { setBusy(false); return; }
       const res = await addDispatch({
         jobCardId,
-        reason: sale ? "SALE" : "ORDER",
+        qty: entering,
+        reason,
         date: date || undefined,
         challan: challan.trim() || undefined,
         arrangedBy: defaultArrangedBy || null,
-        layerIds: activeLayerIds,
-        lines,
+        // Attach every layer of the chosen vendor (or none for a legacy no-layer card). Nothing
+        // reads a per-layer dispatch balance any more, so this is provenance only.
+        layerIds: hasLayers ? vendorLayerIds : undefined,
       });
-      setGrid({}); setSaleGrid({}); setChallan(""); setSale(false);
-      setLastDc(res?.dispatchNo ?? null);
+      setQty(""); setChallan(""); setLastDc(res?.dispatchNo ?? null);
       router.refresh();
     } catch (e) {
       alert("Could not dispatch: " + (e as Error).message);
@@ -158,135 +116,69 @@ export function LayerDispatch({
     }
   }
 
-  const dcBanner = lastDc ? (
-    <div className="mb-2 rounded-md border border-ok/30 bg-ok-soft px-2.5 py-1.5 t-xs font-semibold text-ok">
-      Dispatch logged — challan <span className="tnum">{lastDc}</span>. Open it from Recent Dispatches to print / share.
-    </div>
-  ) : null;
-
-  // ── legacy card: no cutting layers → single-qty dispatch ─────────────────────
-  if (layers.length === 0) {
-    async function saveLegacy() {
-      if (!confirmQuality()) return;
-      if (!legacyQty || +legacyQty === 0) return;
-      setBusy(true);
-      try {
-        const res = await addDispatch({ jobCardId, qty: +legacyQty, reason: legacyReason, date: date || undefined, challan: challan.trim() || undefined, arrangedBy: defaultArrangedBy || null });
-        setLegacyQty(""); setChallan(""); setLastDc(res?.dispatchNo ?? null);
-        router.refresh();
-      } catch (e) { alert("Could not dispatch: " + (e as Error).message); } finally { setBusy(false); }
-    }
-    return (
-      <div className="mt-3 rounded-lg border border-dashed border-border p-2.5">
-        <div className="mb-1.5 t-xs font-semibold text-t1">Log dispatch</div>
-        {dcBanner}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <input type="number" value={legacyQty} onChange={(e) => setLegacyQty(e.target.value)} placeholder="qty" className={`${inp} w-24 text-right tnum`} />
-          <div className="flex rounded-md border border-border p-0.5">
-            {(["ORDER", "SALE"] as const).map((r) => (
-              <button key={r} onClick={() => setLegacyReason(r)} className={cn("rounded px-2 py-1 t-xs font-semibold", legacyReason === r ? "bg-primary text-accent-on" : "text-t2 hover:text-ink")}>{r}</button>
-            ))}
-          </div>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inp} />
-          <input value={challan} onChange={(e) => setChallan(e.target.value)} placeholder="challan #" className={`${inp} w-28`} />
-          <button onClick={saveLegacy} disabled={busy || !legacyQty} className="rounded-md bg-primary px-2.5 py-1.5 t-sm font-semibold text-accent-on hover:opacity-90 disabled:opacity-40">Log</button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="mt-3 rounded-lg border border-dashed border-border p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="t-xs font-semibold text-t1">Log dispatch (vendor → warehouse)</span>
-        <button onClick={() => { setSale((s) => !s); }} className={cn("rounded-md border px-2 py-1 t-xs font-semibold", sale ? "border-warn/30 bg-warn-soft text-warn" : "border-border bg-surface text-t2")}>
-          {sale ? "Sale (defective)" : "Mark as Sale"}
-        </button>
-      </div>
+      <div className="mb-2 t-xs font-semibold text-t1">Log dispatch (vendor → warehouse)</div>
 
-      {dcBanner}
-
-      {/* Change 17 Part I: card-wide table; vendor filter only when the card spans >1 vendor */}
-      {multiVendor && (
-        <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
-          <span className="t-micro font-semibold uppercase tracking-wide text-faint">Vendor</span>
-          <button
-            onClick={() => setVendorFilter(null)}
-            className={cn("rounded-lg border px-2.5 py-1 t-xs font-semibold", vendorFilter === null ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-t1")}
-          >
-            All
-          </button>
-          {vendorList.map((v) => (
-            <button
-              key={v}
-              onClick={() => setVendorFilter(v)}
-              className={cn("rounded-lg border px-2.5 py-1 t-xs font-semibold", vendorFilter === v ? "border-primary bg-primary-soft text-primary-ink" : "border-border bg-surface text-t1")}
-            >
-              {v}
-            </button>
-          ))}
+      {lastDc && (
+        <div className="mb-2 rounded-md border border-ok/30 bg-ok-soft px-2.5 py-1.5 t-xs font-semibold text-ok">
+          Dispatch logged — challan <span className="tnum">{lastDc}</span>. Open it from Recent Dispatches to print / share.
         </div>
       )}
 
-      {poolCut === 0 ? (
-        <p className="py-2 text-center t-xs text-muted">Nothing cut to dispatch{vendorFilter ? ` for ${vendorFilter}` : ""}</p>
-      ) : (
-        <>
-          <div className="mb-2 t-xs text-muted">
-            {vendorFilter ? <>Vendor: <span className="font-semibold text-ink">{vendorFilter}</span> · </> : null}
-            pool cut {num(poolCut)} · dispatched {num(priorDispatched)}
-          </div>
+      <div className="flex flex-wrap items-end gap-2.5">
+        {hasLayers && (
+          <label className="flex flex-col gap-1">
+            <span className="t-micro font-semibold uppercase tracking-wide text-faint">Vendor</span>
+            <select value={vendor ?? ""} onChange={(e) => setVendor(e.target.value || null)} className={`${inp} min-w-[140px]`}>
+              <option value="">— pick vendor —</option>
+              {vendorList.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </label>
+        )}
 
-          {sale ? (
-            <div className="overflow-x-auto">
-              <table className="text-center t-sm">
-                <thead><tr className="t-micro font-bold text-faint">{saleSizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}</tr></thead>
-                <tbody><tr>{saleSizes.map((s) => (
-                  <td key={s} className="px-1 py-1">
-                    <input type="number" value={saleGrid[s] ?? ""} onChange={(e) => setSaleGrid((p) => ({ ...p, [s]: e.target.value }))} placeholder="0" className="w-14 rounded-md border border-border py-1 text-center t-sm tnum outline-none focus:border-primary" />
-                  </td>
-                ))}</tr></tbody>
-              </table>
-              
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-center t-sm">
-                <thead>
-                  <tr className="t-micro font-bold text-faint">
-                    <th className="px-2 py-1 text-left">Colour \ Size</th>
-                    {sizes.map((s) => <th key={s} className="px-2 py-1">{s}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {colours.map((c) => (
-                    <tr key={c} className="border-t border-hairline">
-                      <td className="px-2 py-1 text-left font-semibold text-t1">{c || "—"}</td>
-                      {sizes.map((s) => {
-                        const cut = cutCell(c, s);
-                        if (cut <= 0) return <td key={s} className="px-1 py-1 text-faint">·</td>;
-                        return (
-                          <td key={s} className="px-1 py-1">
-                            <input type="number" value={grid[key(c, s)] ?? ""} onChange={(e) => setGrid((p) => ({ ...p, [key(c, s)]: e.target.value }))} placeholder={String(cut)} className="w-14 rounded-md border border-border py-1 text-center t-sm tnum outline-none focus:border-primary" />
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inp} />
-            <input value={challan} onChange={(e) => setChallan(e.target.value)} placeholder="challan #" className={`${inp} w-28`} />
-            <span className="t-sm">Entering <span className="font-bold tnum">{num(enteringNow)}</span> · balance <span className={cn("font-bold tnum", balance < 0 ? "text-ok" : "text-warn")}>{num(balance)}</span></span>
-            <button onClick={save} disabled={busy || enteringNow === 0} className="ml-auto rounded-md bg-primary px-3 py-1.5 t-sm font-semibold text-accent-on hover:opacity-90 disabled:opacity-40">
-              {busy ? "Saving…" : sale ? "Log sale" : "Log dispatch"}
-            </button>
+        {/* two read-only auto-fills from (job card × vendor) */}
+        {hasLayers && vendor && (
+          <div className="flex items-end gap-4 rounded-lg border border-border bg-surface-2 px-3 py-1.5">
+            <div><div className="t-micro text-faint">Pieces held</div><div className="font-bold tnum">{num(pooledPieces)}</div></div>
+            <div><div className="t-micro text-faint">Layers</div><div className="font-bold tnum">{vendorLayers.length}</div></div>
+            <div><div className="t-micro text-faint">Already sent</div><div className="tnum text-t2">{num(priorDispatched)}</div></div>
           </div>
-        </>
+        )}
+
+        <label className="flex flex-col gap-1">
+          <span className="t-micro font-semibold uppercase tracking-wide text-faint">Dispatch qty</span>
+          <input type="number" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="total pieces" className={`${inp} w-32 text-right tnum`} />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="t-micro font-semibold uppercase tracking-wide text-faint">Reason</span>
+          <select value={reason} onChange={(e) => setReason(e.target.value as (typeof REASONS)[number])} className={inp}>
+            {REASONS.map((r) => <option key={r} value={r}>{r.charAt(0) + r.slice(1).toLowerCase()}</option>)}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="t-micro font-semibold uppercase tracking-wide text-faint">Date</span>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inp} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="t-micro font-semibold uppercase tracking-wide text-faint">Challan #</span>
+          <input value={challan} onChange={(e) => setChallan(e.target.value)} placeholder="optional" className={`${inp} w-28`} />
+        </label>
+
+        <button onClick={save} disabled={!canSave} className="ml-auto rounded-md bg-primary px-3 py-2 t-sm font-semibold text-accent-on hover:opacity-90 disabled:opacity-40">
+          {busy ? "Saving…" : "Log dispatch"}
+        </button>
+      </div>
+
+      {hasLayers && vendor && entering > 0 && (
+        // Over-dispatch stays visible, never blocked (spec J6).
+        <div className="mt-2 t-sm">
+          Entering <span className="font-bold tnum">{num(entering)}</span> · balance{" "}
+          <span className={cn("font-bold tnum", balance < 0 ? "text-ok" : "text-warn")}>{num(balance)}</span>
+          {balance < 0 && <span className="ml-1 text-ok">(over the vendor's cut — allowed)</span>}
+        </div>
       )}
     </div>
   );

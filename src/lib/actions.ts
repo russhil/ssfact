@@ -1100,7 +1100,7 @@ export async function addDispatch(input: {
   challan?: string;
   note?: string;
   arrangedBy?: string | null;
-  reason?: "ORDER" | "SALE" | "OTHER";
+  reason?: "ORDER" | "SALE" | "STOCK" | "OTHER"; // Change 40 Part J — STOCK = moved to warehouse
   // Change 14 Part B: size×colour line breakup + the layers dispatched against (same vendor).
   lines?: { colour?: string | null; size: string; qty: number }[];
   layerIds?: number[];
