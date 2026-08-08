@@ -3109,10 +3109,25 @@ export async function createChallan(input: {
   jobCardId?: number | null; // Change 17 Part C: the "master head" this challan is raised against
   date?: string;
   note?: string | null;
+  // Change 40 Part H — an inward challan may arrive already knowing its PO (path B), or with
+  // none yet (path C → poPending, link later via linkChallanToOrder).
+  fabricOrderId?: number | null;
+  trimOrderId?: number | null;
+  poPending?: boolean;
+  workType?: string | null; // Change 40 I6 — explicit job-work type for the number code
 }) {
   const user = await requireRole("ADMIN", "STAFF");
   if (input.direction === "INWARD" && !input.supplierId) throw new Error("Inward challan needs a supplier");
   if (input.direction === "OUTWARD" && !input.vendorId) throw new Error("Outward challan needs a vendor");
+  // Change 40 H6 — a linked PO's supplier must match the challan's supplier.
+  if (input.direction === "INWARD" && input.fabricOrderId) {
+    const o = await db.fabricOrder.findUnique({ where: { id: input.fabricOrderId }, select: { supplierId: true } });
+    if (o && o.supplierId != null && o.supplierId !== input.supplierId) throw new Error("This PO belongs to a different supplier");
+  }
+  if (input.direction === "INWARD" && input.trimOrderId) {
+    const o = await db.trimOrder.findUnique({ where: { id: input.trimOrderId }, select: { supplierId: true } });
+    if (o && o.supplierId != null && o.supplierId !== input.supplierId) throw new Error("This PO belongs to a different supplier");
+  }
   // Job-card requirement by kind is a UI warning only (spec Part C) — never blocked here.
   const c = await db.materialChallan.create({
     data: {
@@ -3120,6 +3135,10 @@ export async function createChallan(input: {
       supplierId: input.direction === "INWARD" ? input.supplierId ?? null : null,
       vendorId: input.direction === "OUTWARD" ? input.vendorId ?? null : null,
       jobCardId: input.jobCardId ?? null,
+      fabricOrderId: input.direction === "INWARD" ? input.fabricOrderId ?? null : null,
+      trimOrderId: input.direction === "INWARD" ? input.trimOrderId ?? null : null,
+      poPending: input.direction === "INWARD" ? !!input.poPending && !input.fabricOrderId && !input.trimOrderId : false,
+      workType: (input.workType as any) ?? null,
       date: input.date ? new Date(input.date) : new Date(),
       note: input.note ?? null,
       createdById: user.userId, // Change 39 G2 — prepared-by
@@ -3127,6 +3146,63 @@ export async function createChallan(input: {
   });
   revalidatePath("/challans");
   return { id: c.id };
+}
+
+/**
+ * Change 40 Part H6 — attach a PO to an EXISTING challan (path B: goods arrived before the
+ * paperwork was linked). There was no action that could do this: start from the challan and
+ * the link could never be made, not even later. In one transaction it sets the FK, clears
+ * poPending, fires the shared received-marking rule if the challan is already LOCKED, rejects a
+ * supplier mismatch, and audit-logs. Quantity mismatch is shown by the UI, never blocked here
+ * (H6.2 — "the system should just show the difference").
+ */
+export async function linkChallanToOrder(input: {
+  challanId: number;
+  fabricOrderId?: number | null;
+  trimOrderId?: number | null;
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  const c = await db.materialChallan.findUnique({
+    where: { id: input.challanId },
+    select: { id: true, direction: true, status: true, supplierId: true, challanNo: true },
+  });
+  if (!c) throw new Error("Challan not found");
+  if (c.direction !== "INWARD") throw new Error("Only an inward challan can be linked to a purchase order");
+  if (!input.fabricOrderId && !input.trimOrderId) throw new Error("Pick a purchase order to link");
+
+  let poLabel = "";
+  if (input.fabricOrderId) {
+    const o = await db.fabricOrder.findUnique({ where: { id: input.fabricOrderId }, select: { supplierId: true, poNumber: true } });
+    if (!o) throw new Error("Order not found");
+    if (o.supplierId != null && o.supplierId !== c.supplierId) throw new Error("This PO belongs to a different supplier");
+    poLabel = o.poNumber ?? `fabric order #${input.fabricOrderId}`;
+  }
+  if (input.trimOrderId) {
+    const o = await db.trimOrder.findUnique({ where: { id: input.trimOrderId }, select: { supplierId: true, poNumber: true } });
+    if (!o) throw new Error("Order not found");
+    if (o.supplierId != null && o.supplierId !== c.supplierId) throw new Error("This PO belongs to a different supplier");
+    poLabel = o.poNumber ?? `trim order #${input.trimOrderId}`;
+  }
+
+  const now = new Date();
+  await db.$transaction(async (tx) => {
+    await tx.materialChallan.update({
+      where: { id: c.id },
+      data: { fabricOrderId: input.fabricOrderId ?? null, trimOrderId: input.trimOrderId ?? null, poPending: false, updatedById: user.userId },
+    });
+    // If the challan already posted its stock (LOCKED), linking must fire the same received
+    // rule the lock path fires — otherwise the PO would never be marked received.
+    if (c.status === "LOCKED") {
+      await markOrdersReceived(tx, { fabricOrderId: input.fabricOrderId, trimOrderId: input.trimOrderId, now });
+    }
+    await logAudit(tx, user, {
+      action: "linkChallanToOrder", entity: "MaterialChallan", entityId: String(c.id),
+      entityLabel: c.challanNo ?? `#${c.id}`, summary: `Linked ${c.challanNo ?? `challan #${c.id}`} to ${poLabel}`,
+    });
+  });
+  revalidatePath("/challans");
+  revalidatePath(`/challan-doc/${c.id}`);
+  return { ok: true };
 }
 
 /**
@@ -3269,6 +3345,27 @@ export async function removeChallanLine(input: { id: number }) {
   return { ok: true };
 }
 
+/**
+ * Change 40 H6.1 — mark the purchase order(s) a challan points at as RECEIVED. This rule
+ * decides whether a PO counts as received, so it lives in ONE place and is called from both
+ * lockChallan and linkChallanToOrder (a challan can be locked first, then linked). receivedDate
+ * is preserved once set, so a multi-delivery PO keeps its first date. Voiding still reverts the
+ * PO to ORDER_PLACED in voidChallan — that half is unchanged.
+ */
+async function markOrdersReceived(
+  tx: Tx,
+  a: { fabricOrderId?: number | null; trimOrderId?: number | null; now: Date }
+): Promise<void> {
+  if (a.fabricOrderId) {
+    const o = await tx.fabricOrder.findUnique({ where: { id: a.fabricOrderId }, select: { receivedDate: true } });
+    if (o) await tx.fabricOrder.update({ where: { id: a.fabricOrderId }, data: { status: "RECEIVED", receivedDate: o.receivedDate ?? a.now } });
+  }
+  if (a.trimOrderId) {
+    const o = await tx.trimOrder.findUnique({ where: { id: a.trimOrderId }, select: { receivedDate: true } });
+    if (o) await tx.trimOrder.update({ where: { id: a.trimOrderId }, data: { status: "RECEIVED", receivedDate: o.receivedDate ?? a.now } });
+  }
+}
+
 /** Lock a challan: assign CH-IN/CH-OUT-YYYY-NNN and post every line to the shared ledger. Idempotent. */
 export async function lockChallan(input: { id: number }) {
   const user = await requireRole("ADMIN", "STAFF");
@@ -3324,26 +3421,9 @@ export async function lockChallan(input: { id: number }) {
         trimItemId: l.trimItemId ?? null,
       });
     }
-    // Change 18 Part C: locking the challan is what marks its purchase order received.
-    // receivedDate is preserved once set, so a multi-delivery PO keeps its first date.
-    if (c.fabricOrderId) {
-      const o = await tx.fabricOrder.findUnique({ where: { id: c.fabricOrderId }, select: { receivedDate: true } });
-      if (o) {
-        await tx.fabricOrder.update({
-          where: { id: c.fabricOrderId },
-          data: { status: "RECEIVED", receivedDate: o.receivedDate ?? now },
-        });
-      }
-    }
-    if (c.trimOrderId) {
-      const o = await tx.trimOrder.findUnique({ where: { id: c.trimOrderId }, select: { receivedDate: true } });
-      if (o) {
-        await tx.trimOrder.update({
-          where: { id: c.trimOrderId },
-          data: { status: "RECEIVED", receivedDate: o.receivedDate ?? now },
-        });
-      }
-    }
+    // Change 18 Part C / Change 40 H6.1: locking the challan is what marks its PO received.
+    // Extracted so linkChallanToOrder fires the exact same rule (see markOrdersReceived).
+    await markOrdersReceived(tx, { fabricOrderId: c.fabricOrderId, trimOrderId: c.trimOrderId, now });
     const counterparty = c.supplier?.name ?? c.vendor?.name ?? "—";
     await logAudit(tx, user, {
       action: "lockChallan",

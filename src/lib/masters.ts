@@ -777,3 +777,94 @@ export async function getDraftOrders() {
     trim: trim.map((o) => ({ id: o.id, name: o.trimItem?.name ?? "—", supplier: o.supplier?.name ?? null, qty: o.qty })),
   };
 }
+
+/**
+ * Change 40 Part H3 — the open purchase orders for one supplier, for the inward-challan PO
+ * picker. Supplier-filtered so the list is a handful, not hundreds. The LABEL is the feature:
+ * a store person who did not raise the PO must be able to match the goods in front of him to a
+ * line on screen without asking anyone — PO number, item name (first + "+n more" for a
+ * multi-trim PO), total qty + unit, expected date, and a partly-received chip. Drafts are
+ * included (owner confirmed), labelled "Draft #id". Fully-received, voided and discarded are
+ * excluded; pass includeAll to show everything.
+ */
+export type OpenOrderOption = {
+  id: number;
+  kind: "fabric" | "trim";
+  poNumber: string | null;
+  itemName: string;
+  qty: number;
+  unit: string;
+  expectedDate: Date | null;
+  isDraft: boolean;
+  partlyReceived: boolean;
+  label: string;
+};
+
+export async function getOpenOrdersForSupplier(
+  supplierId: number,
+  kind: "fabric" | "trim" | "both" = "both",
+  includeAll = false,
+): Promise<OpenOrderOption[]> {
+  const openStatus = includeAll ? {} : { status: { notIn: ["RECEIVED", "DISCARDED"] as any } };
+  const base = { supplierId, voidedAt: null, ...openStatus };
+  const out: OpenOrderOption[] = [];
+
+  if (kind === "fabric" || kind === "both") {
+    const rows = await db.fabricOrder.findMany({
+      where: base,
+      select: {
+        id: true, poNumber: true, qty: true, unit: true, expectedDate: true, status: true,
+        fabric: { select: { name: true } },
+        challans: { where: { status: "LOCKED", voidedAt: null }, select: { id: true } },
+      },
+      orderBy: { id: "desc" },
+    });
+    for (const o of rows) {
+      const isDraft = o.status === "DRAFT";
+      const itemName = o.fabric?.name ?? "—";
+      out.push({
+        id: o.id, kind: "fabric", poNumber: o.poNumber, itemName, qty: o.qty, unit: String(o.unit),
+        expectedDate: o.expectedDate, isDraft, partlyReceived: o.challans.length > 0,
+        label: orderLabel(o.poNumber, isDraft, o.id, itemName, o.qty, String(o.unit), o.expectedDate),
+      });
+    }
+  }
+
+  if (kind === "trim" || kind === "both") {
+    const rows = await db.trimOrder.findMany({
+      where: base,
+      select: {
+        id: true, poNumber: true, qty: true, unit: true, expectedDate: true, status: true,
+        trimItem: { select: { name: true } },
+        lines: { select: { trimItemId: true } },
+        challans: { where: { status: "LOCKED", voidedAt: null }, select: { id: true } },
+      },
+      orderBy: { id: "desc" },
+    });
+    for (const o of rows) {
+      const isDraft = o.status === "DRAFT";
+      // multi-trim PO (Part G): first item + "+n more" for the extra distinct SKUs
+      const distinct = new Set(o.lines.map((l) => l.trimItemId).filter((x): x is number => x != null));
+      const extra = Math.max(0, distinct.size - 1);
+      const itemName = (o.trimItem?.name ?? "—") + (extra > 0 ? ` +${extra} more` : "");
+      out.push({
+        id: o.id, kind: "trim", poNumber: o.poNumber, itemName, qty: o.qty, unit: o.unit ?? "pcs",
+        expectedDate: o.expectedDate, isDraft, partlyReceived: o.challans.length > 0,
+        label: orderLabel(o.poNumber, isDraft, o.id, itemName, o.qty, o.unit ?? "pcs", o.expectedDate),
+      });
+    }
+  }
+
+  return out;
+}
+
+function orderLabel(
+  poNumber: string | null, isDraft: boolean, id: number, itemName: string,
+  qty: number, unit: string, expectedDate: Date | null,
+): string {
+  const handle = poNumber ?? (isDraft ? `Draft #${id}` : `#${id}`);
+  const q = `${qty.toLocaleString("en-IN")} ${unit}`;
+  const exp = expectedDate ? ` · exp ${expectedDate.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}` : "";
+  const draft = isDraft ? " [DRAFT]" : "";
+  return `${handle} · ${itemName} · ${q}${exp}${draft}`;
+}
