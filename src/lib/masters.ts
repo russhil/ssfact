@@ -139,6 +139,10 @@ export type TrimMasterRow = {
   status: string; current: number; opening: number;
   // Change 17: master single-source fields (Part D) + reorder trigger (Part H).
   dimension: string | null; perPieceAvg: number | null; reorderLevel: number | null;
+  // Change 40 Part E — the fields the edit form was missing, so Rate/Supplier and the specs
+  // can finally be filled on an existing trim (1,040 were imported without a rate).
+  supplierId: number | null;
+  size: string | null; material: string | null; weight: string | null; shape: string | null; color: string | null; remarks: string | null;
 };
 
 export async function getTrimMaster(): Promise<TrimMasterRow[]> {
@@ -150,6 +154,8 @@ export async function getTrimMaster(): Promise<TrimMasterRow[]> {
     dimension: (t as { dimension?: string | null }).dimension ?? null,
     perPieceAvg: (t as { perPieceAvg?: number | null }).perPieceAvg ?? null,
     reorderLevel: (t as { reorderLevel?: number | null }).reorderLevel ?? null,
+    supplierId: t.supplierId ?? null,
+    size: t.size ?? null, material: t.material ?? null, weight: t.weight ?? null, shape: t.shape ?? null, color: t.color ?? null, remarks: t.remarks ?? null,
   }));
 }
 

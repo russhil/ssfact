@@ -250,7 +250,7 @@ export function TrimMasterManager({
           </thead>
           <tbody>
             {view.rows.slice(0, 500).map((t) => (
-              <TrimRow key={t.id} t={t} units={units} onSaved={() => router.refresh()} />
+              <TrimRow key={t.id} t={t} units={units} suppliers={suppliers} categories={categories} onSaved={() => router.refresh()} />
             ))}
             {view.rows.length === 0 && (
               <tr><td colSpan={8} className="px-4 py-10 text-center text-muted">No trims match these filters</td></tr>
@@ -263,23 +263,42 @@ export function TrimMasterManager({
   );
 }
 
-function TrimRow({ t, units, onSaved }: { t: TrimMasterRow; units: LookupRow[]; onSaved: () => void }) {
+function TrimRow({ t, units, suppliers, categories, onSaved }: { t: TrimMasterRow; units: LookupRow[]; suppliers: Pick[]; categories: LookupRow[]; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Change 40 Part E — the edit form now holds the SAME fields as the add form, so Rate and
+  // Supplier (previously settable only at creation) can be filled on an existing trim.
+  const [name, setName] = useState(t.name);
+  const [category, setCategory] = useState(t.category ?? "OTHER");
+  const [supplierId, setSupplierId] = useState(t.supplierId != null ? String(t.supplierId) : "");
+  const [rate, setRate] = useState(t.ratePerUnit != null ? String(t.ratePerUnit) : "");
   const [perPiece, setPerPiece] = useState(t.perPieceAvg != null ? String(t.perPieceAvg) : "");
   const [reorder, setReorder] = useState(t.reorderLevel != null ? String(t.reorderLevel) : "");
   const [unit, setUnit] = useState(t.unit ?? "pcs");
+  const [spec, setSpec] = useState<Record<string, string>>({
+    size: t.size ?? "", material: t.material ?? "", color: t.color ?? "", weight: t.weight ?? "", shape: t.shape ?? "",
+  });
   const low = isLow(t);
+  const specFields = CATEGORY_FIELDS[category] ?? [];
 
   async function save() {
     setBusy(true);
     try {
       await updateTrim({
         id: t.id,
+        name: name.trim() || undefined,
+        category: category as any,
+        supplierId: supplierId ? +supplierId : null,
+        ratePerUnit: rate.trim() === "" ? null : +rate,
         dimension: "FLAT", // Change 40 Part D — collapse; only FLAT is written going forward
         perPieceAvg: perPiece.trim() === "" ? null : +perPiece,
         reorderLevel: reorder.trim() === "" ? null : +reorder,
         unit: unit || null,
+        size: spec.size.trim() || null,
+        material: spec.material.trim() || null,
+        color: spec.color.trim() || null,
+        weight: spec.weight.trim() || null,
+        shape: spec.shape.trim() || null,
       });
       setEditing(false);
       onSaved();
@@ -319,16 +338,37 @@ function TrimRow({ t, units, onSaved }: { t: TrimMasterRow; units: LookupRow[]; 
         <tr className="border-b border-hairline bg-surface-2">
           <td colSpan={8} className="px-4 py-3">
             <div className="flex flex-wrap items-end gap-3">
-              {/* Change 40 Part D — "Applies to" removed; every trim line is Flat. */}
+              {/* Change 40 Part E — full field parity with the add form. */}
+              <Labelled label="Name">
+                <input value={name} onChange={(e) => setName(e.target.value)} className="w-48 rounded-lg border border-border px-2.5 py-1.5 t-sm outline-none focus:border-primary" />
+              </Labelled>
+              <Labelled label="Category">
+                <LookupSelect kind="TRIM_CATEGORY" options={categories} value={category} onChange={setCategory} placeholder="Category…" className="w-36 rounded-lg border border-border px-2.5 py-1.5 t-sm outline-none focus:border-primary" />
+              </Labelled>
+              <Labelled label="Supplier">
+                <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="w-40 rounded-lg border border-border px-2.5 py-1.5 t-sm outline-none focus:border-primary">
+                  <option value="">— none —</option>
+                  {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </Labelled>
+              {/* Change 40 Part F3 — "Base price", never a bare "Rate", so it is not mistaken for the last price paid. */}
+              <Labelled label="Base price (₹/unit)">
+                <input type="number" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="—" className="w-28 rounded-lg border border-border px-2.5 py-1.5 t-sm tnum outline-none focus:border-primary" />
+              </Labelled>
               <Labelled label="Per-piece avg">
-                <input type="number" value={perPiece} onChange={(e) => setPerPiece(e.target.value)} placeholder="—" className="w-28 rounded-lg border border-border px-2.5 py-1.5 t-sm tnum outline-none focus:border-primary" />
+                <input type="number" value={perPiece} onChange={(e) => setPerPiece(e.target.value)} placeholder="—" className="w-24 rounded-lg border border-border px-2.5 py-1.5 t-sm tnum outline-none focus:border-primary" />
               </Labelled>
               <Labelled label="Reorder level">
-                <input type="number" value={reorder} onChange={(e) => setReorder(e.target.value)} placeholder="—" className="w-28 rounded-lg border border-border px-2.5 py-1.5 t-sm tnum outline-none focus:border-primary" />
+                <input type="number" value={reorder} onChange={(e) => setReorder(e.target.value)} placeholder="—" className="w-24 rounded-lg border border-border px-2.5 py-1.5 t-sm tnum outline-none focus:border-primary" />
               </Labelled>
               <Labelled label="Unit">
-                <LookupSelect kind="UNIT" options={units} value={unit} onChange={setUnit} placeholder="Unit…" className="w-32 rounded-lg border border-border px-2.5 py-1.5 t-sm outline-none focus:border-primary" />
+                <LookupSelect kind="UNIT" options={units} value={unit} onChange={setUnit} placeholder="Unit…" className="w-28 rounded-lg border border-border px-2.5 py-1.5 t-sm outline-none focus:border-primary" />
               </Labelled>
+              {specFields.map((sf) => (
+                <Labelled key={sf} label={sf.charAt(0).toUpperCase() + sf.slice(1)}>
+                  <input value={spec[sf]} onChange={(e) => setSpec((p) => ({ ...p, [sf]: e.target.value }))} placeholder="—" className="w-28 rounded-lg border border-border px-2.5 py-1.5 t-sm outline-none focus:border-primary" />
+                </Labelled>
+              ))}
               <button onClick={save} disabled={busy} className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 t-sm font-semibold text-accent-on disabled:opacity-40"><Check size={13} /> Save</button>
               <button onClick={() => setEditing(false)} className="rounded-lg border border-border px-3 py-1.5 t-sm text-t2">Cancel</button>
             </div>
