@@ -3274,6 +3274,56 @@ export async function orderLinesForFill(kind: "fabric" | "trim", orderId: number
   }));
 }
 
+/**
+ * Change 40 Part L8 — a firm → firm transfer. One TRANSFER challan; on post it moves stock as a
+ * linked pair through postMaterialMovement — an OUT at the source firm and an IN at the
+ * destination for every line, in one transaction (atomic: both or neither). The all-firms total
+ * (legacy currentStock) nets to zero across the pair; only the two firm balances change. Its
+ * number comes from the outward counter with the material code (Part I).
+ */
+export async function createTransferChallan(input: {
+  fromBuyerId: number; toBuyerId: number; date?: string; note?: string | null;
+  lines: { kind: "fabric" | "trim"; refId: number; colour?: string | null; qty: number; unit?: string | null; rate?: number | null }[];
+}) {
+  const user = await requireRole("ADMIN", "STAFF");
+  if (!input.fromBuyerId || !input.toBuyerId) throw new Error("Pick both the source and destination firm");
+  if (input.fromBuyerId === input.toBuyerId) throw new Error("Source and destination firm must differ");
+  const lines = input.lines.filter((l) => l.refId && l.qty > 0);
+  if (!lines.length) throw new Error("Add at least one line to transfer");
+  const now = input.date ? new Date(input.date) : new Date();
+  const codeLines = lines.map((l) => ({ fabricId: l.kind === "fabric" ? l.refId : null, trimItemId: l.kind === "trim" ? l.refId : null }));
+  const code = challanTypeCode({ lines: codeLines });
+
+  const challanNo = await db.$transaction(async (tx) => {
+    const seq = String(await nextChallanSeq(tx, "CH-OUT-", true)).padStart(3, "0");
+    const no = `CH-OUT-${code}-${now.getFullYear()}-${seq}`;
+    const c = await tx.materialChallan.create({
+      data: {
+        direction: "TRANSFER", status: "LOCKED", challanNo: no, date: now, lockedAt: now,
+        fromBuyerId: input.fromBuyerId, toBuyerId: input.toBuyerId, note: input.note ?? null, createdById: user.userId,
+        kind: deriveChallanKind(codeLines) as any,
+        lines: {
+          create: lines.map((l) => ({
+            fabricId: l.kind === "fabric" ? l.refId : null,
+            colour: l.kind === "fabric" && l.colour ? colorKey(l.colour) : null,
+            trimItemId: l.kind === "trim" ? l.refId : null,
+            qty: l.qty, unit: l.unit ?? null, rate: l.rate ?? null,
+          })),
+        },
+      } as any,
+    });
+    for (const l of lines) {
+      const base = { qty: l.qty, date: now, fabricId: l.kind === "fabric" ? l.refId : null, colour: l.colour ?? null, trimItemId: l.kind === "trim" ? l.refId : null, note: `Transfer ${no}` };
+      await postMaterialMovement(tx, { ...base, direction: "OUT", buyerId: input.fromBuyerId });
+      await postMaterialMovement(tx, { ...base, direction: "IN", buyerId: input.toBuyerId });
+    }
+    await logAudit(tx, user, { action: "createTransferChallan", entity: "MaterialChallan", entityId: String(c.id), entityLabel: no, summary: `Transferred ${lines.length} line(s) between firms — ${no}` });
+    return no;
+  });
+  revalidatePath("/challans");
+  return { challanNo };
+}
+
 // ── Change 40 Part K — press challan (in-house pressing, moves NO stock) ──────
 //
 // A press challan is a tracking document only: it never touches FabricColor.currentStock,

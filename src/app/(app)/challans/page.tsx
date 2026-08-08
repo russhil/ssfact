@@ -3,6 +3,8 @@ import { getSuppliers, getVendorList, getColours, listChallans, getPendingPOs, g
 import { PageHeader } from "@/components/ui";
 import { ChallanManager } from "@/components/challan-manager";
 import { InwardWorklists } from "@/components/inward-worklists";
+import { TransferForm } from "@/components/transfer-form";
+import { listFirms } from "@/lib/firm-scope";
 import { POSTED } from "@/lib/job-scope";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +30,7 @@ export default async function ChallansPage({ searchParams }: { searchParams: Pro
     getPoPendingChallans(),
     getInwardToday(),
   ]);
+  const firms = await listFirms(); // Change 40 Part L8 — firm→firm transfer
   const jobCards = jobRows.map((j) => ({ id: j.id, label: `${j.siNo} · ${j.product?.name ?? j.customItem ?? "—"}` }));
   const initialJobCardId = sp.jobCardId ? Number(sp.jobCardId) : null;
   const initialDirection = sp.direction === "INWARD" ? "INWARD" : "OUTWARD";
@@ -46,6 +49,7 @@ export default async function ChallansPage({ searchParams }: { searchParams: Pro
         initialDirection={initialDirection}
       />
       <InwardWorklists today={inwardToday} pendingPOs={pendingPOs} poPending={poPending} />
+      <TransferForm fabrics={fabrics} trims={trims} firms={firms} colours={colours.map((c) => ({ name: c.name }))} />
     </div>
   );
 }
